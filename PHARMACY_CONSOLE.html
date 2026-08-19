@@ -308,10 +308,44 @@ button.small{font-size:11.5px;padding:8px 14px}
   display:grid;grid-template-columns:repeat(4,1fr);gap:14px;
   margin:30px 0 0;
 }
-.ro{padding:18px 19px 16px}
+.ro{padding:18px 19px 16px;position:relative;overflow:hidden}
+.ro .cap,.ro .val,.ro .foot{position:relative;z-index:1}
 .ro .cap{
   font-family:var(--body);font-size:10px;font-weight:700;letter-spacing:.06em;
   text-transform:uppercase;color:var(--mute);margin-bottom:10px;
+}
+
+/* rupee rain — rises behind a gain, falls behind a loss */
+.rain{position:absolute;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.rain span{
+  position:absolute;top:100%;
+  font-family:var(--display);font-weight:800;font-size:22px;
+  opacity:0;
+}
+.ro.rise .rain span{animation:rainRise 5.5s linear infinite}
+.ro.fall .rain span{animation:rainFall 5.5s linear infinite}
+.ro.rise .rain span{color:var(--viridian)}
+.ro.fall .rain span{color:var(--brick)}
+.rain span:nth-child(1){left:6%;font-size:18px;animation-delay:0s}
+.rain span:nth-child(2){left:22%;font-size:26px;animation-delay:.9s}
+.rain span:nth-child(3){left:40%;font-size:15px;animation-delay:1.8s}
+.rain span:nth-child(4){left:58%;font-size:24px;animation-delay:2.7s}
+.rain span:nth-child(5){left:76%;font-size:17px;animation-delay:3.6s}
+.rain span:nth-child(6){left:90%;font-size:21px;animation-delay:4.5s}
+@keyframes rainRise{
+  0%{top:110%;opacity:0}
+  10%{opacity:.16}
+  85%{opacity:.16}
+  100%{top:-25%;opacity:0}
+}
+@keyframes rainFall{
+  0%{top:-25%;opacity:0}
+  10%{opacity:.16}
+  85%{opacity:.16}
+  100%{top:110%;opacity:0}
+}
+@media (prefers-reduced-motion:reduce){
+  .rain{display:none}
 }
 .ro .val{
   font-family:var(--display);font-size:28px;font-weight:700;
@@ -319,38 +353,6 @@ button.small{font-size:11.5px;padding:8px 14px}
 }
 .ro .foot{font-size:11px;color:var(--mute);margin-top:8px}
 .pos{color:var(--viridian)} .neg{color:var(--brick)} .neutral{color:var(--ink)}
-
-/* profit/loss coin badge on the currency KPI readouts (not the compliance %) */
-#kCost.pos::before,#kCost.neg::before,
-#kMrp.pos::before,#kMrp.neg::before,
-#kMargin.pos::before,#kMargin.neg::before{
-  content:"₹";
-  display:inline-flex;align-items:center;justify-content:center;
-  width:23px;height:23px;border-radius:50%;
-  font-family:var(--body);font-size:13px;font-weight:800;
-  color:#fff;margin-right:8px;vertical-align:3px;
-  opacity:0;
-}
-#kCost.pos::before,#kMrp.pos::before,#kMargin.pos::before{background:linear-gradient(160deg,#22C08A,var(--viridian));box-shadow:0 3px 10px rgba(18,128,90,.45)}
-#kCost.neg::before,#kMrp.neg::before,#kMargin.neg::before{background:linear-gradient(160deg,#E5665A,var(--brick));box-shadow:0 3px 10px rgba(192,57,46,.45)}
-#report.show .readouts #kCost.pos::before,#report.show .readouts #kCost.neg::before,
-#report.show .readouts #kMrp.pos::before,#report.show .readouts #kMrp.neg::before,
-#report.show .readouts #kMargin.pos::before,#report.show .readouts #kMargin.neg::before{
-  animation:coinPop .5s cubic-bezier(.34,1.56,.64,1) .2s both;
-}
-@keyframes coinPop{
-  0%{opacity:0;transform:scale(.3) rotate(-15deg)}
-  60%{opacity:1;transform:scale(1.15) rotate(4deg)}
-  100%{opacity:1;transform:scale(1) rotate(0deg)}
-}
-@media (prefers-reduced-motion:reduce){
-  #report.show .readouts #kCost.pos::before,#report.show .readouts #kCost.neg::before,
-  #report.show .readouts #kMrp.pos::before,#report.show .readouts #kMrp.neg::before,
-  #report.show .readouts #kMargin.pos::before,#report.show .readouts #kMargin.neg::before{
-    animation:coinFade .2s ease .2s both;
-  }
-}
-@keyframes coinFade{from{opacity:0}to{opacity:1}}
 
 /* ==========================================================================
    SIGNATURE — THE VARIANCE SCALE
@@ -628,17 +630,20 @@ td.grp{font-family:var(--display);letter-spacing:.02em;text-transform:uppercase;
   <section id="report">
 
     <div class="readouts">
-      <div class="ro glass">
+      <div class="ro glass" id="roCost">
+        <div class="rain" aria-hidden="true"><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span></div>
         <div class="cap">Total cost saving</div>
         <div class="val num" id="kCost">–</div>
         <div class="foot" id="kCostF">against benchmark</div>
       </div>
-      <div class="ro glass">
+      <div class="ro glass" id="roMrp">
+        <div class="rain" aria-hidden="true"><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span></div>
         <div class="cap">MRP uplift · non&#8209;package</div>
         <div class="val num" id="kMrp">–</div>
         <div class="foot">realised above benchmark</div>
       </div>
-      <div class="ro glass">
+      <div class="ro glass" id="roMargin">
+        <div class="rain" aria-hidden="true"><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span><span>₹</span></div>
         <div class="cap">Total margin gain</div>
         <div class="val num" id="kMargin">–</div>
         <div class="foot">MRP uplift + cost saving</div>
@@ -1338,6 +1343,9 @@ function render(R){
     T.costTot<=0 ? 'actual below benchmark' : 'actual above benchmark';
   countTo('kMrp', T.mrpNon, compact, T.mrpNon>=0?'pos':'neg');
   countTo('kMargin', T.margin, compact, T.margin>=0?'pos':'neg');
+  document.getElementById('roCost').className = 'ro glass ' + (-T.costTot>=0?'rise':'fall');
+  document.getElementById('roMrp').className = 'ro glass ' + (T.mrpNon>=0?'rise':'fall');
+  document.getElementById('roMargin').className = 'ro glass ' + (T.margin>=0?'rise':'fall');
   var g=R.group.score;
   countTo('kComp', g, pct, g>=0.85?'pos':(g>=0.7?'neutral':'neg'));
   document.getElementById('kCompF').textContent =

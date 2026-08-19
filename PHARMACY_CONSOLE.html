@@ -320,6 +320,38 @@ button.small{font-size:11.5px;padding:8px 14px}
 .ro .foot{font-size:11px;color:var(--mute);margin-top:8px}
 .pos{color:var(--viridian)} .neg{color:var(--brick)} .neutral{color:var(--ink)}
 
+/* profit/loss coin badge on the currency KPI readouts (not the compliance %) */
+#kCost.pos::before,#kCost.neg::before,
+#kMrp.pos::before,#kMrp.neg::before,
+#kMargin.pos::before,#kMargin.neg::before{
+  content:"₹";
+  display:inline-flex;align-items:center;justify-content:center;
+  width:23px;height:23px;border-radius:50%;
+  font-family:var(--body);font-size:13px;font-weight:800;
+  color:#fff;margin-right:8px;vertical-align:3px;
+  opacity:0;
+}
+#kCost.pos::before,#kMrp.pos::before,#kMargin.pos::before{background:linear-gradient(160deg,#22C08A,var(--viridian));box-shadow:0 3px 10px rgba(18,128,90,.45)}
+#kCost.neg::before,#kMrp.neg::before,#kMargin.neg::before{background:linear-gradient(160deg,#E5665A,var(--brick));box-shadow:0 3px 10px rgba(192,57,46,.45)}
+#report.show .readouts #kCost.pos::before,#report.show .readouts #kCost.neg::before,
+#report.show .readouts #kMrp.pos::before,#report.show .readouts #kMrp.neg::before,
+#report.show .readouts #kMargin.pos::before,#report.show .readouts #kMargin.neg::before{
+  animation:coinPop .5s cubic-bezier(.34,1.56,.64,1) .2s both;
+}
+@keyframes coinPop{
+  0%{opacity:0;transform:scale(.3) rotate(-15deg)}
+  60%{opacity:1;transform:scale(1.15) rotate(4deg)}
+  100%{opacity:1;transform:scale(1) rotate(0deg)}
+}
+@media (prefers-reduced-motion:reduce){
+  #report.show .readouts #kCost.pos::before,#report.show .readouts #kCost.neg::before,
+  #report.show .readouts #kMrp.pos::before,#report.show .readouts #kMrp.neg::before,
+  #report.show .readouts #kMargin.pos::before,#report.show .readouts #kMargin.neg::before{
+    animation:coinFade .2s ease .2s both;
+  }
+}
+@keyframes coinFade{from{opacity:0}to{opacity:1}}
+
 /* ==========================================================================
    SIGNATURE — THE VARIANCE SCALE
    ========================================================================== */

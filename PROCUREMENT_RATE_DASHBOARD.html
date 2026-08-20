@@ -114,21 +114,39 @@
   }
   @keyframes monitorSweep{ 0%{ background-position: 140% 0; } 55%,100%{ background-position: -40% 0; } }
 
-  /* ECG trace: a real heartbeat waveform continuously scrolling through the
-     header, like a bedside cardiac monitor running behind the title bar. */
+  /* ECG trace: like a real bedside monitor — the waveform itself sits still,
+     and a bright pen sweeps left to right, revealing it as it goes. At the end
+     of the sweep the reveal snaps back to blank and redraws, the way an actual
+     ECG sweep resets and overwrites rather than the whole line scrolling past. */
   .ecg-strip{ position:absolute; inset:0; z-index:0; pointer-events:none; overflow:hidden;
-    border-radius: inherit; opacity:0.55; mix-blend-mode:screen; }
+    border-radius: inherit; opacity:0.6; mix-blend-mode:screen; }
   .ecg-strip::before{
-    content:""; position:absolute; top:0; bottom:0; left:0; width:200%;
+    content:""; position:absolute; inset:0;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='90' viewBox='0 0 240 90'><path d='M0,45 L40,45 Q49,34 58,45 L70,45 L74,52 L78,6 L84,80 L90,45 L115,43 Q133,24 151,43 L240,45' fill='none' stroke='%23FF3B3B' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
     background-repeat: repeat-x; background-position: 0 center; background-size: 240px 100%;
     filter: drop-shadow(0 0 6px rgba(255,59,59,0.85)) drop-shadow(0 0 14px rgba(255,59,59,0.4));
-    animation: ecgScroll 6s linear infinite;
+    clip-path: inset(0 100% 0 0);
+    animation: ecgSweep 4.2s linear infinite;
   }
-  @keyframes ecgScroll{ from{ transform: translateX(-240px); } to{ transform: translateX(0); } }
+  @keyframes ecgSweep{
+    0%{ clip-path: inset(0 100% 0 0); }
+    100%{ clip-path: inset(0 -2% 0 0); }
+  }
+  .ecg-pen{
+    position:absolute; top:50%; width:9px; height:9px; border-radius:50%;
+    background:#FF5B5B; transform:translate(-50%,-50%);
+    box-shadow: 0 0 8px 3px rgba(255,59,59,0.9), 0 0 18px 7px rgba(255,59,59,0.45);
+    animation: ecgPenMove 4.2s linear infinite;
+  }
+  @keyframes ecgPenMove{
+    0%{ left:0%; opacity:1; }
+    97%{ left:100%; opacity:1; }
+    100%{ left:100%; opacity:0; }
+  }
   .brand, .file-controls, .brand-credit-right{ position:relative; z-index:2; }
   @media (prefers-reduced-motion: reduce){
-    .ecg-strip::before{ animation:none; }
+    .ecg-strip::before{ animation:none; clip-path:none; }
+    .ecg-pen{ display:none; }
   }
   .vitals-dot{ display:inline-block; width:8px; height:8px; border-radius:50%; background:#6BE3C4;
     box-shadow: 0 0 0 0 rgba(107,227,196,0.6); margin-right:7px; vertical-align:1px;
@@ -495,7 +513,7 @@
 
 
 <header class="topbar">
-  <div class="ecg-strip" aria-hidden="true"></div>
+  <div class="ecg-strip" aria-hidden="true"><span class="ecg-pen"></span></div>
   <div class="brand">
     <img src="data:image/png;base64,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" alt="Paras Health" class="brand-logo">
     <div class="brand-divider"></div>

@@ -60,6 +60,9 @@
     $('#heroTitle').textContent = REG.app.title;
     $('#heroLede').textContent = REG.app.tagline || '';
     $('#regSource').textContent = REG.source;
+    // Opened by double-clicking index.html: the address bar can only show the
+    // file path, so point at the launcher that gives the real address.
+    if (location.protocol === 'file:') $('#addrHint').style.display = 'flex';
   }
 
   /* ===================== theme / mode ==================================== */

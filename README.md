@@ -11,8 +11,16 @@ project injects CSS, scripts or state into your dashboards.
 
 ## Start it
 
-**Windows — double-click `start.bat`.** It opens in an app window with no
-address bar and its own taskbar icon, like an installed program.
+**Windows — double-click `start.bat`, not `index.html`.**
+
+That one file does everything: sets up the address the first time (Windows asks
+for Administrator once), starts the local server, and opens the Command Centre
+in an app window with no address bar and its own taskbar icon.
+
+`index.html` still works if you double-click it, but a file opened that way can
+only ever show `C:\Users\...\index.html` in the address bar — that is genuinely
+what the browser is looking at, and no page can change it. The app says so in
+its footer when you open it that way.
 
 **Everywhere else:**
 
@@ -36,7 +44,7 @@ theme and mode still persist.
 By default the Command Centre answers on a proper internal-looking address:
 
 ```
-http://parashealth.local/supply-chain/command-centre/
+http://parashealth.internal/supply-chain/command-centre/
 ```
 
 instead of `C:/Users/.../Downloads/SCM Command Centre/index.html`.
@@ -45,12 +53,17 @@ That hostname has to be made real before a browser will show it. One command,
 once, with administrator rights:
 
 ```
-Windows        right-click setup_friendly_url.bat -> Run as administrator
+Windows        start.bat does it for you on first run
+               (or right-click setup_friendly_url.bat -> Run as administrator)
 macOS / Linux  sudo python3 setup_hostname.py
 ```
 
+Address not working? Double-click **`diagnose.bat`** (or run
+`python3 setup_hostname.py --doctor`). It checks the hosts entry, whether the
+name resolves, and whether the server is up, then names the next step.
+
 It adds a single line to this computer's hosts file —
-`127.0.0.1  parashealth.local` — after backing the file up. Nothing is
+`127.0.0.1  parashealth.internal` — after backing the file up. Nothing is
 registered on the internet, nothing leaves the machine, and
 `python3 setup_hostname.py --remove` undoes it.
 
@@ -62,13 +75,20 @@ holds it, the server falls back automatically.
 Change the wording in **`site.json`**:
 
 ```json
-{ "hostname": "parashealth.local", "path": "/supply-chain/command-centre/", "port": 80 }
+{ "hostname": "parashealth.internal", "path": "/supply-chain/command-centre/", "port": 80 }
 ```
 
 Then re-run `setup_hostname.py` for the new name.
 
+Why `.internal` and not `.local`: Windows resolves `.local` names over mDNS,
+and Bonjour — which ships with iTunes and iCloud for Windows — answers for them
+before the hosts file is read. The entry sits there and the browser still says
+`DNS_PROBE_FINISHED_NXDOMAIN`. `.internal` is reserved for private use and goes
+through ordinary resolution, where the hosts file wins.
+
 **What is not possible:** making the browser display a domain that is not
-actually serving the page. Showing one address while loading another is exactly
+actually serving the page — including opening `index.html` from disk and having
+it show an `http://` address. Showing one address while loading another is exactly
 what phishing does, so every browser blocks it. The approach above is the real
 version — the name genuinely resolves to this computer, so the address bar is
 telling the truth. An app window (`--app`) removes the address bar altogether,
@@ -91,6 +111,7 @@ site.json                  hostname / path shown in the address bar
 setup_hostname.py          maps that hostname to this computer (hosts file)
 start.bat                  Windows launcher (app window, no address bar)
 setup_friendly_url.bat     Windows: run the hostname setup as Administrator
+diagnose.bat               Windows: explain why the address is not working
 
 dashboards/                your standalone dashboards, untouched
   Procurement_Dashboard.html

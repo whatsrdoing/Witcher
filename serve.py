@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Start the Command Centre on a local-only web server.
 
-    python3 serve.py                  http://parashealth.local/supply-chain/command-centre/
+    python3 serve.py                  http://parashealth.internal/supply-chain/command-centre/
     python3 serve.py --app            open in an app window with no address bar
     python3 serve.py --port 8777      use a different port
     python3 serve.py --plain          skip the friendly path, serve at the root
@@ -11,7 +11,7 @@ The server binds to 127.0.0.1 only, so nothing is reachable from the network,
 and no internet connection is used or required.
 
 The friendly hostname is real, not cosmetic: setup_hostname.py points
-parashealth.local at 127.0.0.1 in this computer's hosts file, so the browser
+parashealth.internal at 127.0.0.1 in this computer's hosts file, so the browser
 genuinely resolves and connects to that name. Without that entry the same
 server answers on http://127.0.0.1/... — no browser will display a domain that
 is not actually serving the page, and none should.
@@ -32,7 +32,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(ROOT, "site.json")
 
 DEFAULTS = {
-    "hostname": "parashealth.local",
+    "hostname": "parashealth.internal",
     "port": 80,
     "path": "/supply-chain/command-centre/",
     "fallbackPort": 8777,

@@ -44,6 +44,7 @@ dashboards/                your standalone dashboards, untouched
   Pharmacy_Console.html
   Non_Formulary_Dashboard.html
   Store_Transfer_Dashboard.html
+  SCM_Employee_Permission_Dashboard.html
 
 assets/
   css/command-centre.css   shell styling (never reaches your dashboards)
@@ -133,10 +134,20 @@ those files was touched:
 | Dashboard | Was | Now |
 |---|---|---|
 | `Non_Formulary_Dashboard.html` | Chart.js 4.5.1, PapaParse 5.4.1, SheetJS 0.18.5 from CDNs | `assets/vendor/*.js` |
+| `SCM_Employee_Permission_Dashboard.html` | Chart.js 4.4.1, SheetJS 0.18.5 from CDNs | `assets/vendor/*.js` |
 | `Store_Transfer_Dashboard.html` | Space Grotesk + IBM Plex Mono from Google Fonts | `assets/vendor/fonts/` |
 
 The other three dashboards already bundled their libraries and were copied in
 byte-for-byte.
+
+Vendor files are versioned, so two dashboards can pin different releases of the
+same library side by side:
+
+```
+assets/vendor/chart.umd-4.5.1.js        assets/vendor/papaparse-5.4.1.min.js
+assets/vendor/chart.umd-4.4.1.js        assets/vendor/xlsx-0.18.5.full.min.js
+assets/vendor/fonts/                    Space Grotesk, IBM Plex Mono (latin)
+```
 
 ---
 

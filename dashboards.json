@@ -148,15 +148,17 @@
       "id": "employee-permissions",
       "name": "SCM Employee Permissions",
       "category": "governance",
-      "description": "Role and permission matrix for supply chain users across units.",
+      "description": "Role and permission matrix for supply chain users — module access, report rights and approval limits across units.",
       "file": "dashboards/SCM_Employee_Permission_Dashboard.html",
       "icon": "users",
-      "status": "planned",
+      "status": "live",
       "order": 1,
       "tags": [
         "roles",
         "access",
-        "permissions"
+        "permissions",
+        "SOD",
+        "approval"
       ]
     }
   ]

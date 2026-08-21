@@ -132,12 +132,14 @@ either. If a new dashboard has a `<script src="https://…">` or an
 <!-- before -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1"></script>
 <!-- after -->
-<script src="../assets/vendor/chart.umd.js"></script>
+<script src="../assets/vendor/chart.umd-4.5.1.js"></script>
 ```
 
-`assets/vendor/` already has Chart.js 4.5.1, PapaParse 5.4.1, SheetJS 0.18.5,
-and Space Grotesk + IBM Plex Mono, so a new dashboard using any of those can
-just point at them.
+`assets/vendor/` already has Chart.js 4.5.1 and 4.4.1, PapaParse 5.4.1,
+SheetJS 0.18.5, and Space Grotesk + IBM Plex Mono, so a new dashboard using any
+of those can just point at them. Filenames carry the version, so two dashboards
+built against different releases of the same library can coexist — keep that
+convention when you add one (`chart.umd-4.6.0.js`, not `chart.umd.js`).
 
 A quick check for leftovers:
 

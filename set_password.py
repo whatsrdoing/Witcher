@@ -22,7 +22,7 @@ OUT = os.path.join(ROOT, "auth.json")
 ITERATIONS = 250_000
 
 
-def build(email, password, hint=""):
+def build(email, password, hint="", admin="Ritik Nagar"):
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac(
         "sha256", password.encode("utf-8"), bytes.fromhex(salt), ITERATIONS, 32
@@ -37,6 +37,7 @@ def build(email, password, hint=""):
         "iterations": ITERATIONS,
         "hash": digest,
         "hint": hint,
+        "admin": admin,
         "maxAttempts": 5,
         "lockoutSeconds": 60,
     }
@@ -67,8 +68,15 @@ def main(argv):
     if len(password) < 6:
         sys.exit("Use at least 6 characters. Nothing was changed.")
 
+    admin = "Ritik Nagar"
+    if os.path.exists(OUT):
+        try:
+            admin = json.load(open(OUT, encoding="utf-8")).get("admin", admin) or admin
+        except (OSError, ValueError):
+            pass
+
     with open(OUT, "w", encoding="utf-8") as fh:
-        json.dump(build(email, password, hint), fh, indent=2, ensure_ascii=False)
+        json.dump(build(email, password, hint, admin), fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
     print("auth.json written for %s (PBKDF2-SHA256, %d iterations)" % (email, ITERATIONS))

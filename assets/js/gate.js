@@ -159,7 +159,7 @@
     });
     $('#gateForgot').addEventListener('click', function (e) {
       e.preventDefault();
-      say('Passwords are reset on this computer, not in the app — run: python3 set_password.py', '');
+      say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar'), '');
     });
     tickLockout();
     setTimeout(function () { $('#gateEmail').focus(); }, 120);

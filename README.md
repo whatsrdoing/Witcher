@@ -81,6 +81,10 @@ shut. Five wrong tries locks input for 60 seconds. You stay signed in while the
 browser tab lives; closing the browser signs you out, and the padlock button in
 the top bar signs you out on demand.
 
+**Forgot password** on the sign-in screen shows *Contact Admin — Ritik Nagar*.
+Change that name with the `"admin"` field in `auth.json`, then run
+`python3 sync.py`.
+
 **Changing the password**
 
 ```

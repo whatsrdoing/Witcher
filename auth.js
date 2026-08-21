@@ -9,6 +9,7 @@ window.__PARAS_AUTH__ = {
   "iterations": 250000,
   "hash": "f07c0100798eaf2e5a103cae77661ab68cfc8fc0aac2df65c507276142c8151c",
   "hint": "",
+  "admin": "Ritik Nagar",
   "maxAttempts": 5,
   "lockoutSeconds": 60
 };

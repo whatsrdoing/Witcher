@@ -11,20 +11,68 @@ project injects CSS, scripts or state into your dashboards.
 
 ## Start it
 
-**Recommended — local server**
+**Windows — double-click `start.bat`.** It opens in an app window with no
+address bar and its own taskbar icon, like an installed program.
+
+**Everywhere else:**
 
 ```
-python3 serve.py
+python3 serve.py --app        app window, no address bar
+python3 serve.py              ordinary browser tab
 ```
 
-Opens <http://127.0.0.1:8777/>. Binds to `127.0.0.1` only, so it is not
-reachable from the network, and no internet connection is used.
-On Windows, double-click **`start.bat`**.
+Binds to `127.0.0.1` only, so it is not reachable from the network, and no
+internet connection is used.
 
 **Or just double-click `index.html`** — this works too. The only difference:
 browsers restrict `IndexedDB` on `file://`, so in some browsers attached files
 become temporary. The app detects this and says so in the footer. Layout,
 theme and mode still persist.
+
+---
+
+## The address bar
+
+By default the Command Centre answers on a proper internal-looking address:
+
+```
+http://parashealth.local/supply-chain/command-centre/
+```
+
+instead of `C:/Users/.../Downloads/SCM Command Centre/index.html`.
+
+That hostname has to be made real before a browser will show it. One command,
+once, with administrator rights:
+
+```
+Windows        right-click setup_friendly_url.bat -> Run as administrator
+macOS / Linux  sudo python3 setup_hostname.py
+```
+
+It adds a single line to this computer's hosts file —
+`127.0.0.1  parashealth.local` — after backing the file up. Nothing is
+registered on the internet, nothing leaves the machine, and
+`python3 setup_hostname.py --remove` undoes it.
+
+Until that runs, the same server answers on
+`http://127.0.0.1:8777/supply-chain/command-centre/` and says so on startup.
+Port 80 is used when free so the address carries no `:port`; if something else
+holds it, the server falls back automatically.
+
+Change the wording in **`site.json`**:
+
+```json
+{ "hostname": "parashealth.local", "path": "/supply-chain/command-centre/", "port": 80 }
+```
+
+Then re-run `setup_hostname.py` for the new name.
+
+**What is not possible:** making the browser display a domain that is not
+actually serving the page. Showing one address while loading another is exactly
+what phishing does, so every browser blocks it. The approach above is the real
+version — the name genuinely resolves to this computer, so the address bar is
+telling the truth. An app window (`--app`) removes the address bar altogether,
+which is the closest thing to "it just looks like an application".
 
 ---
 
@@ -39,7 +87,10 @@ auth.js                    generated mirror of auth.json
 set_password.py            change the sign-in email / password
 sync.py                    regenerates the mirrors + validates the registry
 serve.py                   local-only web server
-start.bat                  Windows launcher
+site.json                  hostname / path shown in the address bar
+setup_hostname.py          maps that hostname to this computer (hosts file)
+start.bat                  Windows launcher (app window, no address bar)
+setup_friendly_url.bat     Windows: run the hostname setup as Administrator
 
 dashboards/                your standalone dashboards, untouched
   Procurement_Dashboard.html

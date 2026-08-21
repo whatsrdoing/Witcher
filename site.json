@@ -1,0 +1,7 @@
+{
+  "$comment": "How the Command Centre appears in the address bar. The hostname only resolves after setup_hostname.py maps it to 127.0.0.1 in this computer's hosts file.",
+  "hostname": "parashealth.local",
+  "port": 80,
+  "path": "/supply-chain/command-centre/",
+  "fallbackPort": 8777
+}

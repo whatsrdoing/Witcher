@@ -231,10 +231,13 @@ a{color:var(--brand-soft); text-decoration:none;}
 /* ---------- Home ---------------------------------------------------------- */
 .home-wrap{max-width:1460px; margin:0 auto; padding:30px 26px 90px;}
 .hero{display:flex; align-items:flex-end; justify-content:space-between; gap:26px; flex-wrap:wrap; margin-bottom:24px;}
+/* Solid, not gradient-clipped text: background-clip:text with a transparent
+   fill renders the heading INVISIBLE wherever the clip is unsupported
+   (forced-colors mode, printing, some renderers), and washes out its tail
+   even where it works. */
 .hero h1{
   margin:0; font-size:clamp(26px,3.4vw,40px); font-weight:800; letter-spacing:-.015em; line-height:1.1;
-  background:linear-gradient(115deg,var(--ink) 20%,var(--brand-soft));
-  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  color:var(--ink);
 }
 .hero .eyebrow{font-size:11px; font-weight:800; letter-spacing:.24em; color:var(--brand-soft); margin:0 0 9px;}
 .hero p.lede{margin:11px 0 0; color:var(--ink-2); font-size:14px; max-width:62ch; line-height:1.6;}
@@ -462,6 +465,11 @@ a{color:var(--brand-soft); text-decoration:none;}
   .home-wrap{padding:22px 15px 80px;}
   .grid{grid-template-columns:1fr;}
   .stats{display:none;}
+}
+
+@media (forced-colors: active){
+  *{ -webkit-text-fill-color: currentColor !important; }
+  .card, .btn, .chip, .stat{ border:1px solid CanvasText; }
 }
 
 @media (prefers-reduced-motion: reduce){

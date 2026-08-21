@@ -488,33 +488,49 @@ a{color:var(--brand-soft); text-decoration:none;}
 .gate{
   position:fixed; inset:0; z-index:200; display:none;
   align-items:center; justify-content:center; padding:28px 20px; overflow:auto;
-  background:var(--bg);
   transition:opacity .4s var(--ease);
+  /* Lighter than the workspace behind it: the sign-in screen is the first
+     thing seen, and the reversed logo needs a ground to sit on. */
+  background:
+    radial-gradient(120% 90% at 50% -10%, #24365C 0%, #182541 42%, #121C31 100%),
+    #121C31;
+}
+:root[data-theme="light"] .gate{
+  background:
+    radial-gradient(120% 90% at 50% -10%, #FFFFFF 0%, #EAF0F8 45%, #DFE7F2 100%),
+    #E8EEF6;
 }
 .gate.gone{opacity:0; pointer-events:none;}
 .gate-bg{position:absolute; inset:0; overflow:hidden; pointer-events:none;}
 .gate-bg i{position:absolute; border-radius:50%; filter:blur(90px); display:block;}
-.gate-bg i:nth-child(1){width:640px;height:640px;top:-240px;left:-180px;background:radial-gradient(circle,#2F5CA2,transparent 70%);opacity:.42;animation:drift1 26s ease-in-out infinite;}
-.gate-bg i:nth-child(2){width:560px;height:560px;bottom:-220px;right:-160px;background:radial-gradient(circle,#12A08F,transparent 70%);opacity:.22;animation:drift2 32s ease-in-out infinite;}
-:root[data-theme="light"] .gate-bg i:nth-child(1){opacity:.24;}
-:root[data-theme="light"] .gate-bg i:nth-child(2){opacity:.14;}
+.gate-bg i:nth-child(1){width:680px;height:680px;top:-260px;left:-190px;background:radial-gradient(circle,#4E86E0,transparent 70%);opacity:.30;animation:drift1 26s ease-in-out infinite;}
+.gate-bg i:nth-child(2){width:600px;height:600px;bottom:-240px;right:-170px;background:radial-gradient(circle,#1FB3A8,transparent 70%);opacity:.18;animation:drift2 32s ease-in-out infinite;}
+:root[data-theme="light"] .gate-bg i:nth-child(1){opacity:.18;}
+:root[data-theme="light"] .gate-bg i:nth-child(2){opacity:.10;}
 
-.gate-inner{position:relative; width:100%; max-width:452px; display:flex; flex-direction:column; align-items:center;}
+.gate-inner{position:relative; width:100%; max-width:492px; display:flex; flex-direction:column; align-items:center;}
 
-.gate-head{text-align:center; margin-bottom:26px; animation:gateIn .5s var(--ease) both;}
-.gate-logo{height:46px; width:auto; display:block; margin:0 auto 18px;}
-:root:not([data-theme="light"]) .gate-logo{
-  background:rgba(255,255,255,.95); border-radius:14px; padding:12px 18px;
-  box-shadow:0 8px 30px rgba(3,8,20,.5), inset 0 0 0 1px rgba(255,255,255,.6);
-  height:44px; box-sizing:content-box;
+.gate-head{text-align:center; margin-bottom:30px; animation:gateIn .5s var(--ease) both;}
+
+/* The logo sits straight on the background — no plate. The dark theme uses a
+   reversed lockup so it can, rather than a white card floating on the page. */
+.gate-logo{height:62px; width:auto; display:block; margin:0 auto 18px;}
+:root:not([data-theme="light"]) .gate-logo.on-light{display:none;}
+:root[data-theme="light"] .gate-logo.on-dark{display:none;}
+
+/* Both lines share one size; the first is set apart by weight, colour and
+   tracking rather than by being smaller. */
+.gate-dept,
+.gate-title{
+  font-size:clamp(19px,3.1vw,25px);
+  line-height:1.2;
 }
 .gate-dept{
-  margin:0 0 6px; font-size:11.5px; font-weight:800; letter-spacing:.26em;
-  text-transform:uppercase; color:var(--brand-soft);
+  margin:0 0 2px; font-weight:500; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--brand-soft); opacity:.95;
 }
 .gate-title{
-  margin:0; font-size:clamp(28px,5vw,38px); font-weight:800; letter-spacing:-.02em;
-  line-height:1.05; color:var(--ink);
+  margin:0; font-weight:800; letter-spacing:-.015em; color:var(--ink);
 }
 
 .gate-card{
@@ -523,7 +539,7 @@ a{color:var(--brand-soft); text-decoration:none;}
   backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
   animation:gateIn .5s var(--ease) .07s both;
 }
-:root:not([data-theme="light"]) .gate-card{background:rgba(15,23,40,.72);}
+:root:not([data-theme="light"]) .gate-card{background:rgba(23,34,58,.68); border-color:rgba(255,255,255,.13);}
 :root[data-theme="light"] .gate-card{background:rgba(255,255,255,.86);}
 .gate-card.shake{animation:shake .42s cubic-bezier(.36,.07,.19,.97);}
 @keyframes gateIn{from{opacity:0; transform:translateY(16px) scale(.985)}to{opacity:1; transform:none}}

@@ -34,6 +34,7 @@
         </div>
       </div>
 
+      <div id="gateSignIn">
       <form id="gateForm" novalidate>
         <label class="gate-label" for="gateEmail">Enterprise email</label>
         <div class="gate-field">
@@ -64,6 +65,42 @@
           <span>Verify access credentials</span>
         </button>
       </form>
+      </div>
+
+      <div id="gateReset" style="display:none">
+        <form id="resetForm" novalidate>
+          <p class="reset-lede">Enter the admin key to set a new password.
+            Do not have it? Contact <b id="resetAdmin">Ritik Nagar</b>.</p>
+
+          <label class="gate-label" for="resetKey">Admin key</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
+            <input id="resetKey" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
+          </div>
+
+          <label class="gate-label" for="resetPass">New password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="resetPass" type="password" autocomplete="new-password" placeholder="At least 6 characters" required>
+          </div>
+
+          <label class="gate-label" for="resetPass2">Repeat new password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="resetPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+          </div>
+
+          <div class="gate-msg" id="resetMsg" style="display:none"></div>
+
+          <button class="gate-submit" id="resetSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10H15"/></svg>
+            <span>Set new password</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="resetBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
     </div>
 
     <p class="gate-foot">
@@ -109,6 +146,10 @@
           <div id="livePopList"></div>
         </div>
       </div>
+      <button class="btn" id="libraryBtn" title="Shared Data Library — drop every register here once">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4L10.5 7h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+        <span class="lib-label">Data Library</span>
+      </button>
       <button class="btn icon-only" id="themeBtn" title="Toggle theme" aria-label="Toggle theme"></button>
       <button class="btn icon-only" id="homeBtn" title="Command Centre home" aria-label="Home">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.6V20h13V9.6"/><path d="M9.8 20v-5.6h4.4V20"/></svg>
@@ -154,15 +195,9 @@
         </div>
 
         <p class="drawer-foot" id="modeNote" style="margin-top:34px;border:none;padding:0;"></p>
-        <p class="gate-msg" id="addrHint" style="display:none;max-width:70ch;margin-top:14px">
-          <span>Opened straight from the file, so the address bar shows this folder's path.
-          Double-click <b>start.bat</b> instead to open it at
-          <b>parashealth.internal/supply-chain/command-centre/</b> — or in a window with no
-          address bar at all.</span>
-        </p>
         <p style="margin-top:10px;font-size:11.5px;color:var(--ink-3)">
           Registry: <code style="font-family:var(--mono)" id="regSource">—</code> ·
-          Drag a card to rearrange · Drop a file on a card to attach it · Press <kbd style="font-family:var(--mono)">/</kbd> to search
+          Drag a card to rearrange · Drop a file on a card to add it to the Data Library · Press <kbd style="font-family:var(--mono)">/</kbd> to search
         </p>
 
       </div>
@@ -193,6 +228,15 @@
           <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
         </button>
       </div>
+      <div class="match-bar" id="matchBar" style="display:none">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12.3 2.7 2.7L16 9.6"/><circle cx="12" cy="12" r="9"/></svg>
+        <div class="match-copy">
+          <div id="matchText"></div>
+          <div class="match-detail" id="matchDetail"></div>
+        </div>
+        <button class="btn sm" id="matchOpen">Review</button>
+        <button class="btn sm primary" id="matchFill">Fill upload boxes</button>
+      </div>
       <div class="frames" id="frames">
         <div class="frame-loading" id="frameLoading" style="display:none">
           <span class="spinner"></span><span id="frameLoadingTxt">Opening…</span>
@@ -209,18 +253,26 @@
   <div class="drawer-head">
     <div class="row">
       <svg class="icon lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4L10.5 7h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
-      <h3>Files</h3>
+      <h3 id="drawerTitle">Data Library</h3>
       <button class="btn sm icon-only" id="drawerClose" aria-label="Close">
         <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
       </button>
     </div>
-    <p class="for">Attached to <b id="drawerFor">—</b></p>
+    <p class="for" id="drawerFor">Shared by every dashboard</p>
+    <div class="drawer-tabs" id="drawerTabs" style="display:none">
+      <button data-tab="library" aria-pressed="true">Data Library</button>
+      <button data-tab="pinned" aria-pressed="false" id="tabPinned">This dashboard</button>
+    </div>
+    <p class="drawer-tip" id="drawerTip" style="display:none">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V8"/><path d="m7.5 12 4.5-4.5 4.5 4.5"/><path d="M4.5 4.5h15"/></svg>
+      <span>Files here are read for their column headers and offered to every dashboard that needs them. Use <b>↑</b> to send one into an upload box now.</span>
+    </p>
   </div>
   <div class="drawer-body">
     <div class="dropzone" id="dropzone">
       <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V8"/><path d="m7.5 12 4.5-4.5 4.5 4.5"/><path d="M4.5 4.5h15"/></svg>
       <b>Drop files here</b>
-      SOPs, registers, vendor masters — or click to browse
+      <span id="dropHint">Registers, GRN, transfers — dropped once, used everywhere</span>
     </div>
     <input type="file" id="filePick" multiple hidden>
     <div class="file-search">
@@ -249,6 +301,17 @@
   </div>
 </div>
 
+<div class="modal-scrim" id="pickModal">
+  <div class="modal">
+    <h3 id="pickTitle">Where should this go?</h3>
+    <p>This dashboard has more than one upload box. Choose the one to fill.</p>
+    <div id="pickList" class="pick-list"></div>
+    <div class="acts" style="margin-top:18px">
+      <button class="btn" id="pickCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-scrim" id="confirmModal">
   <div class="modal">
     <h3 id="confirmTitle">Are you sure?</h3>
@@ -269,6 +332,7 @@
 <script src="assets/js/crypto.js"></script>
 <script src="assets/js/gate.js"></script>
 <script src="assets/js/icons.js"></script>
+<script src="assets/js/library.js"></script>
 <script src="assets/js/registry.js"></script>
 <script src="assets/js/storage.js"></script>
 <script src="assets/js/app.js"></script>

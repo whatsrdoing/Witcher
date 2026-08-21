@@ -55,6 +55,37 @@ step if you always launch that way.
 
 ---
 
+## Feeding it from the Data Library
+
+Add an `inputs` array to route library files into the dashboard's own upload
+boxes, **listed in the order those boxes appear in the dashboard**:
+
+```json
+"inputs": [
+  { "label": "Purchase Register",
+    "needs": ["UNIT", "Item Code", "PO No", "Status"],
+    "match": ["purchase\\s*register"] },
+  { "label": "GRN Register",
+    "needs": ["UNIT", "Item Code", "Received Qty.", "GRN No."],
+    "match": ["\\bgrn\\b"] }
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `label` | Shown in the match bar and on file chips. |
+| `needs` | Column headers this box expects. Files are read on arrival and matched against these — the strongest signal by far. |
+| `match` | Optional regexes tried against the filename. |
+| `optional` | `true` keeps it out of the "required" count. |
+| `auto` | `false` keeps it out of one-click fill; the file can still be sent by hand. |
+
+Reuse the same `label` and `needs` across dashboards that take the same export
+— that is what lets one GRN file feed three dashboards. If a dashboard renders
+the same upload box twice, list it twice.
+
+Leave `inputs` out entirely and the dashboard still works; it just will not
+appear in the auto-fill.
+
 ## Field reference
 
 | Field | Required | Default | Notes |
@@ -68,6 +99,7 @@ step if you always launch that way.
 | `status` | | `live` | `live`, `beta`, `planned`, `archived`. |
 | `order` | | position in the file | Sorts within its category. |
 | `tags` | | `[]` | Extra search terms. Not shown on the card. |
+| `inputs` | | `[]` | Upload boxes, in DOM order — see above. |
 | `owner` | | empty | Searchable. Useful for "whose dashboard is this". |
 | `accent` | | the category's accent | Override the card colour for this one card. |
 

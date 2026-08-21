@@ -78,7 +78,21 @@
         status: status,
         order: typeof d.order === 'number' ? d.order : i + 1,
         tags: Array.isArray(d.tags) ? d.tags : [],
-        owner: d.owner || ''
+        owner: d.owner || '',
+        // What this dashboard's own upload boxes expect, used to route files
+        // out of the shared Data Library. Optional — matching falls back to
+        // the labels read live from the dashboard itself.
+        inputs: Array.isArray(d.inputs) ? d.inputs.map(function (x, k) {
+          return {
+            label: x.label || ('File ' + (k + 1)),
+            needs: Array.isArray(x.needs) ? x.needs : [],
+            match: Array.isArray(x.match) ? x.match : [],
+            accept: x.accept || '',
+            optional: !!x.optional,
+            auto: x.auto !== false      // false keeps it out of one-click fill
+
+          };
+        }) : []
       };
     });
 

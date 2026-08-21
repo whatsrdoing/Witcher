@@ -5,11 +5,13 @@ window.__PARAS_AUTH__ = {
   "schema": 1,
   "enabled": true,
   "email": "ritiknagar@gmail.com",
-  "salt": "6ce459a42363f91bbd648c58bc037b27",
+  "salt": "980e294944638f44dde5ced3d88d224b",
   "iterations": 250000,
-  "hash": "f07c0100798eaf2e5a103cae77661ab68cfc8fc0aac2df65c507276142c8151c",
+  "hash": "efe8e405efe4c2a4ae68fac0e7a015cd17679a0db882b34c180961c24fa486ec",
   "hint": "",
   "admin": "Ritik Nagar",
+  "adminKeySalt": "369ef9bb0037e2d9e893398371633395",
+  "adminKeyHash": "44751893c9ad4a0b50f50f4ce166ac8807a60b58f0d2be5f08435566b044d7bd",
   "maxAttempts": 5,
   "lockoutSeconds": 60
 };

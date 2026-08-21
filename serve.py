@@ -17,6 +17,8 @@ server answers on http://127.0.0.1/... — no browser will display a domain that
 is not actually serving the page, and none should.
 """
 import functools
+import hashlib
+import hmac
 import http.server
 import json
 import os
@@ -67,8 +69,78 @@ def make_handler(prefix):
                 return
             super().do_HEAD()
 
+        def do_POST(self):
+            """Password reset from the sign-in screen. Only ever writes
+            auth.json, only from this machine (the server binds 127.0.0.1),
+            and only when the admin key checks out."""
+            if self.path.rstrip("/").rsplit("/", 1)[-1] != "__auth":
+                self.send_error(404)
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 8192:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            path = os.path.join(ROOT, "auth.json")
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                self._json(500, {"error": "auth.json unreadable"})
+                return
+
+            key = str(req.get("adminKey") or "")
+            salt, want = auth.get("adminKeySalt"), auth.get("adminKeyHash")
+            if not (salt and want):
+                self._json(403, {"error": "no admin key configured"})
+                return
+            got = hashlib.pbkdf2_hmac("sha256", key.encode("utf-8"),
+                                      bytes.fromhex(salt),
+                                      int(auth.get("iterations") or 250000), 32).hex()
+            if not hmac.compare_digest(got, str(want)):
+                self._json(403, {"error": "bad admin key"})
+                return
+
+            new_salt, new_hash = str(req.get("salt") or ""), str(req.get("hash") or "")
+            if len(new_salt) != 32 or len(new_hash) != 64:
+                self._json(400, {"error": "bad payload"})
+                return
+            try:
+                bytes.fromhex(new_salt); bytes.fromhex(new_hash)
+            except ValueError:
+                self._json(400, {"error": "bad payload"})
+                return
+
+            auth["salt"], auth["hash"] = new_salt, new_hash
+            auth["iterations"] = int(req.get("iterations") or auth.get("iterations") or 250000)
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(auth, fh, indent=2, ensure_ascii=False)
+                    fh.write("\n")
+                import sync
+                sync.mirror_auth()
+            except (OSError, ImportError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            print("  Password changed from the sign-in screen.")
+            self._json(200, {"ok": True})
+
+        def _json(self, code, payload):
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _redirect(self):
             if prefix == "/":
+                return False
+            if self.path.rstrip("/").rsplit("/", 1)[-1] == "__auth":
                 return False
             # Anything outside the friendly path goes to it, so the browser
             # never settles on a URL that is not the real one.

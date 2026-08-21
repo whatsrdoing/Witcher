@@ -84,6 +84,33 @@ window.__PARAS_REGISTRY__ = {
         "GRN",
         "spend",
         "fill rate"
+      ],
+      "inputs": [
+        {
+          "label": "Purchase Register",
+          "match": [
+            "purchase\\s*register",
+            "\\bpr\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "PO No",
+            "Status"
+          ]
+        },
+        {
+          "label": "GRN Register",
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "Received Qty.",
+            "GRN No."
+          ]
+        }
       ]
     },
     {
@@ -100,13 +127,45 @@ window.__PARAS_REGISTRY__ = {
         "MRP",
         "variance",
         "pricing"
+      ],
+      "inputs": [
+        {
+          "label": "RC rate file",
+          "match": [
+            "rc\\s*rate",
+            "rate\\s*contract",
+            "\\brc\\b"
+          ],
+          "needs": [
+            "RC Rate"
+          ],
+          "optional": true
+        },
+        {
+          "label": "GRN Register",
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "Item Name",
+            "Item Category",
+            "Received Qty.",
+            "EPR",
+            "MRP",
+            "Total Value",
+            "GRN No.",
+            "GRN Date"
+          ]
+        }
       ]
     },
     {
       "id": "pharmacy-console",
-      "name": "Pharmacy Console",
+      "name": "Formulary Compliance & Savings",
       "category": "pharmacy",
-      "description": "Formulary compliance and savings console for pharmacy operations.",
+      "description": "Actual consumption valued against the 2025-26 weighted average — formulary compliance and realised savings.",
       "file": "dashboards/Pharmacy_Console.html",
       "icon": "pill",
       "status": "live",
@@ -114,7 +173,34 @@ window.__PARAS_REGISTRY__ = {
       "tags": [
         "formulary",
         "compliance",
-        "savings"
+        "savings",
+        "COGS"
+      ],
+      "inputs": [
+        {
+          "label": "COGS",
+          "match": [
+            "cogs",
+            "consumption"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Id",
+            "Qty",
+            "Ispackage",
+            "Total EPR",
+            "Total MRP"
+          ]
+        },
+        {
+          "label": "Benchmark sheet",
+          "match": [
+            "benchmark",
+            "weighted"
+          ],
+          "needs": [],
+          "optional": true
+        }
       ]
     },
     {
@@ -130,6 +216,76 @@ window.__PARAS_REGISTRY__ = {
         "non-formulary",
         "utilisation",
         "leakage"
+      ],
+      "inputs": [
+        {
+          "label": "Non-Formulary List",
+          "match": [
+            "non\\s*formulary",
+            "item\\s*master",
+            "item\\s*list"
+          ],
+          "needs": [
+            "ItemId",
+            "ITEM NAME",
+            "ITEM CODE"
+          ]
+        },
+        {
+          "label": "Stock Transfer",
+          "match": [
+            "stock\\s*transfer",
+            "store\\s*transfer",
+            "\\btransfer\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "From Store",
+            "To Store",
+            "Item Code",
+            "Transfered Qty."
+          ]
+        },
+        {
+          "label": "IP Issue",
+          "match": [
+            "ip\\s*issue",
+            "\\bissue\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "Department Name",
+            "Qty"
+          ]
+        },
+        {
+          "label": "GRN Register",
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Store",
+            "Item Code",
+            "Received Qty.",
+            "GRN No."
+          ]
+        },
+        {
+          "label": "Purchase Register",
+          "match": [
+            "purchase\\s*register",
+            "\\bpr\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Store Name",
+            "Item Code",
+            "PO No",
+            "Status"
+          ]
+        }
       ]
     },
     {
@@ -145,6 +301,40 @@ window.__PARAS_REGISTRY__ = {
         "transfer",
         "inter-store",
         "movement"
+      ],
+      "inputs": [
+        {
+          "label": "Stock Transfer",
+          "match": [
+            "stock\\s*transfer",
+            "store\\s*transfer",
+            "\\btransfer\\b"
+          ],
+          "needs": [
+            "Transfer Date",
+            "From Store",
+            "To Store",
+            "Item Name",
+            "Transfered Qty.",
+            "EPR."
+          ]
+        },
+        {
+          "label": "Stock Transfer",
+          "match": [
+            "stock\\s*transfer",
+            "store\\s*transfer",
+            "\\btransfer\\b"
+          ],
+          "needs": [
+            "Transfer Date",
+            "From Store",
+            "To Store",
+            "Item Name",
+            "Transfered Qty.",
+            "EPR."
+          ]
+        }
       ]
     },
     {
@@ -162,6 +352,18 @@ window.__PARAS_REGISTRY__ = {
         "permissions",
         "SOD",
         "approval"
+      ],
+      "inputs": [
+        {
+          "label": "Permission file",
+          "match": [
+            "permission",
+            "rights",
+            "role"
+          ],
+          "needs": [],
+          "auto": false
+        }
       ]
     }
   ]

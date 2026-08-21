@@ -9,7 +9,8 @@
   var fileCounts = Object.create(null);
   var current = null;                 // active dashboard id, null = home
   var filter = { text: '', category: 'all' };
-  var drawerFor = null;
+  var drawerFor = null;      // which dashboard the drawer is showing
+  var drawerTab = 'library';  // 'library' (shared) or 'pinned' (this dashboard)
   var renaming = null;
 
   var $ = function (s, r) { return (r || d).querySelector(s); };
@@ -60,9 +61,6 @@
     $('#heroTitle').textContent = REG.app.title;
     $('#heroLede').textContent = REG.app.tagline || '';
     $('#regSource').textContent = REG.source;
-    // Opened by double-clicking index.html: the address bar can only show the
-    // file path, so point at the launcher that gives the real address.
-    if (location.protocol === 'file:') $('#addrHint').style.display = 'flex';
   }
 
   /* ===================== theme / mode ==================================== */
@@ -137,6 +135,7 @@
     $('#viewDash').classList.remove('active');
     $$('.frames iframe').forEach(function (f) { f.classList.remove('active'); });
     $('#frameLoading').style.display = 'none';
+    $('#matchBar').style.display = 'none';
     renderCrumbs();
     renderLiveCount();
     if (!silent) location.hash = '#/';
@@ -163,7 +162,7 @@
       $('#frameLoadingTxt').textContent = 'Opening ' + db.name + '…';
       el.addEventListener('load', function () {
         frames[id].loaded = true;
-        if (current === id) $('#frameLoading').style.display = 'none';
+        if (current === id) { $('#frameLoading').style.display = 'none'; refreshMatchBar(); }
       });
       $('#frames').appendChild(el);
       f = frames[id] = { el: el, loaded: false, openedAt: Date.now() };
@@ -180,6 +179,7 @@
 
     renderCrumbs(db);
     renderLiveCount();
+    refreshMatchBar();
     if (!silent) location.hash = '#/d/' + encodeURIComponent(id);
     if (drawerFor) openDrawer(id);
   }
@@ -402,7 +402,7 @@
           reorder(dragId, card.dataset.id, (e.clientX - r.left) < r.width / 2);
         } else if (hasFiles(e)) {
           e.preventDefault(); e.stopPropagation();
-          addFiles(card.dataset.id, e.dataTransfer.files);
+          addFiles(w.Library.ID, e.dataTransfer.files);
         }
       });
     });
@@ -446,14 +446,59 @@
     return w.Store.Files.counts().then(function (c) { fileCounts = c || {}; return c; });
   }
 
-  function openDrawer(id) {
-    drawerFor = id;
+  function libraryCount() { return fileCounts[w.Library.ID] || 0; }
+
+  function openDrawer(id, tab) {
+    drawerFor = id || null;
+    drawerTab = tab || (id ? drawerTab : 'library');
+    if (!drawerFor) drawerTab = 'library';
     $('#drawer').classList.add('open');
     $('#scrim').classList.add('open');
-    var db = byId(id);
-    $('#drawerFor').textContent = db ? db.name : id;
     $('#fileSearchInput').value = '';
+    renderDrawerHead();
     renderFiles();
+  }
+
+  function renderDrawerHead() {
+    var db = drawerFor ? byId(drawerFor) : null;
+    $('#drawerTabs').style.display = db ? 'flex' : 'none';
+    $('#tabPinned').textContent = db ? db.name : '';
+    $$('#drawerTabs button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.tab === drawerTab));
+    });
+    var lib = drawerTab === 'library';
+    $('#drawerTitle').textContent = lib ? 'Data Library' : 'Pinned files';
+    $('#drawerFor').textContent = lib
+      ? 'Shared by every dashboard'
+      : 'Only on ' + (db ? db.name : 'this dashboard');
+    $('#dropHint').textContent = lib
+      ? 'Registers, GRN, transfers — dropped once, used everywhere'
+      : 'SOPs and notes that belong to this dashboard only';
+    var slots = drawerFor ? frameInputs(drawerFor) : null;
+    $('#drawerTip').style.display = (lib && slots && slots.length) ? 'flex' : 'none';
+  }
+
+  function drawerScope() { return drawerTab === 'library' ? w.Library.ID : drawerFor; }
+
+  /* Names every dashboard whose upload boxes this file suits. */
+  /* The one or two upload boxes this file genuinely belongs in. Deliberately
+     strict: a chip that appears everywhere tells you nothing. */
+  function usedBy(file) {
+    var scored = [];
+    REG.dashboards.forEach(function (db) {
+      (db.inputs || []).forEach(function (slot) {
+        var r = w.Library.score(file, slot);
+        if (r.score >= 70) scored.push({ id: db.id, name: db.name, slot: slot.label, score: r.score });
+      });
+    });
+    scored.sort(function (a, b) { return b.score - a.score; });
+    var seen = {}, out = [];
+    scored.forEach(function (x) {
+      if (seen[x.slot]) return;
+      seen[x.slot] = 1;
+      out.push(x);
+    });
+    return out.slice(0, 3);
   }
   function closeDrawer() {
     drawerFor = null; renaming = null;
@@ -484,29 +529,36 @@
   }
 
   function renderFiles() {
-    if (!drawerFor) return;
+    if (!$('#drawer').classList.contains('open')) return;
+    var scope = drawerScope();
+    if (!scope) return;
     var q = ($('#fileSearchInput').value || '').trim().toLowerCase();
-    w.Store.Files.list(drawerFor).then(function (rows) {
+    w.Store.Files.list(scope).then(function (rows) {
       rows.sort(function (a, b) { return b.addedAt - a.addedAt; });
       var shown = q ? rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) >= 0; }) : rows;
       var host = $('#fileList');
       if (!shown.length) {
         host.innerHTML = '<div class="empty-state" style="padding:34px 8px">' + ico('inbox', 'lg') +
           '<h3>' + (q ? 'Nothing matches' : 'No files attached') + '</h3>' +
-          '<p>' + (q ? 'Try a different search.' : 'Attach SOPs, registers or vendor masters — they stay linked to this dashboard.') + '</p></div>';
+          '<p>' + (q ? 'Try a different search.' : (drawerTab === 'library'
+            ? 'Drop your registers here once. The Command Centre reads each file\'s columns and offers it to every dashboard that needs it.'
+            : 'Files pinned here stay with this dashboard only.')) + '</p></div>';
       } else {
         host.innerHTML = shown.map(function (r) {
           var k = kindOf(r.name, r.type);
           var isRen = renaming === r.id;
-          return '<div class="file-row" data-fid="' + esc(r.id) + '">' +
+          return '<div class="file-row" data-fid="' + esc(r.id) + '" data-ftype="' + esc(r.type || '') + '">' +
             '<div class="file-ico ' + esc(k) + '">' + esc(k.toUpperCase()) + '</div>' +
             '<div class="file-meta">' +
               (isRen
                 ? '<input class="file-name-input" value="' + esc(r.name) + '" data-rename-input="' + esc(r.id) + '">'
                 : '<div class="file-name" title="' + esc(r.name) + '">' + esc(r.name) + '</div>') +
-              '<div class="file-sub">' + esc(fmtSize(r.size)) + ' · ' + esc(fmtDate(r.addedAt)) + '</div>' +
+              '<div class="file-sub">' + esc(fmtSize(r.size)) + ' · ' + esc(fmtDate(r.addedAt)) +
+                (r.headers && r.headers.length ? ' · ' + r.headers.length + ' columns' : '') + '</div>' +
+              (drawerTab === 'library' ? usedByHtml(r) : '') +
             '</div>' +
             '<div class="file-acts">' +
+              '<button class="use" data-fuse="' + esc(r.id) + '" title="Load into this dashboard\'s upload box">' + ico('upload', 'sm') + '</button>' +
               '<button data-fopen="' + esc(r.id) + '" title="Open">' + ico('eye', 'sm') + '</button>' +
               '<button data-fdl="' + esc(r.id) + '" title="Download">' + ico('download', 'sm') + '</button>' +
               '<button data-fren="' + esc(r.id) + '" title="Rename">' + ico('pencil', 'sm') + '</button>' +
@@ -525,17 +577,31 @@
     });
   }
 
+  function usedByHtml(file) {
+    var uses = usedBy(file);
+    if (!uses.length) return '<div class="file-uses none">No dashboard matched — send it by hand with ↑</div>';
+    return '<div class="file-uses">' + uses.map(function (u) {
+      return '<span title="' + esc(u.name) + ' · ' + esc(u.slot) + '">' + esc(u.slot) + '</span>';
+    }).join('') + '</div>';
+  }
+
   function addFiles(dashId, fileList) {
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
-    var db = byId(dashId);
-    Promise.all(files.map(function (f) { return w.Store.Files.add(dashId, f); }))
+    var db = dashId === w.Library.ID ? null : byId(dashId);
+    var where = db ? db.name : 'the Data Library';
+    if (files.length > 1 || files[0].size > 2e6) toast('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…', 'ok', 2000);
+    Promise.all(files.map(function (f) {
+      // Read the header row once, so the file can be routed to the right
+      // upload box later instead of being matched on its name alone.
+      return w.Library.sniff(f).then(function (headers) {
+        return w.Store.Files.add(dashId, f, headers);
+      });
+    }))
       .then(function () { return refreshCounts(); })
       .then(function () {
-        renderStats(); renderGrid();
-        if (drawerFor === dashId) renderFiles();
-        else if (current === dashId) openDashboard(dashId, true);
-        toast(files.length + (files.length === 1 ? ' file' : ' files') + ' attached to ' + (db ? db.name : 'dashboard') + '.', 'ok');
+        renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
+        toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
       })
       .catch(function (e) { toast('Could not attach: ' + (e && e.message || e), 'err', 7000); });
   }
@@ -593,6 +659,218 @@
     $('#previewBody').innerHTML = '';
   }
 
+
+  /* ===================== send a file into the dashboard ================= */
+  /* The dashboards keep their own "Choose File" inputs — the Command Centre
+     does not change how they work. But when a dashboard is served from this
+     same origin its document is reachable, so an attached file can be handed
+     straight to the right input instead of being downloaded and re-picked.
+     Blocked on file:// (each file is its own origin there), which is one more
+     reason to launch with start.bat. */
+  function frameDoc(id) {
+    var f = frames[id];
+    if (!f || !f.loaded) return null;
+    try {
+      var doc = f.el.contentDocument;
+      return (doc && doc.body) ? doc : null;
+    } catch (e) { return null; }      // cross-origin
+  }
+
+  function inputLabel(inp, i) {
+    var txt = '';
+    try {
+      if (inp.labels && inp.labels.length) txt = inp.labels[0].textContent;
+      if (!txt && inp.closest) { var l = inp.closest('label'); if (l) txt = l.textContent; }
+      var box = inp.parentElement;
+      for (var d = 0; d < 3 && box && !txt; d++) {
+        var lab = box.querySelector('label, h3, h4, b, strong, .label');
+        if (lab && lab.textContent.trim()) txt = lab.textContent;
+        box = box.parentElement;
+      }
+      if (!txt) txt = inp.getAttribute('aria-label') || inp.getAttribute('title') || inp.name || inp.id || '';
+    } catch (e) {}
+    txt = String(txt).replace(/\s+/g, ' ').trim();
+    if (txt.length > 58) txt = txt.slice(0, 58) + '…';
+    return txt || ('File input ' + (i + 1));
+  }
+
+  function frameInputs(id) {
+    var doc = frameDoc(id);
+    if (!doc) return null;
+    var db = byId(id) || {};
+    var declared = db.inputs || [];
+    var used = {};
+    var list = [];
+    var live = doc.querySelectorAll('input[type=file]');
+    var total = live.length;
+    Array.prototype.forEach.call(live, function (inp, i) {
+      var spec = declared.length === total ? declared[i]
+               : matchSpec(inputLabel(inp, i), declared, i, used);
+      list.push({
+        el: inp,
+        index: i,
+        label: spec.label || inputLabel(inp, i),
+        accept: spec.accept || inp.getAttribute('accept') || '',
+        needs: spec.needs || [],
+        match: spec.match || [],
+        optional: !!spec.optional,
+        auto: spec.auto !== false
+      });
+    });
+    return list;
+  }
+
+  /* Fallback pairing when the registry and the dashboard disagree on how many
+     upload boxes there are: match on name and hope for the best. The normal
+     path is positional — see frameInputs. */
+  function matchSpec(liveLabel, declared, i, used) {
+    if (!declared.length) return {};
+    var lt = w.Library.tokens(liveLabel);
+    var best = null, bestScore = 0;
+    declared.forEach(function (spec, k) {
+      var st = w.Library.tokens(spec.label);
+      if (!st.length) return;
+      var shared = st.filter(function (t) {
+        return lt.some(function (l) { return l === t || l.indexOf(t) >= 0 || t.indexOf(l) >= 0; });
+      });
+      var sc = shared.length / st.length;
+      if (used[k]) sc -= 0.15;          // prefer an unused entry, but allow reuse
+      if (sc > bestScore) { bestScore = sc; best = k; }
+    });
+    if (best !== null && bestScore >= 0.5) { used[best] = 1; return declared[best]; }
+    return declared[i] || {};
+  }
+
+  /* ---- shared Data Library ---------------------------------------------- */
+  function libraryFiles() {
+    return w.Store.Files.list(w.Library.ID);
+  }
+
+  /* Which library files suit the dashboard that is open right now. */
+  function matchesForOpen() {
+    if (!current) return Promise.resolve(null);
+    var slots = frameInputs(current);
+    if (!slots || !slots.length) return Promise.resolve(null);
+    return libraryFiles().then(function (files) {
+      if (!files.length) return { slots: slots, pairs: [], files: files };
+      var auto = slots.filter(function (s) { return s.auto; });
+      return { slots: slots, pairs: w.Library.assign(files, auto), files: files };
+    });
+  }
+
+  function refreshMatchBar() {
+    var bar = $('#matchBar');
+    if (!bar) return;
+    if (!current) { bar.style.display = 'none'; return; }
+    matchesForOpen().then(function (m) {
+      if (!m || !m.pairs.length) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
+      $('#matchText').innerHTML = '<b>' + m.pairs.length + ' of ' + required + '</b> required file' +
+        (required === 1 ? '' : 's') + ' matched in the Data Library';
+      $('#matchDetail').innerHTML = m.pairs.map(function (p) {
+        return '<span>' + esc(p.slot.label) + ' &larr; ' + esc(p.file.name) + '</span>';
+      }).join('');
+    });
+  }
+
+  function fillAllFromLibrary() {
+    matchesForOpen().then(function (m) {
+      if (!m || !m.pairs.length) return toast('Nothing in the Data Library matches this dashboard yet.', 'warn');
+      var done = 0;
+      var next = function (i) {
+        if (i >= m.pairs.length) {
+          toast('Filled ' + done + ' upload box' + (done === 1 ? '' : 'es') + ' — press the dashboard\'s own build button to run it.', 'ok', 6000);
+          return;
+        }
+        var p = m.pairs[i];
+        w.Store.Files.blob(p.file.id).then(function (blob) {
+          if (blob) { try { fillInput(p.slot, blob, p.file.name, p.file.type); done++; } catch (e) {} }
+          setTimeout(function () { next(i + 1); }, 60);
+        });
+      };
+      closeDrawer();
+      next(0);
+    });
+  }
+
+  function acceptsFile(slot, name) {
+    if (!slot.accept) return true;
+    var ext = '.' + (name.split('.').pop() || '').toLowerCase();
+    return slot.accept.toLowerCase().split(',').some(function (a) {
+      a = a.trim();
+      if (!a) return false;
+      if (a.charAt(0) === '.') return a === ext;
+      return true;                     // MIME patterns: don't second-guess
+    });
+  }
+
+  function fillInput(slot, blob, name, type) {
+    var file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    slot.el.files = dt.files;
+    slot.el.dispatchEvent(new Event('input', { bubbles: true }));
+    slot.el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  /* Opens the dashboard if it isn't open yet, then hands the file over. */
+  function sendToDashboard(fileId, name, type, dashId) {
+    var ready = function () {
+      var slots = frameInputs(dashId);
+      if (!slots) {
+        toast('This only works when the Command Centre is opened with start.bat — from a file:// page the browser will not let one page reach another. Use Download instead.', 'warn', 9000);
+        return;
+      }
+      if (!slots.length) { toast('This dashboard has no file upload of its own.', 'warn'); return; }
+
+      var matching = slots.filter(function (s) { return acceptsFile(s, name); });
+      var choices = matching.length ? matching : slots;
+
+      w.Store.Files.blob(fileId).then(function (blob) {
+        if (!blob) return toast('That file is no longer in the workspace.', 'warn');
+        if (choices.length === 1) return deliver(choices[0], blob);
+        pickSlot(choices, name, function (slot) { deliver(slot, blob); });
+      });
+
+      function deliver(slot, blob) {
+        try {
+          fillInput(slot, blob, name, type);
+          closeDrawer();
+          toast('"' + name + '" loaded into ' + slot.label, 'ok', 4200);
+        } catch (e) {
+          toast('Could not hand the file over: ' + (e && e.message || e), 'err', 7000);
+        }
+      }
+    };
+
+    if (frames[dashId] && frames[dashId].loaded) {
+      if (current !== dashId) openDashboard(dashId);
+      ready();
+    } else {
+      openDashboard(dashId);
+      var f = frames[dashId];
+      if (!f) return;
+      f.el.addEventListener('load', function once() {
+        f.el.removeEventListener('load', once);
+        setTimeout(ready, 120);
+      });
+    }
+  }
+
+  function pickSlot(slots, name, cb) {
+    $('#pickTitle').textContent = 'Where should "' + name + '" go?';
+    $('#pickList').innerHTML = slots.map(function (s, i) {
+      return '<button class="pick-row" data-slot="' + i + '">' +
+        ico('upload', 'sm') + '<span>' + esc(s.label) +
+        (s.accept ? '<em>' + esc(s.accept) + '</em>' : '') + '</span></button>';
+    }).join('');
+    pickSlots = slots; pickCb = cb;
+    $('#pickModal').classList.add('open');
+  }
+  var pickSlots = null, pickCb = null;
+  function closePick() { $('#pickModal').classList.remove('open'); pickSlots = null; pickCb = null; }
+
   /* ===================== dialogs / toasts =============================== */
   var confirmCb = null;
   function confirmDialog(title, body, okLabel, cb) {
@@ -627,11 +905,7 @@
       applyTheme(d.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     });
     $('#resetBtn').addEventListener('click', resetLayout);
-    $('#lockBtn').addEventListener('click', function () {
-      confirmDialog('Lock the Command Centre?',
-        'You will need to sign in again. Open dashboards are closed, but nothing you have saved is lost.',
-        'Lock', function () { w.ParasGate.lock(); });
-    });
+    $('#lockBtn').addEventListener('click', function () { w.ParasGate.lock(); });
 
     $('#modeSwitch').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-mode]'); if (b) switchMode(b.dataset.mode);
@@ -686,7 +960,7 @@
     });
 
     /* dashboard toolbar */
-    $('#dashFilesBtn').addEventListener('click', function () { if (current) openDrawer(current); });
+    $('#dashFilesBtn').addEventListener('click', function () { if (current) openDrawer(current, 'library'); });
     $('#dashReload').addEventListener('click', function () {
       if (!current) return;
       var f = frames[current]; if (!f) return;
@@ -722,11 +996,20 @@
     });
 
     /* drawer */
+    $('#drawerTabs').addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-tab]'); if (!b) return;
+      drawerTab = b.dataset.tab;
+      $('#fileSearchInput').value = '';
+      renderDrawerHead(); renderFiles();
+    });
+    $('#libraryBtn').addEventListener('click', function () { openDrawer(current, 'library'); });
+    $('#matchFill').addEventListener('click', fillAllFromLibrary);
+    $('#matchOpen').addEventListener('click', function () { openDrawer(current, 'library'); });
     $('#drawerClose').addEventListener('click', closeDrawer);
     $('#scrim').addEventListener('click', closeDrawer);
     $('#fileSearchInput').addEventListener('input', renderFiles);
     $('#filePick').addEventListener('change', function (e) {
-      if (drawerFor) addFiles(drawerFor, e.target.files);
+      addFiles(drawerScope(), e.target.files);
       e.target.value = '';
     });
     $('#dropzone').addEventListener('click', function () { $('#filePick').click(); });
@@ -738,13 +1021,17 @@
     });
     $('#dropzone').addEventListener('drop', function (e) {
       e.preventDefault();
-      if (drawerFor) addFiles(drawerFor, e.dataTransfer.files);
+      addFiles(drawerScope(), e.dataTransfer.files);
     });
 
     $('#fileList').addEventListener('click', function (e) {
       var row = e.target.closest('.file-row'); if (!row) return;
       var id = row.dataset.fid;
       var name = ($('.file-name', row) || {}).textContent || 'file';
+      if (e.target.closest('[data-fuse]')) {
+        if (!drawerFor) return toast('Open a dashboard first, then send the file to it.', 'warn');
+        return sendToDashboard(id, name, row.dataset.ftype || '', drawerFor);
+      }
       if (e.target.closest('[data-fopen]')) return previewFile(id, name);
       if (e.target.closest('[data-fdl]')) return downloadFile(id, name);
       if (e.target.closest('[data-fren]')) { renaming = id; renderFiles(); return; }
@@ -770,6 +1057,15 @@
     /* preview + confirm modals */
     $('#previewClose').addEventListener('click', closePreview);
     $('#previewModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closePreview(); });
+    $('#pickList').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-slot]'); if (!b || !pickSlots) return;
+      var slot = pickSlots[+b.dataset.slot], cb = pickCb;
+      closePick();
+      if (cb) cb(slot);
+    });
+    $('#pickCancel').addEventListener('click', closePick);
+    $('#pickModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closePick(); });
+
     $('#confirmCancel').addEventListener('click', closeConfirm);
     $('#confirmOk').addEventListener('click', function () { var cb = confirmCb; closeConfirm(); if (cb) cb(); });
     $('#confirmModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeConfirm(); });
@@ -778,6 +1074,7 @@
     d.addEventListener('keydown', function (e) {
       var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
       if (e.key === 'Escape') {
+        if ($('#pickModal').classList.contains('open')) return closePick();
         if ($('#previewModal').classList.contains('open')) return closePreview();
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();
         if ($('#drawer').classList.contains('open')) return closeDrawer();

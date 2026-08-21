@@ -153,9 +153,19 @@ shut. Five wrong tries locks input for 60 seconds. You stay signed in while the
 browser tab lives; closing the browser signs you out, and the padlock button in
 the top bar signs you out on demand.
 
-**Forgot password** on the sign-in screen shows *Contact Admin — Ritik Nagar*.
-Change that name with the `"admin"` field in `auth.json`, then run
-`python3 sync.py`.
+**Forgot password** asks for the **admin key**, then lets you set a new
+password on the spot. Wrong key, no reset. The key is stored the same way as
+the password — hashed, never in the clear — and is changed with:
+
+```
+python3 set_password.py --admin-key NEWKEY you@work.com 'Password1'
+```
+
+When the Command Centre is running from `start.bat` the new password is written
+to `auth.json` and survives everything. Opened from `file://` there is nothing
+to write to, so it is kept in that browser instead and the screen says so.
+
+The name shown on that screen comes from the `"admin"` field in `auth.json`.
 
 **Changing the password**
 
@@ -228,7 +238,37 @@ Everything else is optional. Full field reference:
   dashboard toolbar) closes one and frees its memory.
 - Deep links work: `index.html#/d/pharmacy-console`.
 
-**Files per dashboard**
+**Data Library** — one place for every export
+
+Drop your registers into the **Data Library** once (button in the top bar).
+Each file's header row is read as it lands, so the Command Centre knows what it
+actually is rather than guessing from the filename. Open any dashboard and it
+shows which library files match its upload boxes; **Fill upload boxes** loads
+them all in one click, then you press the dashboard's own build button.
+
+One GRN export feeds Procurement Operations, Rate & MRP Variance and
+Non-Formulary Utilisation. One stock transfer feeds Store Transfer and
+Non-Formulary. You upload each file once.
+
+| File | Goes to |
+|---|---|
+| Purchase Register | Procurement Operations, Non-Formulary |
+| GRN Register | Procurement Operations, Rate & MRP Variance, Non-Formulary |
+| Stock Transfer | Store Transfer, Non-Formulary |
+| IP Issue | Non-Formulary |
+| Non-Formulary List | Non-Formulary |
+| COGS | Formulary Compliance & Savings |
+| Permission file | SCM Employee Permissions (its own, kept separate) |
+
+The routing lives in `dashboards.json` under each dashboard's `inputs`, listed
+**in the order the upload boxes appear in that dashboard**. `↑` on any file
+sends it into a box by hand.
+
+Handing a file over needs the dashboards to be served from the same origin, so
+it works when you launch with `start.bat` — not from `file://`, where the
+browser keeps every file in its own origin.
+
+**Files pinned to one dashboard**
 - Attach SOPs, registers and masters to a specific dashboard — drop them on the
   card, or open the Files drawer and drop/browse there.
 - List, search, open (inline preview for PDF, images, CSV/text), download,

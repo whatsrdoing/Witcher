@@ -157,7 +157,8 @@
 
   function meta(r) {
     return { id: r.id, dashboardId: r.dashboardId, name: r.name, size: r.size,
-             type: r.type, addedAt: r.addedAt, updatedAt: r.updatedAt };
+             type: r.type, addedAt: r.addedAt, updatedAt: r.updatedAt,
+             headers: r.headers || [] };
   }
 
   /* ---- backend selection -------------------------------------------------- */
@@ -180,10 +181,10 @@
   }
 
   var Files = {
-    add: function (dashboardId, file) {
+    add: function (dashboardId, file, headers) {
       var rec = { id: uid(), dashboardId: dashboardId, name: file.name || 'untitled',
                   size: file.size || 0, type: file.type || '', addedAt: Date.now(),
-                  updatedAt: Date.now(), blob: file };
+                  updatedAt: Date.now(), headers: headers || [], blob: file };
       return backend().put(rec);
     },
     list: function (d) { return backend().list(d).catch(function () { return []; }); },

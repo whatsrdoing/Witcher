@@ -53,7 +53,8 @@ assets/
   js/storage.js            SESSION / LOCAL storage
   js/app.js                shell, navigation, cards, files
   vendor/                  local copies of Chart.js, PapaParse, SheetJS, fonts
-  img/favicon.svg
+  img/paras-health-logo.png   official Paras Health logo
+  img/paras-mark.png          cross mark, used as the favicon
 
 docs/ADDING_A_DASHBOARD.md
 ```
@@ -118,6 +119,13 @@ Switching to SESSION starts a clean temporary workspace; your LOCAL data is not
 deleted and comes back when you switch back.
 
 **Theme** — dark and light, toggled from the top bar, remembered per mode.
+
+**Branding** — the header and home page use the official Paras Health logo,
+lifted from the artwork already embedded in your own dashboards so it matches
+them exactly. It is a fixed two-colour mark, so it is never recoloured or
+filtered: on the dark theme it sits on a light plate, the same treatment the
+dashboards use. The shell's blue and grey (`#2F5CA2`, `#757D87`) are sampled
+straight from that artwork.
 
 ---
 

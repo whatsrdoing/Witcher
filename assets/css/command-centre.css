@@ -6,11 +6,11 @@
 
 /* ---------- Tokens: dark (default) ---------------------------------------- */
 :root{
-  --brand:#2E5AA1;
+  --brand:#2F5CA2;         /* Paras blue  — sampled from the logo */
   --brand-deep:#1B3B73;
   --brand-bright:#4E86E0;
   --brand-soft:#7FB2F0;
-  --steel:#7B8792;
+  --steel:#757D87;         /* Paras grey  — sampled from the logo */
 
   --bg:#070B14;
   --bg-2:#0B1220;
@@ -62,7 +62,7 @@
   --shadow:0 8px 30px rgba(27,59,115,.14);
   --shadow-lg:0 24px 70px rgba(27,59,115,.2);
 
-  --brand-soft:#2E5AA1;
+  --brand-soft:#2F5CA2;
   --ok:#12805A; --warn:#B9740F; --bad:#C0392E; --info:#2E5AA1;
   color-scheme: light;
 }
@@ -132,17 +132,36 @@ a{color:var(--brand-soft); text-decoration:none;}
   backdrop-filter:blur(var(--blur)) saturate(170%);
   -webkit-backdrop-filter:blur(var(--blur)) saturate(170%);
 }
-.brand{display:flex; align-items:center; gap:13px; cursor:pointer; flex:0 0 auto; background:none;}
-.brand-mark{width:38px;height:38px;flex:0 0 auto; filter:drop-shadow(0 3px 8px rgba(46,90,161,.5));}
-.brand-txt{display:flex; flex-direction:column; line-height:1.15; text-align:left;}
-.brand-org{font-size:15px; font-weight:800; letter-spacing:.1em; color:var(--ink);}
-.brand-sub{font-size:9.5px; font-weight:700; letter-spacing:.19em; text-transform:uppercase; color:var(--brand-soft);}
+/* Official Paras Health logo. It is a fixed two-colour mark, so it is never
+   recoloured or filtered — on dark backgrounds it sits on a light plate, the
+   same treatment the dashboards themselves use. */
+.brand{display:flex; align-items:center; gap:14px; cursor:pointer; flex:0 0 auto; background:none;}
+.brand-plate{display:flex; align-items:center; padding:7px 11px; border-radius:11px; transition:background .2s var(--ease), box-shadow .2s var(--ease);}
+.brand-logo{height:26px; width:auto; display:block;}
+.brand-rule{width:1px; height:26px; background:var(--wire); flex:0 0 auto;}
+.brand-sub{font-size:9.5px; font-weight:700; letter-spacing:.17em; text-transform:uppercase; color:var(--brand-soft); text-align:left; white-space:nowrap;}
+
+:root:not([data-theme="light"]) .brand-plate{
+  background:rgba(255,255,255,.94);
+  box-shadow:0 2px 12px rgba(3,8,20,.5), inset 0 0 0 1px rgba(255,255,255,.6);
+}
+:root:not([data-theme="light"]) .brand:hover .brand-plate{background:#fff;}
+:root[data-theme="light"] .brand-plate{padding:7px 4px;}
+:root[data-theme="light"] .brand:hover .brand-plate{background:rgba(255,255,255,.7);}
+
+.hero-plate{display:inline-flex; align-items:center; margin:0 0 14px; border-radius:13px; padding:9px 13px;}
+.hero-logo{height:34px; width:auto; display:block;}
+:root:not([data-theme="light"]) .hero-plate{
+  background:rgba(255,255,255,.94);
+  box-shadow:0 4px 20px rgba(3,8,20,.45), inset 0 0 0 1px rgba(255,255,255,.6);
+}
+:root[data-theme="light"] .hero-plate{padding:9px 0;}
 .topbar-mid{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:10px;}
 .topbar-right{flex:0 0 auto; display:flex; align-items:center; gap:8px;}
 
 /* Breadcrumb */
 .crumbs{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--ink-2); min-width:0; overflow:hidden;}
-.crumbs button{color:var(--ink-2); font-size:12.5px; font-weight:600; padding:4px 7px; border-radius:7px; transition:.16s var(--ease);}
+.crumbs button{color:var(--ink-2); font-size:12.5px; font-weight:600; padding:4px 7px; border-radius:7px; white-space:nowrap; transition:.16s var(--ease);}
 .crumbs button:hover{color:var(--ink); background:var(--glass);}
 .crumbs .sep{color:var(--ink-3); flex:0 0 auto;}
 .crumbs .cur{color:var(--ink); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:4px 2px;}
@@ -427,6 +446,9 @@ a{color:var(--brand-soft); text-decoration:none;}
 .modal-body pre{margin:0;padding:18px;overflow:auto;flex:1 1 auto;font-family:var(--mono);font-size:12.5px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap;word-break:break-word;}
 
 /* ---------- Responsive ---------------------------------------------------- */
+@media (max-width:1180px){
+  .brand-rule, .brand-sub{display:none;}
+}
 @media (max-width:980px){
   .search{flex-basis:200px;}
   .crumbs{display:none;}

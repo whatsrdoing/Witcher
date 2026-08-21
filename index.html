@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Paras Health — Supply Chain Command Centre</title>
 <meta name="description" content="Offline launcher and workspace for Paras Health supply chain dashboards.">
-<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/img/paras-mark.png" type="image/png">
 <link rel="stylesheet" href="assets/css/command-centre.css">
 </head>
 <body>
@@ -17,19 +17,11 @@
   <!-- ============================ TOP BAR ============================ -->
   <header class="topbar">
     <button class="brand" id="brand" title="Back to the Command Centre">
-      <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
-        <defs>
-          <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#4E86E0"/><stop offset="1" stop-color="#1B3B73"/>
-          </linearGradient>
-        </defs>
-        <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#pg)"/>
-        <path d="M20.5 11h7v9.5H37v7h-9.5V37h-7v-9.5H11v-7h9.5z" fill="#fff" opacity=".95"/>
-      </svg>
-      <span class="brand-txt">
-        <span class="brand-org" id="brandOrg">PARAS HEALTH</span>
-        <span class="brand-sub" id="brandSub">Supply Chain Command Centre</span>
+      <span class="brand-plate">
+        <img class="brand-logo" id="brandLogo" src="assets/img/paras-health-logo.png" alt="Paras Health">
       </span>
+      <span class="brand-rule" aria-hidden="true"></span>
+      <span class="brand-sub" id="brandSub">Supply Chain Command Centre</span>
     </button>
 
     <div class="topbar-mid">
@@ -72,7 +64,9 @@
 
         <div class="hero">
           <div>
-            <p class="eyebrow" id="heroOrg">PARAS HEALTH</p>
+            <span class="hero-plate">
+              <img class="hero-logo" id="heroLogo" src="assets/img/paras-health-logo.png" alt="Paras Health">
+            </span>
             <h1 id="heroTitle">Supply Chain Command Centre</h1>
             <p class="lede" id="heroLede"></p>
           </div>

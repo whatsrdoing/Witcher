@@ -52,10 +52,11 @@
   }
 
   function paintChrome() {
-    $('#brandOrg').textContent = REG.app.org;
+    // The org name lives in the logo artwork, so it drives the alt text here.
+    $('#brandLogo').alt = REG.app.org;
+    $('#heroLogo').alt = REG.app.org;
     $('#brandSub').textContent = REG.app.title;
     d.title = REG.app.org + ' — ' + REG.app.title;
-    $('#heroOrg').textContent = REG.app.org;
     $('#heroTitle').textContent = REG.app.title;
     $('#heroLede').textContent = REG.app.tagline || '';
     $('#regSource').textContent = REG.source;

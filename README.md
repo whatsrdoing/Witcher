@@ -34,7 +34,10 @@ theme and mode still persist.
 index.html                 the Command Centre
 dashboards.json            THE registry — the only file you edit to add a dashboard
 dashboards.js              generated mirror of the registry (makes file:// work)
-sync.py                    regenerates dashboards.js + validates the registry
+auth.json                  sign-in email + password hash (never the password itself)
+auth.js                    generated mirror of auth.json
+set_password.py            change the sign-in email / password
+sync.py                    regenerates the mirrors + validates the registry
 serve.py                   local-only web server
 start.bat                  Windows launcher
 
@@ -51,6 +54,8 @@ assets/
   js/icons.js              inline SVG icon set
   js/registry.js           registry loading + defaults
   js/storage.js            SESSION / LOCAL storage
+  js/crypto.js             PBKDF2-HMAC-SHA256 (offline, no dependencies)
+  js/gate.js               sign-in gate
   js/app.js                shell, navigation, cards, files
   vendor/                  local copies of Chart.js, PapaParse, SheetJS, fonts
   img/paras-health-logo.png   official Paras Health logo
@@ -58,6 +63,54 @@ assets/
 
 docs/ADDING_A_DASHBOARD.md
 ```
+
+---
+
+## Signing in
+
+The Command Centre opens on a sign-in screen. Nothing loads — no dashboard, no
+files — until the credentials match.
+
+| | |
+|---|---|
+| Email | `ritiknagar@gmail.com` |
+| Password | set with `set_password.py` — ask Claude, or run it yourself |
+
+A wrong email or password shows **"Wrong email or password"** and the app stays
+shut. Five wrong tries locks input for 60 seconds. You stay signed in while the
+browser tab lives; closing the browser signs you out, and the padlock button in
+the top bar signs you out on demand.
+
+**Changing the password**
+
+```
+python3 set_password.py                       # asks for both, hides typing
+python3 set_password.py you@work.com 'NewPass1'
+```
+
+That writes a new random salt and a fresh PBKDF2-HMAC-SHA256 hash (250,000
+iterations) into `auth.json` and refreshes the mirror. **The password itself is
+never written anywhere** — only the hash, which cannot be read back. There is
+deliberately no "change password" screen inside the app: resetting happens on
+the machine that holds the folder.
+
+To turn sign-in off entirely, set `"enabled": false` in `auth.json` and run
+`python3 sync.py`.
+
+**What this protects, and what it does not**
+
+It closes the Command Centre to someone who opens it on this computer. It is a
+door, not a safe:
+
+- The dashboard files sit in `dashboards/` and open directly in any browser.
+- Anyone who copies the folder has the data regardless of the password.
+- The check runs in the browser, so it can be bypassed by someone who edits the
+  files.
+
+If the data itself needs protecting, do it at the operating-system level —
+BitLocker or FileVault on the drive, an encrypted folder, or Windows account
+permissions on the folder. The sign-in screen and those are complementary, not
+substitutes.
 
 ---
 

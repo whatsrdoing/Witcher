@@ -624,6 +624,11 @@
       applyTheme(d.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');
     });
     $('#resetBtn').addEventListener('click', resetLayout);
+    $('#lockBtn').addEventListener('click', function () {
+      confirmDialog('Lock the Command Centre?',
+        'You will need to sign in again. Open dashboards are closed, but nothing you have saved is lost.',
+        'Lock', function () { w.ParasGate.lock(); });
+    });
 
     $('#modeSwitch').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-mode]'); if (b) switchMode(b.dataset.mode);
@@ -795,6 +800,12 @@
     w.Store.Files.rename(id, name).then(function () { renderFiles(); toast('Renamed.', 'ok'); });
   }
 
-  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', boot);
-  else boot();
+  /* The Command Centre only starts once the sign-in gate grants access, so a
+     locked page never loads a dashboard or touches the file store. */
+  function start() {
+    if (w.ParasGate) w.ParasGate.guard(boot);
+    else boot();
+  }
+  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', start);
+  else start();
 })(window, document);

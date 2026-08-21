@@ -17,6 +17,8 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, "dashboards.json")
 OUT = os.path.join(ROOT, "dashboards.js")
+AUTH_SRC = os.path.join(ROOT, "auth.json")
+AUTH_OUT = os.path.join(ROOT, "auth.js")
 
 BANNER = (
     "/* GENERATED FILE — do not edit.\n"
@@ -50,6 +52,24 @@ def check(reg):
     return problems
 
 
+def mirror_auth():
+    """Mirror auth.json into auth.js so the sign-in gate also works on file://."""
+    if not os.path.exists(AUTH_SRC):
+        return
+    try:
+        with open(AUTH_SRC, encoding="utf-8") as fh:
+            auth = json.load(fh)
+    except json.JSONDecodeError as exc:
+        print("  ! auth.json is not valid JSON: %s (line %d)" % (exc.msg, exc.lineno))
+        return
+    with open(AUTH_OUT, "w", encoding="utf-8") as fh:
+        fh.write("/* GENERATED FILE - do not edit.\n"
+                 "   Source: auth.json   Reset the password: python3 set_password.py */\n"
+                 "window.__PARAS_AUTH__ = " + json.dumps(auth, indent=2, ensure_ascii=False) + ";\n")
+    print("auth.js updated - sign-in %s"
+          % ("enabled for " + auth.get("email", "?") if auth.get("enabled", True) else "DISABLED"))
+
+
 def main():
     if not os.path.exists(SRC):
         sys.exit("dashboards.json not found next to sync.py")
@@ -68,6 +88,7 @@ def main():
     print("dashboards.js updated - %d dashboard%s" % (n, "" if n == 1 else "s"))
     for p in check(reg):
         print("  ! " + p)
+    mirror_auth()
     return 0
 
 

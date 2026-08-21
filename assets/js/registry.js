@@ -99,6 +99,9 @@
      double-click of index.html (file://) work in every browser. */
   function load() {
     var mirror = w.__PARAS_REGISTRY__ || null;
+    // file:// cannot fetch a local .json — use the mirror without the failed
+    // request and its console error.
+    if (location.protocol === 'file:' && mirror) return Promise.resolve(fromMirror(mirror));
     return fetch('dashboards.json', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (json) {
@@ -110,15 +113,17 @@
         return reg;
       })
       .catch(function (err) {
-        if (mirror) {
-          var m = JSON.parse(JSON.stringify(mirror));
-          m.__source = 'dashboards.js (offline mirror)';
-          return normalise(m);
-        }
+        if (mirror) return fromMirror(mirror);
         var reg = normalise({});
         reg.loadError = String(err && err.message || err);
         return reg;
       });
+  }
+
+  function fromMirror(mirror) {
+    var m = JSON.parse(JSON.stringify(mirror));
+    m.__source = 'dashboards.js (offline mirror)';
+    return normalise(m);
   }
 
   function stripMeta(o) {

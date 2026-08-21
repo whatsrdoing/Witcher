@@ -1,0 +1,2085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paras Health — Non-Formulary Item Utilization Dashboard</title>
+<!-- Offline vendored by the Command Centre (identical library versions, served from ../assets/vendor). -->
+<script src="../assets/vendor/chart.umd.js"></script>
+<script src="../assets/vendor/papaparse.min.js"></script>
+<script src="../assets/vendor/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg-deep:#05070a;
+  --glass-bg: rgba(255,255,255,0.055);
+  --glass-bg-strong: rgba(255,255,255,0.095);
+  --glass-border: rgba(255,255,255,0.14);
+  --glass-border-soft: rgba(255,255,255,0.09);
+  --brand-blue:#5B8DEF;
+  --brand-blue-deep:#2f5ca2;
+  --teal:#2DD4BF;
+  --amber:#FBBF24;
+  --rose:#FB7185;
+  --violet:#A78BFA;
+  --emerald:#34D399;
+  --text:#EAEFF4;
+  --text-muted:#93A1AD;
+  --text-dim:#5C6773;
+  --danger-bg: rgba(251,113,133,0.12);
+  --danger-border: rgba(251,113,133,0.45);
+  --ok-bg: rgba(45,212,191,0.12);
+  --ok-border: rgba(45,212,191,0.45);
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 12% -8%, rgba(91,141,239,0.20), transparent 42%),
+    radial-gradient(circle at 92% 6%, rgba(45,212,191,0.12), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(167,139,250,0.08), transparent 45%),
+    linear-gradient(180deg, #05070a 0%, #090c11 35%, #0b0f16 100%);
+  background-attachment:fixed;
+  color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1400px;margin:0 auto;padding:0 24px 70px;}
+
+/* ---------- Glass primitives ---------- */
+.glass{
+  background:var(--glass-bg);
+  backdrop-filter:blur(26px) saturate(180%);
+  -webkit-backdrop-filter:blur(26px) saturate(180%);
+  border:1px solid var(--glass-border-soft);
+  border-radius:18px;
+  box-shadow:0 10px 34px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  position:relative;
+}
+.glass::before{
+  content:'';
+  position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:linear-gradient(135deg, rgba(255,255,255,.09) 0%, rgba(255,255,255,0) 35%);
+}
+
+/* ---------- Header ---------- */
+header{
+  position:sticky; top:0; z-index:100;
+  background:rgba(6,8,12,.62);
+  backdrop-filter:blur(30px) saturate(200%);
+  -webkit-backdrop-filter:blur(30px) saturate(200%);
+  border-bottom:1px solid var(--glass-border-soft);
+  padding:16px 0;
+  box-shadow:0 4px 30px rgba(0,0,0,.35);
+}
+.header-inner{max-width:1400px;margin:0 auto;padding:0 24px;display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;}
+.brand{display:flex;align-items:center;gap:16px;}
+.brand img{height:40px;display:block;filter:drop-shadow(0 2px 14px rgba(91,141,239,.4));}
+.brand-text h1{margin:0;font-size:16.5px;font-weight:700;color:#fff;letter-spacing:.2px;}
+.brand-text .tagline{font-size:11.5px;color:var(--text-muted);margin-top:2px;letter-spacing:.2px;}
+.brand-credit{text-align:right;font-size:11.5px;color:var(--text-dim);line-height:1.5;}
+.brand-credit b{color:var(--brand-blue);font-weight:700;}
+
+.filter-box{background:var(--glass-bg-strong);border:1px solid var(--glass-border);border-radius:12px;padding:9px 16px;display:flex;align-items:center;gap:10px;backdrop-filter:blur(20px);}
+.filter-box label{font-size:11.5px;color:var(--text-muted);font-weight:600;letter-spacing:.3px;}
+.filter-box select{
+  background:rgba(255,255,255,.06);color:#fff;border:1px solid var(--glass-border);border-radius:8px;padding:7px 12px;font-size:13.5px;font-weight:600;min-width:160px;cursor:pointer;
+}
+.filter-box select option{background:#0b0f16;color:#fff;}
+
+.hero-spacer{height:22px;}
+
+.unit-pill-bar{border-top:1px solid var(--glass-border-soft);}
+.unit-pill-bar-inner{max-width:1400px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:14px;}
+.upb-label{font-size:11px;color:var(--text-muted);font-weight:700;letter-spacing:.4px;white-space:nowrap;}
+.unit-pills{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;flex:1;}
+.unit-pill{
+  flex:0 0 auto;background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:20px;
+  padding:7px 16px;font-size:12.5px;font-weight:600;color:var(--text-muted);cursor:pointer;white-space:nowrap;
+  transition:all .15s;
+}
+.unit-pill:hover{border-color:var(--teal);color:#fff;}
+.unit-pill.active{background:linear-gradient(135deg, var(--brand-blue), #4A6FD4);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(91,141,239,.35);}
+.unit-pill.all-pill.active{background:linear-gradient(135deg, var(--teal), #22B8A8);box-shadow:0 4px 14px rgba(45,212,191,.35);}
+
+.date-row{padding-top:0;border-top:1px solid var(--glass-border-soft);}
+.date-range-box{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.date-input{
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:8px;
+  padding:6px 10px;font-size:12.5px;font-weight:600;color:#fff;color-scheme:dark;cursor:pointer;
+}
+.date-sep{font-size:12px;color:var(--text-dim);}
+.date-clear-btn{
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:14px;
+  padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--text-muted);cursor:pointer;
+}
+.date-clear-btn:hover{background:rgba(251,113,133,.12);color:var(--rose);border-color:rgba(251,113,133,.3);}
+.date-hint{font-size:11px;color:var(--text-dim);}
+.date-hint.date-hint-error{color:var(--rose);font-weight:600;}
+
+/* ---------- Upload panel ---------- */
+.upload-panel{padding:26px;margin-bottom:26px;}
+.upload-panel h2{margin:0 0 4px;font-size:17px;color:#fff;font-weight:700;}
+.upload-panel .hint{color:var(--text-muted);font-size:13px;margin:0 0 20px;line-height:1.5;}
+.upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
+.upload-card{
+  border:1.5px dashed var(--glass-border);border-radius:14px;padding:16px;
+  background:rgba(255,255,255,.03);transition:all .18s;
+}
+.upload-card.loaded{border-style:solid;border-color:rgba(45,212,191,.55);background:var(--ok-bg);}
+.upload-card.error{border-style:solid;border-color:var(--danger-border);background:var(--danger-bg);}
+.upload-card label{display:block;font-size:12.5px;font-weight:700;color:#fff;margin-bottom:3px;}
+.upload-card .col-hint{font-weight:400;color:var(--text-dim);font-size:11px;display:block;margin-bottom:10px;}
+.upload-card input[type=file]{font-size:11.5px;width:100%;color:var(--text-muted);}
+.upload-card input[type=file]::file-selector-button{
+  background:rgba(255,255,255,.08);color:#fff;border:1px solid var(--glass-border);border-radius:7px;padding:6px 12px;font-size:11.5px;margin-right:10px;cursor:pointer;
+}
+.upload-status{font-size:11.5px;color:var(--text-dim);margin-top:9px;min-height:14px;line-height:1.4;}
+.upload-card.loaded .upload-status{color:var(--teal);font-weight:600;}
+.upload-card.error .upload-status{color:var(--rose);font-weight:600;}
+
+.action-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+#buildBtn{
+  background:linear-gradient(135deg, var(--brand-blue) 0%, #4A6FD4 100%);color:#fff;border:1px solid rgba(255,255,255,.18);
+  border-radius:11px;padding:12px 28px;font-size:14px;font-weight:700;cursor:pointer;
+  box-shadow:0 6px 20px rgba(91,141,239,.35);
+}
+#buildBtn:disabled{background:rgba(255,255,255,.06);color:var(--text-dim);cursor:not-allowed;box-shadow:none;border-color:var(--glass-border-soft);}
+#buildBtn:not(:disabled):hover{filter:brightness(1.1);}
+#resetBtn{background:rgba(255,255,255,.05);border:1px solid var(--glass-border);color:var(--text-muted);border-radius:11px;padding:12px 20px;font-size:13px;font-weight:600;cursor:pointer;}
+#resetBtn:hover{background:rgba(255,255,255,.09);color:#fff;}
+.build-note{font-size:12.5px;color:var(--text-dim);}
+
+.dashboard-body{display:none;}
+.dashboard-body.visible{display:block;}
+
+/* ---------- KPI row ---------- */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:22px;}
+.kpi-card{padding:17px 19px;border-top:2.5px solid var(--teal);}
+.kpi-card.alt{border-top-color:var(--amber);}
+.kpi-card.warn{border-top-color:var(--rose);}
+.kpi-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin-bottom:7px;}
+.kpi-value{font-size:25px;font-weight:800;color:#fff;line-height:1;}
+.kpi-note{font-size:11.5px;color:var(--text-dim);margin-top:7px;}
+
+.mini-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px;}
+.mini-kpi{padding:13px 15px;}
+.mini-kpi .l{font-size:10.5px;color:var(--text-muted);text-transform:uppercase;font-weight:700;letter-spacing:.4px;}
+.mini-kpi .v{font-size:19px;font-weight:800;color:#fff;margin-top:4px;}
+
+/* ---------- Sections ---------- */
+.section{padding:24px 26px;margin-bottom:22px;}
+.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px;}
+.section-head h2{margin:0;font-size:17px;color:#fff;font-weight:700;}
+.section-tag{background:rgba(45,212,191,.14);color:var(--teal);font-size:10.5px;font-weight:700;padding:4px 11px;border-radius:20px;text-transform:uppercase;letter-spacing:.5px;border:1px solid rgba(45,212,191,.28);}
+.section-desc{color:var(--text-muted);font-size:13px;margin:2px 0 16px;line-height:1.5;}
+.section-desc b{color:var(--text);}
+
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:8px;}
+@media (max-width:900px){.chart-grid{grid-template-columns:1fr;}}
+.chart-box{border:1px solid var(--glass-border-soft);border-radius:14px;padding:17px;background:rgba(255,255,255,.025);}
+.chart-box h3{margin:0 0 12px;font-size:12.5px;color:#fff;font-weight:700;letter-spacing:.2px;}
+.chart-hint{margin:-8px 0 12px;font-size:11px;color:var(--text-dim);}
+.chart-box canvas{max-height:280px;}
+
+.table-wrap{overflow-x:auto;overflow-y:auto;max-height:505px;margin-top:18px;border:1px solid var(--glass-border-soft);border-radius:14px;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:600px;}
+thead th{background:#12161d;backdrop-filter:blur(10px);color:#fff;text-align:left;padding:11px 13px;position:sticky;top:0;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--glass-border-soft);z-index:2;}
+tbody td{padding:9px 13px;border-bottom:1px solid rgba(255,255,255,.05);color:var(--text);}
+tbody tr:hover{background:rgba(91,141,239,.08);}
+tbody tr.flag-row{background:rgba(251,113,133,.09) !important;}
+tbody tr.flag-row td{color:var(--rose);font-weight:700;}
+.empty-state{padding:34px;text-align:center;color:var(--text-dim);font-size:13px;}
+
+footer{text-align:center;color:var(--text-dim);font-size:12px;padding:24px 0 0;}
+footer b{color:var(--text-muted);}
+
+/* ---------- Filters row ---------- */
+.filters-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;}
+.filter-item{display:flex;flex-direction:column;gap:6px;}
+.filter-item .flabel{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;}
+.select-plain{border:1px solid var(--glass-border);border-radius:9px;padding:9px 13px;font-size:12.5px;font-weight:600;color:#fff;background:rgba(255,255,255,.05);cursor:pointer;min-width:230px;}
+
+.export-btn{
+  border:1px solid rgba(52,211,153,.35);border-radius:9px;padding:9px 16px;font-size:12.5px;font-weight:700;
+  color:var(--emerald);background:rgba(52,211,153,.08);cursor:pointer;white-space:nowrap;
+}
+.export-btn:hover{background:rgba(52,211,153,.16);border-color:rgba(52,211,153,.55);}
+.export-btn:disabled{opacity:.5;cursor:not-allowed;}
+.select-plain option{background:#0b0f16;}
+
+.msel{position:relative;display:inline-block;}
+.msel-btn{background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:9px;padding:9px 15px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer;min-width:200px;text-align:left;}
+.msel-btn:hover{border-color:var(--teal);}
+.msel-panel{
+  position:absolute;top:112%;left:0;background:rgba(14,18,26,.92);backdrop-filter:blur(24px) saturate(180%);
+  border:1px solid var(--glass-border);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.55);
+  padding:10px;min-width:240px;max-height:270px;overflow-y:auto;z-index:120;
+}
+.msel-actions{display:flex;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--glass-border-soft);}
+.msel-actions button{font-size:11px;border:1px solid var(--glass-border);background:rgba(255,255,255,.04);border-radius:14px;padding:4px 10px;cursor:pointer;color:var(--text-muted);}
+.msel-actions button:hover{background:rgba(45,212,191,.14);color:var(--teal);border-color:rgba(45,212,191,.3);}
+.msel-item{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:5px 3px;cursor:pointer;color:var(--text);border-radius:6px;}
+.msel-item:hover{background:rgba(255,255,255,.05);}
+.msel-item input{cursor:pointer;accent-color:var(--teal);}
+
+/* ---------- Scrollable full-width bar charts ---------- */
+.scroll-chart-wrap{overflow-x:auto;border-radius:10px;padding-bottom:6px;}
+.scroll-chart-inner{height:340px;}
+
+.store-note{background:rgba(91,141,239,.10);border:1px solid rgba(91,141,239,.25);color:var(--text);font-size:12.5px;padding:11px 15px;border-radius:10px;margin-bottom:14px;}
+.store-note b{color:var(--brand-blue);}
+
+.store-tag{display:inline-block;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:12px;margin:2px 3px 2px 0;letter-spacing:.2px;white-space:nowrap;}
+.tag-st{background:rgba(91,141,239,.16);color:var(--brand-blue);border:1px solid rgba(91,141,239,.32);}
+.tag-grn{background:rgba(52,211,153,.16);color:var(--emerald);border:1px solid rgba(52,211,153,.32);}
+.tag-po{background:rgba(251,191,36,.16);color:var(--amber);border:1px solid rgba(251,191,36,.32);}
+.tag-ip{background:rgba(167,139,250,.16);color:var(--violet);border:1px solid rgba(167,139,250,.32);}
+.tag-none{background:rgba(255,255,255,.05);color:var(--text-dim);border:1px solid var(--glass-border-soft);}
+
+.ratio-cell{min-width:140px;}
+.ratio-bar-track{height:5px;background:rgba(255,255,255,.08);border-radius:3px;overflow:hidden;margin-bottom:4px;}
+.ratio-bar-fill{height:100%;background:linear-gradient(90deg, var(--teal), var(--brand-blue));border-radius:3px;}
+.ratio-text{font-size:12px;color:var(--text);white-space:nowrap;}
+.ratio-pct{color:var(--text-dim);font-size:11px;}
+.ratio-chart-wrap{height:400px;position:relative;}
+.ratio-chart-wrap canvas{max-height:none !important;}
+
+.table-search{margin-top:16px;}
+.search-input{
+  width:100%;background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:9px;
+  padding:9px 14px;font-size:12.5px;color:#fff;
+}
+.search-input::placeholder{color:var(--text-dim);}
+.search-input:focus{outline:none;border-color:var(--teal);background:rgba(255,255,255,.07);}
+
+.custom-legend{
+  margin-top:14px;max-height:220px;overflow-y:auto;border:1px solid var(--glass-border-soft);border-radius:10px;
+  padding:6px;background:rgba(255,255,255,.02);
+}
+.custom-legend-item{
+  display:flex;align-items:center;gap:9px;padding:6px 8px;font-size:12px;border-radius:6px;
+}
+.custom-legend-item:hover{background:rgba(255,255,255,.04);}
+.custom-legend-swatch{width:11px;height:11px;border-radius:3px;flex:0 0 auto;}
+.custom-legend-label{flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.custom-legend-value{color:var(--text-dim);font-weight:600;flex:0 0 auto;}
+.custom-legend-pct{color:var(--teal);font-weight:700;}
+
+.diag-panel{padding:18px 22px;margin-bottom:22px;border:1px solid var(--danger-border);background:var(--danger-bg);}
+.diag-panel h3{margin:0 0 6px;font-size:14.5px;color:#fff;display:flex;align-items:center;gap:8px;}
+.diag-panel p{margin:0 0 14px;font-size:12.5px;color:var(--text-muted);line-height:1.5;}
+.diag-table{width:100%;border-collapse:collapse;font-size:12px;}
+.diag-table th{text-align:left;padding:7px 10px;color:var(--text-muted);font-weight:700;text-transform:uppercase;font-size:10.5px;letter-spacing:.3px;border-bottom:1px solid rgba(255,255,255,.1);}
+.diag-table td{padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.05);}
+.diag-ok{color:var(--emerald);font-weight:700;}
+.diag-missing{color:var(--rose);font-weight:700;}
+.diag-row-issue td{background:rgba(251,113,133,.06);}
+
+/* scrollbars */
+::-webkit-scrollbar{height:9px;width:9px;}
+::-webkit-scrollbar-track{background:rgba(255,255,255,.03);}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:10px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <img src="data:image/png;base64,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" alt="Paras Health">
+      <div class="brand-text">
+        <h1>Non-Formulary Item Utilization Dashboard</h1>
+        <div class="tagline">Supply Chain Management</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+      <div class="brand-credit">Prepared by<br><b>Ritik Nagar</b></div>
+    </div>
+  </div>
+  <div class="unit-pill-bar" id="unitFilterBox" style="display:none;">
+    <div class="unit-pill-bar-inner">
+      <span class="upb-label">HOSPITAL UNIT</span>
+      <div class="unit-pills" id="unitPills"></div>
+    </div>
+    <div class="unit-pill-bar-inner date-row">
+      <span class="upb-label">DATE RANGE</span>
+      <div class="date-range-box">
+        <input type="date" id="dateFrom" class="date-input">
+        <span class="date-sep">to</span>
+        <input type="date" id="dateTo" class="date-input">
+        <button type="button" id="dateClearBtn" class="date-clear-btn" title="Show all dates">✕ Clear</button>
+        <span class="date-hint" id="dateHint"></span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero-spacer"></div>
+
+  <!-- UPLOAD PANEL -->
+  <div class="upload-panel glass" id="uploadPanel">
+    <h2>Step 1 — Upload Your 5 Files</h2>
+    <p class="hint">This dashboard contains no data by itself. Upload each file below — <b style="color:#fff;">.xlsx, .xls or .csv are all accepted</b> for every field. Everything is read and processed locally in your browser; nothing is uploaded anywhere.</p>
+
+    <div class="upload-grid">
+      <div class="upload-card" id="card-items">
+        <label>Non-Formulary Item List</label>
+        <span class="col-hint">Columns: ItemId, ITEM NAME, ITEM CODE</span>
+        <input type="file" id="file-items" accept=".xlsx,.xls,.csv">
+        <div class="upload-status" id="status-items">Not loaded</div>
+      </div>
+      <div class="upload-card" id="card-st">
+        <label>Stock Transfer</label>
+        <span class="col-hint">Needs: UNIT, From Store, To Store, Item Code, Transfered Qty.</span>
+        <input type="file" id="file-st" accept=".xlsx,.xls,.csv">
+        <div class="upload-status" id="status-st">Not loaded</div>
+      </div>
+      <div class="upload-card" id="card-ip">
+        <label>IP Issue</label>
+        <span class="col-hint">Needs: UNIT, Item Code, Department Name, Qty &middot; <b style="color:#FBBF24;">prefer .csv if this is a large, all-location export</b></span>
+        <input type="file" id="file-ip" accept=".xlsx,.xls,.csv">
+        <div class="upload-status" id="status-ip">Not loaded</div>
+      </div>
+      <div class="upload-card" id="card-grn">
+        <label>GRN</label>
+        <span class="col-hint">Needs: UNIT, Store, Item Code, Received Qty., GRN No. &middot; <b style="color:#FBBF24;">prefer .csv if this is a large, all-location export</b></span>
+        <input type="file" id="file-grn" accept=".xlsx,.xls,.csv">
+        <div class="upload-status" id="status-grn">Not loaded</div>
+      </div>
+      <div class="upload-card" id="card-pr">
+        <label>Purchase Register</label>
+        <span class="col-hint">Needs: UNIT, Store Name, Item Code, PO No, Status</span>
+        <input type="file" id="file-pr" accept=".xlsx,.xls,.csv">
+        <div class="upload-status" id="status-pr">Not loaded</div>
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button id="buildBtn" disabled>Build Dashboard</button>
+      <button id="resetBtn" style="display:none;">Upload Different Files</button>
+      <span class="build-note" id="buildNote">Load all 5 files to enable this button.</span>
+    </div>
+  </div>
+
+  <!-- DASHBOARD BODY -->
+  <div class="dashboard-body" id="dashboardBody">
+
+    <div id="diagnosticsPanel" style="display:none;"></div>
+
+    <div class="kpi-grid" id="kpiGrid"></div>
+
+    <div class="section glass">
+      <div class="section-head">
+        <h2>Store-Wise Overview</h2>
+        <span class="section-tag">Compliance check</span>
+      </div>
+      <p class="section-desc">Every store where these items appeared, for this unit — tagged by which activity types happened there, with each store's share of the total. Use this to confirm activity is happening only in stores where the item is approved (e.g. <b>OP Pharmacy Store</b>) and not elsewhere (e.g. <b>IP Pharmacy Store</b>). Rows mentioning "IP Pharmacy" are highlighted and need a closer look.</p>
+      <div class="chart-box" style="margin-bottom:18px;">
+        <h3>Store Share Comparison (% of total, per metric)</h3>
+        <div class="ratio-chart-wrap">
+          <canvas id="chartStoreRatio"></canvas>
+        </div>
+      </div>
+      <div class="table-search"><input type="text" class="search-input" id="searchStoreOverview" placeholder="Search this table… (store name, etc.)"></div>
+      <div class="table-wrap"><table id="tblStoreOverview"></table></div>
+    </div>
+
+    <!-- STOCK TRANSFER -->
+    <div class="section glass">
+      <div class="section-head">
+        <h2>1. Stock Transfer</h2>
+        <span class="section-tag">Store &rarr; Store movement</span>
+      </div>
+      <p class="section-desc">Select one or more From / To stores to filter the charts and the table below.</p>
+      <div class="filters-row">
+        <div class="filter-item">
+          <span class="flabel">From Store</span>
+          <div class="msel" id="mselFrom"></div>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">To Store</span>
+          <div class="msel" id="mselTo"></div>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">Value By</span>
+          <select id="stValueSelect" class="select-plain">
+            <option value="epr" selected>Total EPR</option>
+            <option value="qty">Quantity Transferred</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">&nbsp;</span>
+          <button type="button" id="stExportBtn" class="export-btn">⬇ Export to Excel</button>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-box"><h3 id="stItemChartTitle">Total EPR Transferred by Item (Top 15, filtered)</h3><p class="chart-hint">Colored by hospital unit — hover a segment for its exact value.</p><canvas id="chartSTItem"></canvas></div>
+        <div class="chart-box"><h3 id="stRouteChartTitle">Total EPR Transferred by Route (From &rarr; To)</h3><canvas id="chartSTRoute"></canvas></div>
+      </div>
+      <div class="chart-grid" style="margin-top:20px;">
+        <div class="chart-box" style="grid-column:1/-1;">
+          <h3 id="stUnitChartTitle">Total EPR Transferred by Unit — segmented by From Store</h3>
+          <p class="chart-hint">Shows which hospital unit is moving the most of these items, and which store each unit's transfers came from — hover any segment for its exact value.</p>
+          <canvas id="chartSTUnitStore"></canvas>
+        </div>
+      </div>
+      <div class="table-search"><input type="text" class="search-input" id="searchST" placeholder="Search this table… (item name, code, transfer no, etc.)"></div>
+      <div class="table-wrap"><table id="tblST"></table></div>
+    </div>
+
+    <!-- IP ISSUE -->
+    <div class="section glass">
+      <div class="section-head">
+        <h2>2. IP Issue (Patient Consumption)</h2>
+        <span class="section-tag">Issued to patients</span>
+      </div>
+      <p class="section-desc">All non-formulary items that were issued to patients — toggle store(s), specialisation(s) and sort order below. Charts and the table all react to your selection.</p>
+      <div class="filters-row">
+        <div class="filter-item">
+          <span class="flabel">Store</span>
+          <div class="msel" id="mselIPStore"></div>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">Specialisation</span>
+          <div class="msel" id="mselIPSpec"></div>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">Sort Items By</span>
+          <select id="ipSortSelect" class="select-plain">
+            <option value="qty">Quantity Issued (High → Low)</option>
+            <option value="times">Number of Times Issued (High → Low)</option>
+            <option value="epr">EPR (High → Low)</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">Color By</span>
+          <select id="ipColorBySelect" class="select-plain">
+            <option value="unit">Hospital Unit</option>
+            <option value="specialisation">Specialisation</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <span class="flabel">&nbsp;</span>
+          <button type="button" id="ipExportBtn" class="export-btn">⬇ Export to Excel</button>
+        </div>
+      </div>
+      <div class="chart-box">
+        <h3 id="ipChartTitle">Quantity Issued by Item — All Items (scroll horizontally &rarr;)</h3>
+        <p class="section-desc" style="margin:0 0 10px;" id="ipChartColorHint">Each color segment is a hospital unit — hover any segment for its exact value.</p>
+        <div class="scroll-chart-wrap">
+          <div class="scroll-chart-inner" id="ipChartInner">
+            <canvas id="chartIPCombined"></canvas>
+          </div>
+        </div>
+        <div class="custom-legend" id="chartIPCombinedLegend" style="display:none;"></div>
+      </div>
+      <div class="chart-grid" style="margin-top:20px;">
+        <div class="chart-box" style="grid-column:1/-1;">
+          <div class="section-head" style="margin-bottom:10px;">
+            <h3 style="margin:0;">Issue Volume — segmented by Item</h3>
+            <div class="filter-item" style="flex-direction:row;align-items:center;gap:8px;">
+              <span class="flabel" style="margin:0;">Segment By</span>
+              <select id="ipSegmentSelect" class="select-plain" style="min-width:160px;padding:6px 10px;">
+                <option value="store">Store</option>
+                <option value="specialisation">Specialisation</option>
+              </select>
+            </div>
+          </div>
+          <p class="chart-hint" style="margin-top:0;">Every item is shown individually with its own color — hover any segment for its exact value, or find it by name in the list below the chart.</p>
+          <canvas id="chartIPDept"></canvas>
+          <div class="custom-legend" id="chartIPDeptLegend"></div>
+        </div>
+      </div>
+      <div class="table-search"><input type="text" class="search-input" id="searchIP" placeholder="Search this table… (item name, code, department, etc.)"></div>
+      <div class="table-wrap"><table id="tblIP"></table></div>
+    </div>
+
+    <!-- GRN -->
+    <div class="section glass">
+      <div class="section-head">
+        <h2>3. GRN (Goods Receipt)</h2>
+        <span class="section-tag">Received into stores</span>
+      </div>
+      <p class="section-desc">Filter by store to see how many GRNs were raised for these items.</p>
+      <div class="filters-row">
+        <div class="filter-item">
+          <span class="flabel">Store</span>
+          <div class="msel" id="mselGRNStore"></div>
+        </div>
+      </div>
+      <div class="mini-kpi-row">
+        <div class="mini-kpi glass"><div class="l">Total GRN Made</div><div class="v" id="grnTotalCount">0</div></div>
+        <div class="mini-kpi glass"><div class="l">Total Qty Received</div><div class="v" id="grnTotalQty">0</div></div>
+      </div>
+      <p class="section-desc" style="margin-top:-6px;">Note: "Total GRN Made" counts distinct GRN documents. A single GRN can include more than one item, so the table below may list more rows than the GRN count — that's expected, not an error.</p>
+      <div class="filters-row">
+        <div class="filter-item">
+          <span class="flabel">Sort Items By</span>
+          <select id="grnSortSelect" class="select-plain">
+            <option value="count">GRN Count (High → Low)</option>
+            <option value="qty">Qty Received (High → Low)</option>
+            <option value="epr">EPR (High → Low)</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-box"><h3 id="grnItemChartTitle">GRN Count by Item (Top 15, filtered)</h3><p class="chart-hint">Colored by hospital unit — hover a segment for its exact value.</p><canvas id="chartGRNItem"></canvas></div>
+      <div class="table-search"><input type="text" class="search-input" id="searchGRN" placeholder="Search this table… (item name, code, GRN no, supplier, etc.)"></div>
+      <div class="table-wrap"><table id="tblGRN"></table></div>
+    </div>
+
+    <!-- PURCHASE REGISTER -->
+    <div class="section glass">
+      <div class="section-head">
+        <h2>4. Purchase Register</h2>
+        <span class="section-tag">Approved POs only</span>
+      </div>
+      <p class="section-desc">Only <b>Approved</b> purchase orders are included — Cancelled, Rejected and Pending POs are excluded. Filter by store below.</p>
+      <div class="filters-row">
+        <div class="filter-item">
+          <span class="flabel">Store</span>
+          <div class="msel" id="mselPRStore"></div>
+        </div>
+      </div>
+      <div class="chart-grid">
+        <div class="chart-box"><h3>PO Count by Store (Approved)</h3><p class="chart-hint">Colored by hospital unit — hover a segment for its exact value.</p><canvas id="chartPOStore"></canvas></div>
+        <div class="chart-box"><h3>PO Amount by Store (&#8377;, Approved)</h3><p class="chart-hint">Colored by hospital unit — hover a segment for its exact value.</p><canvas id="chartPOAmount"></canvas></div>
+      </div>
+      <div class="chart-grid" style="margin-top:20px;">
+        <div class="chart-box" style="grid-column:1/-1;">
+          <h3>PO Count by Made By (Prepared By)</h3>
+          <p class="chart-hint">Every item is shown individually with its own color — hover any segment for its exact value, or find it by name in the list below the chart.</p>
+          <canvas id="chartPOMaker"></canvas>
+          <div class="custom-legend" id="chartPOMakerLegend"></div>
+        </div>
+      </div>
+      <div class="table-search"><input type="text" class="search-input" id="searchPO" placeholder="Search this table… (item name, code, PO no, made by, etc.)"></div>
+      <div class="table-wrap"><table id="tblPO"></table></div>
+    </div>
+
+    <footer>Non-Formulary Item Dashboard &middot; <b>Paras Health — Supply Chain Management</b> &middot; Prepared by <b>Ritik Nagar</b> &middot; Data processed locally in your browser &middot; <span id="mcount"></span> items tracked</footer>
+  </div>
+
+</div>
+
+<script>
+Chart.defaults.color = '#93A1AD';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+Chart.defaults.font.family = "-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif";
+
+/* Draws a centered "No data" message on any chart whose labels are empty — applies to every
+   chart uniformly, without ever touching the canvas element itself (unlike hiding/removing the
+   canvas, which is fragile across repeated re-renders). */
+const noDataPlugin = {
+  id: 'noDataPlugin',
+  afterDraw(chart){
+    if(chart.data && chart.data.labels && chart.data.labels.length === 0){
+      const {ctx, chartArea} = chart;
+      const area = chartArea || {left:0, top:0, right:chart.width, bottom:chart.height};
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = "13px -apple-system, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif";
+      ctx.fillStyle = '#5C6773';
+      ctx.fillText('No data for this selection', (area.left+area.right)/2, (area.top+area.bottom)/2);
+      ctx.restore();
+    }
+  }
+};
+Chart.register(noDataPlugin);
+
+/* ============================================================
+   FILE LOADING — robust, accepts .xlsx / .xls / .csv for every field
+   ============================================================ */
+const loaded = { items: null, st: null, ip: null, grn: null, pr: null };
+
+function excelDateToDisplayString(d){
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}-${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+function normalizeExcelDateValues(rows){
+  return rows.map(r => {
+    const o = {};
+    for (const k in r){
+      const v = r[k];
+      o[k] = (v instanceof Date && !isNaN(v.getTime())) ? excelDateToDisplayString(v) : v;
+    }
+    return o;
+  });
+}
+
+const REQUIRED_COLUMNS = {
+  items: ['ItemId', 'ITEM NAME', 'ITEM CODE'],
+  st:    ['UNIT', 'From Store', 'To Store', 'Item Code', 'Item Name', 'Transfered Qty.', 'Transfer Date', 'Transfer No.'],
+  ip:    ['UNIT', 'Item Code', 'Item Name', 'Department Name', 'Qty'],
+  grn:   ['UNIT', 'Store', 'Item Code', 'Item Name', 'Received Qty.', 'GRN No.'],
+  pr:    ['UNIT', 'Store Name', 'Item Code', 'Item Name', 'PO No', 'Status']
+};
+
+/* Every column name the dashboard actually reads by key, per file. Real-world exports vary in
+   case ("unit" vs "UNIT") or stray spaces — this map re-cases any header that matches
+   case-insensitively, so the rest of the code can always rely on the canonical spelling. */
+const CANONICAL_COLUMNS = {
+  items: ['ItemId','ITEM NAME','ITEM CODE'],
+  st:    ['UNIT','Transfer Date','Transfer No.','From Store','To Store','Item Code','Item Name','Transfered Qty.','UOM'],
+  ip:    ['UNIT','Item Code','Item Name','Department Name','Qty','Total EPR','Posting Date','Specialisation Name'],
+  grn:   ['UNIT','GRN No.','GRN Date','Store','Item Code','Item Name','Received Qty.','EPR','Total Value','Supplier Name'],
+  pr:    ['UNIT','PO No','PO Date','Store Name','Item Code','Item Name','PO Qty.','PO Amount','Status','PO Saved By','Supplier Name']
+};
+
+function trimKeys(rows){
+  return rows.map(r => {
+    const o = {};
+    for (const k in r){
+      const v = r[k];
+      // Real-world exports sometimes have stray leading/trailing spaces in cell values
+      // (e.g. "EMERGENCY STORE " vs "EMERGENCY STORE") — untrimmed, these look identical
+      // but are treated as two different stores everywhere: filters, grouping, and totals.
+      o[String(k).trim()] = (typeof v === 'string') ? v.trim() : v;
+    }
+    return o;
+  });
+}
+
+/* Re-cases any header that matches a canonical column name case-insensitively (e.g. "unit" -> "UNIT").
+   Unknown/extra columns are left exactly as they are. */
+function normalizeColumnCasing(rows, key){
+  const canon = CANONICAL_COLUMNS[key] || [];
+  if(canon.length === 0 || rows.length === 0) return rows;
+  const lowerMap = new Map(canon.map(c => [c.toLowerCase(), c]));
+  return rows.map(r => {
+    const o = {};
+    for (const k in r){
+      const canonical = lowerMap.get(k.toLowerCase());
+      o[canonical || k] = r[k];
+    }
+    return o;
+  });
+}
+
+function setStatus(key, ok, msg){
+  const card = document.getElementById('card-' + key);
+  const status = document.getElementById('status-' + key);
+  card.classList.remove('loaded','error');
+  card.classList.add(ok ? 'loaded' : 'error');
+  status.textContent = msg;
+}
+
+function checkAllLoaded(){
+  const allLoaded = Object.values(loaded).every(v => v !== null);
+  document.getElementById('buildBtn').disabled = !allLoaded;
+  document.getElementById('buildNote').textContent = allLoaded
+    ? 'All files loaded — click Build Dashboard.'
+    : 'Load all 5 files to enable this button.';
+}
+
+function validateColumns(key, rows){
+  if(!rows || rows.length === 0){
+    return { ok:false, missing: [], empty:true };
+  }
+  const presentCols = new Set(Object.keys(rows[0]).map(c => c.toLowerCase()));
+  const required = REQUIRED_COLUMNS[key] || [];
+  const missing = required.filter(c => !presentCols.has(c.toLowerCase()));
+  return { ok: missing.length === 0, missing, empty:false };
+}
+
+function handleParsedRows(key, rows, fileLabel){
+  try{
+    const trimmed = normalizeColumnCasing(
+      trimKeys(rows).filter(r => Object.values(r).some(v => String(v ?? '').trim() !== '')),
+      key
+    );
+    const check = validateColumns(key, trimmed);
+    if(check.empty){
+      setStatus(key, false, 'File appears to be empty — please check and re-upload.');
+      loaded[key] = null;
+      checkAllLoaded();
+      return;
+    }
+    if(!check.ok){
+      setStatus(key, false, `Missing expected column(s): ${check.missing.join(', ')}. Please check the file's headers.`);
+      loaded[key] = null;
+      checkAllLoaded();
+      return;
+    }
+    loaded[key] = trimmed;
+    setStatus(key, true, `Loaded ${trimmed.length.toLocaleString()} rows from ${fileLabel}`);
+    checkAllLoaded();
+  }catch(err){
+    setStatus(key, false, 'Could not process this file: ' + err.message);
+    loaded[key] = null;
+    checkAllLoaded();
+  }
+}
+
+function parseAnyFile(file, key){
+  const ext = file.name.split('.').pop().toLowerCase();
+  const sizeMB = file.size / (1024*1024);
+  const bigFile = sizeMB > 15;
+
+  // Invalidate immediately — if this is replacing an already-loaded file, the build button must
+  // not stay enabled (and usable with stale data) while the new file is still being read/parsed.
+  loaded[key] = null;
+  checkAllLoaded();
+
+  // .xlsx parsing in the browser does not stream — very large single-sheet workbooks can hang the
+  // tab for minutes or fail to fully parse (a real limitation of in-browser Excel parsing, not
+  // something worth attempting silently). CSV has no such ceiling, so fail fast and redirect.
+  const XLSX_SIZE_LIMIT_MB = 20;
+  if((ext === 'xlsx' || ext === 'xls') && sizeMB > XLSX_SIZE_LIMIT_MB){
+    setStatus(key, false,
+      `This Excel file is ${sizeMB.toFixed(0)} MB — too large to reliably parse in-browser (limit ~${XLSX_SIZE_LIMIT_MB} MB for .xlsx). ` +
+      `Please re-save/export this file as .csv from your source system and upload that instead — CSV has no size limit here.`);
+    document.getElementById('card-' + key).classList.add('error');
+    loaded[key] = null;
+    checkAllLoaded();
+    return;
+  }
+
+  setStatus(key, true, bigFile
+    ? `Reading ${file.name} (${sizeMB.toFixed(0)} MB) — large file, this can take up to a minute…`
+    : 'Reading ' + file.name + ' …');
+  document.getElementById('card-' + key).classList.remove('loaded','error');
+
+  if(ext === 'csv'){
+    Papa.parse(file, {
+      header:true, skipEmptyLines:true, worker:true,
+      complete: results => {
+        if(results.errors && results.errors.length){
+          const fatal = results.errors.filter(e => e.type !== 'FieldMismatch');
+          if(fatal.length){
+            setStatus(key, false, 'CSV parse error: ' + fatal[0].message);
+            loaded[key] = null; checkAllLoaded(); return;
+          }
+        }
+        handleParsedRows(key, results.data, file.name);
+      },
+      error: err => { setStatus(key, false, 'Failed to parse CSV: ' + err.message); loaded[key]=null; checkAllLoaded(); }
+    });
+  } else if(ext === 'xlsx' || ext === 'xls'){
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        const wb = XLSX.read(e.target.result, {type:'array', cellDates:true});
+        if(!wb.SheetNames || wb.SheetNames.length === 0){
+          setStatus(key, false, 'No sheets found in this workbook.'); loaded[key]=null; checkAllLoaded(); return;
+        }
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        // raw:true (not raw:false) is deliberate: some real-world workbooks store different date
+        // cells in the SAME column with different display formats (e.g. some "M/D/YY", others
+        // "D/M/YY"), which makes the *formatted text* ambiguous/wrong. raw:true instead returns
+        // genuine JS Date objects computed from the cell's underlying serial number, which is
+        // never ambiguous. We then convert those Date objects to one consistent, unambiguous
+        // display string ourselves.
+        const rawRows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+        const rows = normalizeExcelDateValues(rawRows);
+        handleParsedRows(key, rows, file.name + ' (' + wb.SheetNames[0] + ')');
+      }catch(err){
+        setStatus(key, false, 'Failed to read Excel file: ' + err.message); loaded[key]=null; checkAllLoaded();
+      }
+    };
+    reader.onerror = () => { setStatus(key, false, 'Failed to read file from disk.'); loaded[key]=null; checkAllLoaded(); };
+    reader.readAsArrayBuffer(file);
+  } else {
+    setStatus(key, false, 'Unsupported file type "' + ext + '". Please upload .xlsx, .xls or .csv.');
+    loaded[key] = null; checkAllLoaded();
+  }
+}
+
+['items','st','ip','grn','pr'].forEach(key => {
+  document.getElementById('file-' + key).addEventListener('change', e => {
+    if(e.target.files[0]) parseAnyFile(e.target.files[0], key);
+  });
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  Object.keys(loaded).forEach(k => loaded[k] = null);
+  ['items','st','ip','grn','pr'].forEach(k => {
+    document.getElementById('file-' + k).value = '';
+    document.getElementById('card-' + k).classList.remove('loaded','error');
+    document.getElementById('status-' + k).textContent = 'Not loaded';
+  });
+  Object.keys(charts).forEach(id => killChart(id));
+  PAYLOAD = null;
+  selectedUnits = [];
+  currentDateRange = {from: null, to: null};
+  document.getElementById('dashboardBody').classList.remove('visible');
+  document.getElementById('unitFilterBox').style.display = 'none';
+  document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('diagnosticsPanel').style.display = 'none';
+  checkAllLoaded();
+});
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function toNum(v){
+  if (v === null || v === undefined) return 0;
+  if (typeof v === 'number') return v;
+  let s = String(v).replace(/,/g,'').trim();
+  if (s === '' || s === '-' ) return 0;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+const MONTH_MAP = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+
+/* Real-world exports use several date formats ("01-Aug-26", "01-07-2026 12:06", "01-Jul-2026", ISO, etc.)
+   — this tries the formats actually seen in these files before falling back to native Date parsing. */
+function parseFlexibleDate(str){
+  if(!str) return null;
+  const s = String(str).trim();
+  if(s === '') return null;
+
+  // dd-mm-yyyy or dd/mm/yyyy, optional "HH:MM"
+  let m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if(m){
+    const d = new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0));
+    if(!isNaN(d.getTime())) return d;
+  }
+  // dd-Mon-yy or dd-Mon-yyyy (e.g. "01-Aug-26", "01-Jul-2026")
+  m = s.match(/^(\d{1,2})-([A-Za-z]{3,})-(\d{2,4})/);
+  if(m){
+    const mon = MONTH_MAP[m[2].slice(0,3).toLowerCase()];
+    if(mon !== undefined){
+      let yr = +m[3];
+      if(yr < 100) yr += 2000;
+      const d = new Date(yr, mon, +m[1]);
+      if(!isNaN(d.getTime())) return d;
+    }
+  }
+  // ISO yyyy-mm-dd
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){
+    const d = new Date(+m[1], +m[2]-1, +m[3]);
+    if(!isNaN(d.getTime())) return d;
+  }
+  // Last resort — native parser
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function dateOnly(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+/* dateRange = {from: Date|null, to: Date|null}. Both null = no filter (include everything,
+   even rows whose date couldn't be parsed). */
+function inDateRange(dateStr, range){
+  if(!range || (!range.from && !range.to)) return true;
+  const d = parseFlexibleDate(dateStr);
+  if(!d) return false; // filter is active and we can't verify — exclude rather than risk wrong totals
+  const dd = dateOnly(d);
+  if(range.from && dd < range.from) return false;
+  if(range.to && dd > range.to) return false;
+  return true;
+}
+
+function groupBy(arr, keyFn){
+  const map = new Map();
+  arr.forEach(row => {
+    const key = keyFn(row);
+    if(!map.has(key)) map.set(key, []);
+    map.get(key).push(row);
+  });
+  return map;
+}
+function uniqueCount(arr, field){ return new Set(arr.map(r => r[field])).size; }
+function uniqueVals(arr, field){ return Array.from(new Set(arr.map(r=>r[field]).filter(Boolean))).sort(); }
+
+const COLORS = ['#5B8DEF','#2DD4BF','#FBBF24','#FB7185','#A78BFA','#34D399','#FB923C','#F472B6'];
+function fmt(n){
+  n = Number(n)||0;
+  if (Math.abs(n) >= 1e7) return (n/1e7).toFixed(2)+'Cr';
+  if (Math.abs(n) >= 1e5) return (n/1e5).toFixed(2)+'L';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1)+'K';
+  return n % 1 === 0 ? n.toLocaleString('en-IN') : n.toFixed(1);
+}
+function fmtINR(n){ n = Number(n)||0; return '\u20B9' + n.toLocaleString('en-IN', {maximumFractionDigits:0}); }
+function shortLabel(name, code){ if(!name) return code; return name.length > 26 ? name.slice(0,24)+'…' : name; }
+
+/* Uploaded data is untrusted text — escape before inserting into innerHTML anywhere (tables,
+   diagnostics panel) so stray characters like < > & " in item/store/supplier names can never
+   break the page's markup or be interpreted as HTML. */
+function escapeHtml(v){
+  if(v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+let charts = {};
+function killChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+
+function barChart(canvasId, labels, data, color, horizontal, valueFormatter){
+  killChart(canvasId);
+  const canvasEl = document.getElementById(canvasId);
+  if(!canvasEl){ console.warn('barChart: canvas element not found:', canvasId); return; }
+  const ctx = canvasEl.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: labels, datasets:[{ data:data, backgroundColor: color+'CC', borderColor:color, borderWidth:1, borderRadius:5, maxBarThickness:34 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      indexAxis: horizontal ? 'y' : 'x',
+      plugins:{
+        legend:{display:false},
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => valueFormatter ? valueFormatter(c.parsed[horizontal?'x':'y']) : fmt(c.parsed[horizontal?'x':'y']) } }
+      },
+      scales:{
+        x:{ beginAtZero:!horizontal, grid:{display:horizontal, color:'rgba(255,255,255,.06)'}, ticks: horizontal ? {callback:v=>fmt(v)} : {autoSkip:false, maxRotation:55, minRotation:35, font:{size:10.5}} },
+        y:{ beginAtZero:horizontal, grid:{display:!horizontal, color:'rgba(255,255,255,.06)'}, ticks: !horizontal ? {callback:v=>fmt(v)} : {font:{size:10.5}} }
+      }
+    }
+  });
+}
+
+function scrollableBarChart(wrapperInnerId, canvasId, labels, data, color, valueFormatter, yLabel){
+  killChart(canvasId);
+  const inner = document.getElementById(wrapperInnerId);
+  const canvas = document.getElementById(canvasId);
+  if(!inner || !canvas){ console.warn('scrollableBarChart: element(s) not found:', wrapperInnerId, canvasId); return; }
+  const width = Math.max((labels.length||1) * 46, inner.parentElement ? inner.parentElement.clientWidth : 300);
+  inner.style.width = width + 'px';
+  const ctx = canvas.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: labels, datasets:[{ data:data, backgroundColor: color+'CC', borderColor:color, borderWidth:1, borderRadius:5, maxBarThickness:30 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => valueFormatter ? valueFormatter(c.parsed.y) : fmt(c.parsed.y) } }
+      },
+      scales:{
+        x:{ ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:10}}, grid:{display:false} },
+        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>valueFormatter?valueFormatter(v):fmt(v)}, title:{display:!!yLabel, text:yLabel||'', color:'#93A1AD'} }
+      }
+    }
+  });
+}
+
+/* ---------- Live table search ---------- */
+/* Each table has a matching search input (id = 'search' + table id without the 'tbl' prefix, e.g.
+   tblST -> searchST). Filtering hides non-matching <tr> elements client-side — no re-fetch needed.
+   The listener is wired once per input (guarded so repeated renders don't stack listeners), and the
+   filter is re-applied after every render so an active search term survives filter/unit changes. */
+function applyTableSearch(inputId, tblId){
+  const input = document.getElementById(inputId);
+  if(!input) return;
+  const term = input.value.trim().toLowerCase();
+  const rows = document.querySelectorAll(`#${tblId} tbody tr`);
+  rows.forEach(row => {
+    if(!term){ row.style.display = ''; return; }
+    row.style.display = row.innerText.toLowerCase().includes(term) ? '' : 'none';
+  });
+}
+function wireTableSearch(inputId, tblId){
+  const input = document.getElementById(inputId);
+  if(!input || input.dataset.wired) return;
+  input.addEventListener('input', () => applyTableSearch(inputId, tblId));
+  input.dataset.wired = 'true';
+}
+function hookTableSearch(tblId){
+  const inputId = 'search' + tblId.replace('tbl', '');
+  wireTableSearch(inputId, tblId);
+  applyTableSearch(inputId, tblId);
+}
+
+function renderTable(tblId, rows, columns, flagFn){
+  const tbl = document.getElementById(tblId);
+  if(!rows || rows.length===0){
+    tbl.innerHTML = '<tbody><tr><td class="empty-state">No matching records for this selection.</td></tr></tbody>';
+    hookTableSearch(tblId);
+    return;
+  }
+  let thead = '<thead><tr>' + columns.map(c=>`<th>${escapeHtml(c.label)}</th>`).join('') + '</tr></thead>';
+  let tbody = '<tbody>' + rows.map(r => {
+    const flagged = flagFn ? flagFn(r) : false;
+    return `<tr class="${flagged?'flag-row':''}">` + columns.map(c => `<td>${escapeHtml(c.fmt ? c.fmt(r[c.key]) : (r[c.key] ?? ''))}</td>`).join('') + '</tr>';
+  }).join('') + '</tbody>';
+  tbl.innerHTML = thead + tbody;
+  hookTableSearch(tblId);
+}
+
+function isIPPharmacy(storeName){
+  if(!storeName) return false;
+  const u = storeName.toUpperCase();
+  return u.includes('IP') && u.includes('PHARMACY');
+}
+
+/* ---------- Reusable multi-select dropdown ---------- */
+// Every call to buildMultiSelect used to add its own `document.addEventListener('click', ...)`
+// to close the panel on an outside click — and never removed the old one when the same filter
+// was rebuilt (which happens on every unit-pill click or date change). Over a long session this
+// silently accumulated listeners. Fixed with one shared listener + a registry that always points
+// at the current containerEl/panel pair.
+const multiSelectRegistry = new Map(); // containerEl -> panel
+let multiSelectGlobalListenerAttached = false;
+function ensureMultiSelectGlobalListener(){
+  if(multiSelectGlobalListenerAttached) return;
+  document.addEventListener('click', (e) => {
+    multiSelectRegistry.forEach((panel, containerEl) => {
+      if(!containerEl.contains(e.target)) panel.style.display = 'none';
+    });
+  });
+  multiSelectGlobalListenerAttached = true;
+}
+
+function buildMultiSelect(containerEl, values, labelPrefix, onChange){
+  containerEl.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.type = 'button'; btn.className = 'msel-btn';
+  const panel = document.createElement('div');
+  panel.className = 'msel-panel'; panel.style.display = 'none';
+
+  const actions = document.createElement('div'); actions.className = 'msel-actions';
+  const selAllBtn = document.createElement('button'); selAllBtn.type='button'; selAllBtn.textContent='Select All';
+  const clearBtn = document.createElement('button'); clearBtn.type='button'; clearBtn.textContent='Clear';
+  actions.appendChild(selAllBtn); actions.appendChild(clearBtn);
+  panel.appendChild(actions);
+
+  if(values.length === 0){
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:12px;color:#5C6773;padding:6px 2px;';
+    empty.textContent = 'No values found for this unit.';
+    panel.appendChild(empty);
+  }
+
+  const checkboxes = [];
+  values.forEach(v => {
+    const lbl = document.createElement('label'); lbl.className = 'msel-item';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = v; cb.checked = true;
+    cb.addEventListener('change', update);
+    lbl.appendChild(cb); lbl.appendChild(document.createTextNode(' ' + v));
+    panel.appendChild(lbl);
+    checkboxes.push(cb);
+  });
+
+  function currentSelected(){ return checkboxes.filter(c=>c.checked).map(c=>c.value); }
+  function update(){
+    const selected = currentSelected();
+    btn.textContent = (values.length === 0) ? ('No ' + labelPrefix)
+      : (selected.length === values.length)
+      ? ('All ' + labelPrefix + ' \u25BE')
+      : (selected.length === 0 ? ('None selected \u25BE') : (selected.length + ' of ' + values.length + ' selected \u25BE'));
+    onChange(selected);
+  }
+  selAllBtn.addEventListener('click', (e)=>{ e.stopPropagation(); checkboxes.forEach(c=>c.checked=true); update(); });
+  clearBtn.addEventListener('click', (e)=>{ e.stopPropagation(); checkboxes.forEach(c=>c.checked=false); update(); });
+  btn.addEventListener('click', (e)=>{ e.stopPropagation(); panel.style.display = panel.style.display==='none' ? 'block':'none'; });
+
+  ensureMultiSelectGlobalListener();
+  multiSelectRegistry.set(containerEl, panel); // replaces any stale panel reference for this container
+
+  containerEl.appendChild(btn);
+  containerEl.appendChild(panel);
+  update();
+  return { getSelected: currentSelected };
+}
+
+/* ============================================================
+   DATA PROCESSING
+   ============================================================ */
+let PAYLOAD = null;
+
+function buildPayload(){
+  const items = loaded.items.map(r => ({
+    ItemId: r['ItemId'],
+    'ITEM NAME': String(r['ITEM NAME'] ?? '').trim(),
+    'ITEM CODE': String(r['ITEM CODE'] ?? '').trim()
+  })).filter(r => r['ITEM CODE'] !== '');
+
+  const nfCodes = new Set(items.map(r => r['ITEM CODE']));
+  const masterCount = new Set(items.map(r=>r['ITEM CODE'])).size;
+
+  if(masterCount === 0){
+    throw new Error('The Non-Formulary Item List has no usable rows with an ITEM CODE. Please check that file.');
+  }
+
+  const ST = loaded.st.map(r => ({...r, 'Item Code': String(r['Item Code'] ?? '').trim()}))
+                      .filter(r => nfCodes.has(r['Item Code']));
+  const IP = loaded.ip.map(r => ({...r, 'Item Code': String(r['Item Code'] ?? '').trim()}))
+                      .filter(r => nfCodes.has(r['Item Code']));
+  const GRN = loaded.grn.map(r => ({...r, 'Item Code': String(r['Item Code'] ?? '').trim()}))
+                        .filter(r => nfCodes.has(r['Item Code']));
+  // Purchase Register: match non-formulary items AND keep only Approved status
+  const PR = loaded.pr.map(r => ({...r, 'Item Code': String(r['Item Code'] ?? '').trim()}))
+                      .filter(r => nfCodes.has(r['Item Code']))
+                      .filter(r => String(r['Status']||'').trim().toLowerCase() === 'approved');
+
+  const units = Array.from(new Set([
+    ...ST.map(r=>r['UNIT']), ...IP.map(r=>r['UNIT']), ...GRN.map(r=>r['UNIT']), ...PR.map(r=>r['UNIT'])
+  ].filter(Boolean))).sort();
+
+  // Diagnostics: which unit codes exist in each RAW uploaded file (before non-formulary filtering).
+  // Surfaces real-world mismatches — e.g. one file using "DBH" while others use "DBG" for the same hospital.
+  const rawUnitsBySource = {
+    'Stock Transfer': new Set(loaded.st.map(r=>r['UNIT']).filter(Boolean)),
+    'IP Issue': new Set(loaded.ip.map(r=>r['UNIT']).filter(Boolean)),
+    'GRN': new Set(loaded.grn.map(r=>r['UNIT']).filter(Boolean)),
+    'Purchase Register': new Set(loaded.pr.map(r=>r['UNIT']).filter(Boolean)),
+  };
+  const allRawUnits = Array.from(new Set(Object.values(rawUnitsBySource).flatMap(s=>Array.from(s)))).sort();
+  const unitCoverage = allRawUnits.map(u => ({
+    unit: u,
+    inST: rawUnitsBySource['Stock Transfer'].has(u),
+    inIP: rawUnitsBySource['IP Issue'].has(u),
+    inGRN: rawUnitsBySource['GRN'].has(u),
+    inPR: rawUnitsBySource['Purchase Register'].has(u),
+  }));
+  const hasCoverageIssue = unitCoverage.some(r => !(r.inST && r.inIP && r.inGRN && r.inPR));
+
+  return { units, ST, IP, GRN, PR, master_count: masterCount, unitCoverage, hasCoverageIssue };
+}
+
+/* Computes the same aggregated shape as before, but for any set of selected units (one, many, or all)
+   and an optional date range, applied per-source using each file's own date column. */
+function isOpOrOpdPharmacy(store){
+  if(!store) return false;
+  const u = store.toUpperCase();
+  return u.includes('OP PHARMACY') || u.includes('OPD PHARMACY');
+}
+function isIpPharmacyOrMedical(store){
+  if(!store) return false;
+  const u = store.toUpperCase();
+  return u.includes('IP PHARMACY') || u.includes('MEDICAL STORE');
+}
+
+function computeUnitData(selectedUnits, dateRange){
+  const unitSet = new Set(selectedUnits);
+  const { ST, IP, GRN, PR, master_count: masterCount } = PAYLOAD;
+
+  const s = ST.filter(r => unitSet.has(r['UNIT']) && inDateRange(r['Transfer Date'], dateRange));
+  const i = IP.filter(r => unitSet.has(r['UNIT']) && inDateRange(r['Posting Date'], dateRange));
+  const g = GRN.filter(r => unitSet.has(r['UNIT']) && inDateRange(r['GRN Date'], dateRange));
+  const p = PR.filter(r => unitSet.has(r['UNIT']) && inDateRange(r['PO Date'], dateRange));
+
+  const st_detail = [...s].sort((a,b)=> String(a['Transfer Date']).localeCompare(String(b['Transfer Date'])));
+  const ip_detail = [...i].sort((a,b)=> String(a['Posting Date']).localeCompare(String(b['Posting Date'])));
+  const grn_detail = [...g].sort((a,b)=> String(a['GRN Date']).localeCompare(String(b['GRN Date'])));
+  const pr_detail = [...p].sort((a,b)=> String(a['PO Date']).localeCompare(String(b['PO Date'])));
+
+  const prMakerMap = groupBy(p, r => r['PO Saved By'] || 'Unspecified');
+  const pr_by_maker = Array.from(prMakerMap.entries()).map(([k, rows]) => ({
+    maker: k, po_count: uniqueCount(rows,'PO No'), po_amount: rows.reduce((a,r)=>a+toNum(r['PO Amount']),0)
+  })).sort((a,b)=>b.po_count-a.po_count);
+
+  const matchedCodes = new Set([
+    ...s.map(r=>r['Item Code']), ...p.map(r=>r['Item Code']),
+    ...g.map(r=>r['Item Code']), ...i.map(r=>r['Item Code'])
+  ]);
+  const stStores = new Set([...s.map(r=>r['From Store']), ...s.map(r=>r['To Store'])].filter(Boolean));
+
+  // Compliance metric: these items are approved for OP/OPD Pharmacy use only — this tracks the
+  // total EPR value that moved from OP/OPD Pharmacy stores INTO IP Pharmacy / Medical Store,
+  // which is exactly the direction that shouldn't be happening.
+  const opToIpRows = s.filter(r => isOpOrOpdPharmacy(r['From Store']) && isIpPharmacyOrMedical(r['To Store']));
+  const opToIpEpr = opToIpRows.reduce((a,r)=>a + toNum(r['EPR'])*toNum(r['Transfered Qty.']), 0);
+
+  const kpis = {
+    total_nf_items: masterCount,
+    items_in_use: matchedCodes.size,
+    items_never_moved: masterCount - matchedCodes.size,
+    st_transactions: s.length, st_qty: s.reduce((a,r)=>a+toNum(r['Transfered Qty.']),0),
+    ip_transactions: i.length, ip_qty: i.reduce((a,r)=>a+toNum(r['Qty']),0),
+    grn_count: uniqueCount(g,'GRN No.'), grn_qty: g.reduce((a,r)=>a+toNum(r['Received Qty.']),0),
+    po_count: uniqueCount(p,'PO No'), po_qty: p.reduce((a,r)=>a+toNum(r['PO Qty.']),0),
+    po_amount: p.reduce((a,r)=>a+toNum(r['PO Amount']),0),
+    stores_involved_st: stStores.size,
+    stores_involved_grn: uniqueCount(g,'Store'),
+    stores_involved_po: uniqueCount(p,'Store Name'),
+    departments_involved_ip: uniqueCount(i,'Department Name'),
+    op_to_ip_epr: opToIpEpr, op_to_ip_lines: opToIpRows.length,
+  };
+
+  return { kpis, st_detail, ip_detail, grn_detail, pr_detail, pr_by_maker };
+}
+
+/* ============================================================
+   SECTION RENDERERS
+   ============================================================ */
+
+function renderKPIs(k){
+  const grid = document.getElementById('kpiGrid');
+  const cards = [
+    {label:'Non-Formulary Items (Master List)', value: k.total_nf_items, note:'Total items on your list', cls:''},
+    {label:'Items Actually in Use', value: k.items_in_use, note:'Appeared in at least one report', cls:''},
+    {label:'Items Never Moved', value: k.items_never_moved, note:'No transfer / GRN / PO / issue found', cls:'warn'},
+    {label:'Qty Transferred (Stock Transfer)', value: fmt(k.st_qty), note:k.st_transactions+' transfer line(s)', cls:''},
+    {label:'Qty Issued to Patients', value: fmt(k.ip_qty), note:k.ip_transactions+' issue transaction(s)', cls:''},
+    {label:'GRNs Raised', value: k.grn_count, note:fmt(k.grn_qty)+' units received', cls:'alt'},
+    {label:'POs Generated (Approved)', value: k.po_count, note:fmt(k.po_qty)+' units ordered', cls:'alt'},
+    {label:'Total PO Value (Approved)', value: fmtINR(k.po_amount), note:'Across '+k.stores_involved_po+' store(s)', cls:'alt'},
+    {label:'EPR Value: OP/OPD → IP/Medical', value: fmtINR(k.op_to_ip_epr), note:k.op_to_ip_lines+' transfer line(s) — items moving out of OP Pharmacy', cls:'warn'},
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="kpi-card glass ${c.cls}">
+      <div class="kpi-label">${c.label}</div>
+      <div class="kpi-value">${c.value}</div>
+      <div class="kpi-note">${c.note}</div>
+    </div>`).join('');
+}
+
+function computeStoreOverviewRows(d){
+  const stores = new Set();
+  d.st_detail.forEach(r=>{ if(r['From Store']) stores.add(r['From Store']); if(r['To Store']) stores.add(r['To Store']); });
+  d.grn_detail.forEach(r=>{ if(r['Store']) stores.add(r['Store']); });
+  d.pr_detail.forEach(r=>{ if(r['Store Name']) stores.add(r['Store Name']); });
+  d.ip_detail.forEach(r=>{ if(r['Department Name']) stores.add(r['Department Name']); });
+
+  return Array.from(stores).sort().map(store => {
+    const stIn = d.st_detail.filter(r=>r['To Store']===store);
+    const stOut = d.st_detail.filter(r=>r['From Store']===store);
+    const grnRows = d.grn_detail.filter(r=>r['Store']===store);
+    const prRows = d.pr_detail.filter(r=>r['Store Name']===store);
+    const ipRows = d.ip_detail.filter(r=>r['Department Name']===store);
+    const tags = [];
+    if(stIn.length || stOut.length) tags.push('Stock Transfer');
+    if(grnRows.length) tags.push('GRN');
+    if(prRows.length) tags.push('PO');
+    if(ipRows.length) tags.push('IP Issue');
+    return {
+      store, tags,
+      st_in_qty: stIn.reduce((a,r)=>a+toNum(r['Transfered Qty.']),0),
+      st_out_qty: stOut.reduce((a,r)=>a+toNum(r['Transfered Qty.']),0),
+      grn_count: uniqueCount(grnRows,'GRN No.'),
+      grn_qty: grnRows.reduce((a,r)=>a+toNum(r['Received Qty.']),0),
+      po_count: uniqueCount(prRows,'PO No'),
+      po_amount: prRows.reduce((a,r)=>a+toNum(r['PO Amount']),0),
+      ip_qty: ipRows.reduce((a,r)=>a+toNum(r['Qty']),0),
+    };
+  });
+}
+
+const STORE_TAG_CLASS = {'Stock Transfer':'tag-st', 'GRN':'tag-grn', 'PO':'tag-po', 'IP Issue':'tag-ip'};
+
+/* Custom renderer (not the generic renderTable) so each numeric cell can show a computed,
+   non-user-controlled ratio bar alongside the escaped value — gives an at-a-glance sense of each
+   store's share of the total for that metric. */
+function renderStoreOverviewTable(rows){
+  const tbl = document.getElementById('tblStoreOverview');
+  if(!rows || rows.length === 0){
+    tbl.innerHTML = '<tbody><tr><td class="empty-state">No matching records for this selection.</td></tr></tbody>';
+    hookTableSearch('tblStoreOverview');
+    return;
+  }
+  const totals = {
+    grn_count: rows.reduce((a,r)=>a+r.grn_count,0),
+    po_count: rows.reduce((a,r)=>a+r.po_count,0),
+    po_amount: rows.reduce((a,r)=>a+r.po_amount,0),
+    ip_qty: rows.reduce((a,r)=>a+r.ip_qty,0),
+  };
+  function ratioCell(value, total, formatter){
+    const pct = total > 0 ? (value/total*100) : 0;
+    return `<div class="ratio-cell">
+      <div class="ratio-bar-track"><div class="ratio-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="ratio-text">${escapeHtml(formatter(value))} <span class="ratio-pct">(${pct.toFixed(1)}%)</span></div>
+    </div>`;
+  }
+  const bodyRows = rows.map(r => {
+    const flagged = isIPPharmacy(r.store);
+    const tagsHtml = r.tags.length
+      ? r.tags.map(t => `<span class="store-tag ${STORE_TAG_CLASS[t]||''}">${escapeHtml(t)}</span>`).join('')
+      : '<span class="store-tag tag-none">No activity</span>';
+    return `<tr class="${flagged?'flag-row':''}">
+      <td><b>${escapeHtml(r.store)}</b></td>
+      <td>${tagsHtml}</td>
+      <td>${escapeHtml(fmt(r.st_in_qty))}</td>
+      <td>${escapeHtml(fmt(r.st_out_qty))}</td>
+      <td>${ratioCell(r.grn_count, totals.grn_count, v=>fmt(v))}</td>
+      <td>${ratioCell(r.po_count, totals.po_count, v=>fmt(v))}</td>
+      <td>${ratioCell(r.po_amount, totals.po_amount, v=>fmtINR(v))}</td>
+      <td>${ratioCell(r.ip_qty, totals.ip_qty, v=>fmt(v))}</td>
+    </tr>`;
+  }).join('');
+  tbl.innerHTML = `<thead><tr>
+      <th>Store</th><th>Activity Tags</th><th>ST Qty In</th><th>ST Qty Out</th>
+      <th>GRN Count (share)</th><th>PO Count (share)</th><th>PO Amount (share)</th><th>IP Qty Issued (share)</th>
+    </tr></thead><tbody>${bodyRows}</tbody>`;
+  hookTableSearch('tblStoreOverview');
+}
+
+/* 100%-stacked horizontal bar: one row per metric, segments = each store's share of that metric's total. */
+function renderStoreRatioChart(rows){
+  const canvasId = 'chartStoreRatio';
+  killChart(canvasId);
+  const canvasEl = document.getElementById(canvasId);
+  if(!canvasEl){ console.warn('renderStoreRatioChart: canvas not found'); return; }
+
+  const metrics = [
+    {key:'grn_count', label:'GRN Count'},
+    {key:'po_count', label:'PO Count'},
+    {key:'po_amount', label:'PO Amount'},
+    {key:'ip_qty', label:'IP Qty Issued'},
+  ];
+  const totals = {};
+  metrics.forEach(m => totals[m.key] = rows.reduce((a,r)=>a+r[m.key],0));
+
+  const datasets = rows.map((r, idx) => ({
+    label: r.store,
+    data: metrics.map(m => totals[m.key] > 0 ? (r[m.key]/totals[m.key])*100 : 0),
+    backgroundColor: COLORS[idx % COLORS.length] + 'CC',
+    borderColor: COLORS[idx % COLORS.length], borderWidth: 1
+  }));
+
+  const ctx = canvasEl.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: rows.length ? metrics.map(m=>m.label) : [], datasets: rows.length ? datasets : [] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10.5 }, color: '#93A1AD' } },
+        tooltip: { backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks: { label: c => `${c.dataset.label}: ${c.parsed.x.toFixed(1)}%` } }
+      },
+      scales: {
+        x: { stacked: true, max: 100, ticks: { callback: v => v+'%' }, grid: { color:'rgba(255,255,255,.06)' } },
+        y: { stacked: true, grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderStoreOverview(d){
+  const rows = computeStoreOverviewRows(d);
+  renderStoreOverviewTable(rows);
+  renderStoreRatioChart(rows);
+}
+
+let stFromSel, stToSel;
+function renderStockTransfer(d){
+  const fromStores = uniqueVals(d.st_detail, 'From Store');
+  const toStores = uniqueVals(d.st_detail, 'To Store');
+  const valueSelect = document.getElementById('stValueSelect');
+  const rowEPR = r => toNum(r['EPR']) * toNum(r['Transfered Qty.']);
+
+  function recompute(){
+    const selFrom = stFromSel ? stFromSel.getSelected() : fromStores;
+    const selTo = stToSel ? stToSel.getSelected() : toStores;
+    const filtered = d.st_detail.filter(r => selFrom.includes(r['From Store']) && selTo.includes(r['To Store']));
+
+    const mode = valueSelect.value;
+    const isEPR = mode === 'epr';
+    const valueFormatter = isEPR ? (v=>fmtINR(v)) : (v=>fmt(v));
+    const rowValueFn = isEPR ? rowEPR : (r => toNum(r['Transfered Qty.']));
+
+    document.getElementById('stItemChartTitle').textContent = isEPR
+      ? 'Total EPR Transferred by Item (Top 15, filtered)' : 'Quantity Transferred by Item (Top 15, filtered)';
+    document.getElementById('stRouteChartTitle').textContent = isEPR
+      ? 'Total EPR Transferred by Route (From → To)' : 'Transfer Volume by Route (From → To)';
+    document.getElementById('stUnitChartTitle').textContent = isEPR
+      ? 'Total EPR Transferred by Unit — segmented by From Store' : 'Quantity Transferred by Unit — segmented by From Store';
+
+    const routeMap = groupBy(filtered, r => (r['From Store']||'?') + '||' + (r['To Store']||'?'));
+    const byRoute = Array.from(routeMap.entries()).map(([k, rows]) => ({
+      'From Store': rows[0]['From Store'], 'To Store': rows[0]['To Store'],
+      value: rows.reduce((a,r)=>a+rowValueFn(r),0)
+    })).sort((a,b)=>b.value-a.value).slice(0,12);
+
+    // Each stacked segment = one hospital unit; hover any segment for its unit name and value.
+    stackedByUnitBarChart('chartSTItem', filtered, r=>shortLabel(r['Item Name'], r['Item Code']), 'UNIT',
+      rows=>rows.reduce((a,r)=>a+rowValueFn(r),0), valueFormatter, 15, false);
+    barChart('chartSTRoute', byRoute.map(r=> (r['From Store']||'?') + ' → ' + (r['To Store']||'?')), byRoute.map(r=>r.value), COLORS[1], true, valueFormatter);
+
+    // Which unit is moving the most of these items, broken down by which store each unit's
+    // transfers originated from — categories = unit, stacked segments = From Store.
+    stackedByUnitBarChart('chartSTUnitStore', filtered, r=>r['UNIT']||'Unknown', 'From Store',
+      rows=>rows.reduce((a,r)=>a+rowValueFn(r),0), valueFormatter, null, false);
+
+    const filteredWithEPR = filtered.map(r => ({...r, _totalEPR: rowEPR(r)}));
+    renderTable('tblST', filteredWithEPR, [
+      {key:'Transfer Date', label:'Date'}, {key:'Transfer No.', label:'Transfer No.'},
+      {key:'From Store', label:'From Store'}, {key:'To Store', label:'To Store'},
+      {key:'Item Code', label:'Item Code'}, {key:'Item Name', label:'Item Name'},
+      {key:'Transfered Qty.', label:'Qty'}, {key:'UOM', label:'UOM'},
+      {key:'_totalEPR', label:'Total EPR', fmt:v=>fmtINR(v)}
+    ]);
+
+    // Item x Unit x From Store x To Store breakdown for the Export to Excel button — always
+    // includes both Qty and EPR regardless of the Value By toggle, plus each row's share of that
+    // item's own total EPR (not the whole dataset's).
+    const exportMap = new Map();
+    const itemTotalEPR = new Map();
+    filtered.forEach(r => {
+      const itemKey = r['Item Code'] + '||' + r['Item Name'];
+      const unit = r['UNIT'] || 'Unspecified';
+      const from = r['From Store'] || 'Unspecified';
+      const to = r['To Store'] || 'Unspecified';
+      const key = itemKey + '::' + unit + '::' + from + '::' + to;
+      if(!exportMap.has(key)) exportMap.set(key, {
+        'Item Code': r['Item Code'], 'Item Name': r['Item Name'], unit, from, to, qty: 0, epr: 0
+      });
+      const entry = exportMap.get(key);
+      const eprVal = rowEPR(r);
+      entry.qty += toNum(r['Transfered Qty.']);
+      entry.epr += eprVal;
+      itemTotalEPR.set(itemKey, (itemTotalEPR.get(itemKey) || 0) + eprVal);
+    });
+    const exportRows = Array.from(exportMap.values());
+    window.__stExportRows = exportRows
+      .sort((a,b) => {
+        const totA = itemTotalEPR.get(a['Item Code']+'||'+a['Item Name']) || 0;
+        const totB = itemTotalEPR.get(b['Item Code']+'||'+b['Item Name']) || 0;
+        return totB - totA || b.epr - a.epr;
+      })
+      .map(r => {
+        const itemTotal = itemTotalEPR.get(r['Item Code']+'||'+r['Item Name']) || 0;
+        return {
+          'Item Code': r['Item Code'],
+          'Item Name': r['Item Name'],
+          'Unit': r.unit,
+          'From Store': r.from,
+          'To Store': r.to,
+          'Qty Transferred': r.qty,
+          'Total EPR': Math.round(r.epr * 100) / 100,
+          "Share of This Item's Total EPR (%)": itemTotal > 0 ? Math.round((r.epr/itemTotal) * 10000) / 100 : 0
+        };
+      });
+  }
+
+  stFromSel = buildMultiSelect(document.getElementById('mselFrom'), fromStores, 'Stores', recompute);
+  stToSel = buildMultiSelect(document.getElementById('mselTo'), toStores, 'Stores', recompute);
+  valueSelect.onchange = recompute;
+  document.getElementById('stExportBtn').onclick = exportSTToExcel;
+  recompute();
+}
+
+function exportSTToExcel(){
+  const rows = window.__stExportRows;
+  if(!rows || rows.length === 0){
+    alert('Nothing to export yet — build the dashboard and make sure the Stock Transfer table has data first.');
+    return;
+  }
+  try{
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:16},{wch:42},{wch:10},{wch:20},{wch:20},{wch:15},{wch:14},{wch:24}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Stock Transfer Breakdown');
+    const stamp = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `stock_transfer_breakdown_${stamp}.xlsx`);
+  }catch(err){
+    alert('Could not generate the Excel file: ' + err.message);
+    console.error(err);
+  }
+}
+
+/* Generates visually distinct colors for an arbitrary number of items using the golden-angle
+   hue step — spreads hues evenly around the color wheel so adjacent items stay distinguishable
+   even with 100+ of them, without needing to know the total count in advance. */
+function goldenColor(i, alpha){
+  const hue = (i * 137.508) % 360;
+  return `hsla(${hue.toFixed(1)}, 62%, 56%, ${alpha})`;
+}
+
+/* Stacked bar: x = any category (store/specialisation/maker/etc.), segments = every individual
+   item (no "Other" bucket — every item gets its own color and its own name). Since there can be
+   far too many items for Chart.js's built-in legend to render cleanly, the legend is a custom
+   scrollable list rendered into a sibling element (id = canvasId + 'Legend') instead. valueFn
+   extracts the number each row contributes (defaults to Qty). */
+function stackedCategoryItemChart(canvasId, rows, categoryField, valueFn){
+  valueFn = valueFn || (r => toNum(r['Qty']));
+  killChart(canvasId);
+  const canvasEl = document.getElementById(canvasId);
+  if(!canvasEl){ console.warn('stackedCategoryItemChart: canvas not found:', canvasId); return; }
+  const categories = uniqueVals(rows, categoryField);
+
+  const itemTotals = groupBy(rows, r => r['Item Code'] + '||' + r['Item Name']);
+  const itemTotalsArr = Array.from(itemTotals.entries()).map(([k, rs]) => ({
+    key:k, name: rs[0]['Item Name'], code: rs[0]['Item Code'],
+    total: rs.reduce((a,r)=>a+valueFn(r),0)
+  })).sort((a,b)=>b.total-a.total);
+
+  const perCatItemVal = new Map();
+  categories.forEach(c => perCatItemVal.set(c, new Map()));
+  rows.forEach(r => {
+    const cat = r[categoryField] || 'Unspecified';
+    if(!perCatItemVal.has(cat)) perCatItemVal.set(cat, new Map());
+    const m = perCatItemVal.get(cat);
+    const key = r['Item Code'] + '||' + r['Item Name'];
+    m.set(key, (m.get(key)||0) + valueFn(r));
+  });
+
+  const datasets = itemTotalsArr.map((item, idx) => ({
+    label: shortLabel(item.name, item.code),
+    fullLabel: `${item.name} (${item.code})`,
+    data: categories.map(c => (perCatItemVal.get(c)||new Map()).get(item.key) || 0),
+    backgroundColor: goldenColor(idx, 0.85),
+    borderColor: goldenColor(idx, 1), borderWidth: 1
+  }));
+
+  const ctx = canvasEl.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: categories, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => `${c.dataset.fullLabel || c.dataset.label}: ${fmt(c.parsed.y)}` } }
+      },
+      scales:{
+        x:{ stacked:true, grid:{display:false} },
+        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>fmt(v)} }
+      }
+    }
+  });
+
+  const legendEl = document.getElementById(canvasId + 'Legend');
+  if(legendEl){
+    legendEl.innerHTML = itemTotalsArr.map((item, idx) => `
+      <div class="custom-legend-item">
+        <span class="custom-legend-swatch" style="background:${goldenColor(idx,0.9)}"></span>
+        <span class="custom-legend-label">${escapeHtml(item.name)}</span>
+        <span class="custom-legend-value">${escapeHtml(fmt(item.total))}</span>
+      </div>`).join('');
+  }
+}
+
+/* ---------- Unit-colored stacked bars ---------- */
+/* Aggregates rows into {category -> {unit -> value}} using aggregateFn(rowsForThatCell), ranks
+   categories by their grand total (descending), and returns Chart.js-ready labels/datasets — one
+   dataset per hospital unit, each a distinct color, stacked. Hovering any segment shows the unit
+   name and its exact value via the dataset label in the tooltip. */
+function computeStackedByUnit(rows, categoryFn, stackField, aggregateFn, topN){
+  const stackVals = uniqueVals(rows, stackField);
+  const catStackRows = new Map();
+  rows.forEach(r => {
+    const cat = categoryFn(r);
+    if(!catStackRows.has(cat)) catStackRows.set(cat, new Map());
+    const sm = catStackRows.get(cat);
+    const sv = r[stackField] || 'Unspecified';
+    if(!sm.has(sv)) sm.set(sv, []);
+    sm.get(sv).push(r);
+  });
+  let catArr = Array.from(catStackRows.entries()).map(([cat, sm]) => {
+    const allRows = Array.from(sm.values()).flat();
+    return { cat, total: aggregateFn(allRows) };
+  }).sort((a,b) => b.total - a.total);
+  if(topN) catArr = catArr.slice(0, topN);
+
+  const topCats = catArr.map(c => c.cat);
+  // goldenColor rather than the fixed 8-color palette — stacking by Specialisation can mean 50+
+  // segments, and the fixed palette would repeat (and mislead) well before that.
+  const datasets = stackVals.map((sv, idx) => ({
+    label: sv,
+    data: topCats.map(cat => {
+      const sm = catStackRows.get(cat);
+      const rowsForVal = (sm && sm.get(sv)) || [];
+      return aggregateFn(rowsForVal);
+    }),
+    backgroundColor: goldenColor(idx, 0.85),
+    borderColor: goldenColor(idx, 1), borderWidth: 1
+  }));
+  return { labels: topCats, datasets };
+}
+
+function stackedByUnitBarChart(canvasId, rows, categoryFn, stackField, aggregateFn, valueFormatter, topN, horizontal){
+  killChart(canvasId);
+  const canvasEl = document.getElementById(canvasId);
+  if(!canvasEl){ console.warn('stackedByUnitBarChart: canvas not found:', canvasId); return; }
+  const { labels, datasets } = computeStackedByUnit(rows, categoryFn, stackField, aggregateFn, topN);
+  const ctx = canvasEl.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      indexAxis: horizontal ? 'y' : 'x',
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10.5 }, color: '#93A1AD' } },
+        tooltip: {
+          backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks: {
+            label: c => `${c.dataset.label}: ${valueFormatter ? valueFormatter(c.parsed[horizontal?'x':'y']) : fmt(c.parsed[horizontal?'x':'y'])}`
+          }
+        }
+      },
+      scales: {
+        x: { stacked: true, beginAtZero: !horizontal, grid: { display: horizontal, color:'rgba(255,255,255,.06)' },
+             ticks: horizontal ? { callback: v => valueFormatter?valueFormatter(v):fmt(v) } : { autoSkip:false, maxRotation:55, minRotation:35, font:{size:10.5} } },
+        y: { stacked: true, beginAtZero: horizontal, grid: { display: !horizontal, color:'rgba(255,255,255,.06)' },
+             ticks: !horizontal ? { callback: v => valueFormatter?valueFormatter(v):fmt(v) } : { font:{size:10.5} } }
+      }
+    }
+  });
+}
+
+/* Same idea as stackedByUnitBarChart, but for the wide horizontally-scrollable IP combined chart
+   (shows every item, not just a top-N slice, so the wrapper needs to grow with the item count).
+   When stacking by a field with many values (e.g. Specialisation, 50+), Chart.js's built-in legend
+   would need so many rows it would squeeze the fixed-height plot area down to nothing — so past a
+   threshold this switches to the same scrollable custom legend used elsewhere in the dashboard. */
+function scrollableStackedByUnitChart(wrapperInnerId, canvasId, rows, categoryFn, stackField, aggregateFn, valueFormatter, yLabel){
+  killChart(canvasId);
+  const inner = document.getElementById(wrapperInnerId);
+  const canvas = document.getElementById(canvasId);
+  if(!inner || !canvas){ console.warn('scrollableStackedByUnitChart: element(s) not found'); return; }
+  const { labels, datasets } = computeStackedByUnit(rows, categoryFn, stackField, aggregateFn, null);
+  const width = Math.max((labels.length||1) * 46, inner.parentElement ? inner.parentElement.clientWidth : 300);
+  inner.style.width = width + 'px';
+
+  const LEGEND_THRESHOLD = 12;
+  const useCustomLegend = datasets.length > LEGEND_THRESHOLD;
+  const legendContainer = document.getElementById(canvasId + 'Legend');
+
+  const ctx = canvas.getContext('2d');
+  charts[canvasId] = new Chart(ctx, {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: !useCustomLegend, position: 'bottom', labels: { boxWidth: 12, font: { size: 10.5 }, color: '#93A1AD' } },
+        tooltip: {
+          backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks: { label: c => `${c.dataset.label}: ${valueFormatter ? valueFormatter(c.parsed.y) : fmt(c.parsed.y)}` }
+        }
+      },
+      scales: {
+        x: { stacked: true, ticks: { autoSkip:false, maxRotation:65, minRotation:45, font:{size:10} }, grid: { display:false } },
+        y: { stacked: true, beginAtZero: true, grid: { color:'rgba(255,255,255,.06)' },
+             ticks: { callback: v => valueFormatter?valueFormatter(v):fmt(v) }, title: { display: !!yLabel, text: yLabel||'', color:'#93A1AD' } }
+      }
+    }
+  });
+
+  if(legendContainer){
+    if(useCustomLegend){
+      const totals = datasets.map(ds => ({ label: ds.label, total: ds.data.reduce((a,v)=>a+v,0), color: ds.borderColor }))
+        .sort((a,b) => b.total - a.total);
+      const grandTotal = totals.reduce((a,t)=>a+t.total, 0);
+      legendContainer.innerHTML = totals.map(t => {
+        const pct = grandTotal > 0 ? (t.total/grandTotal*100) : 0;
+        return `
+        <div class="custom-legend-item">
+          <span class="custom-legend-swatch" style="background:${t.color}"></span>
+          <span class="custom-legend-label">${escapeHtml(t.label)}</span>
+          <span class="custom-legend-value">${escapeHtml(valueFormatter ? valueFormatter(t.total) : fmt(t.total))} <span class="custom-legend-pct">(${pct.toFixed(1)}%)</span></span>
+        </div>`;
+      }).join('');
+      legendContainer.style.display = 'block';
+    } else {
+      legendContainer.style.display = 'none';
+      legendContainer.innerHTML = '';
+    }
+  }
+}
+
+let ipStoreSel;
+let ipSpecSel;
+function renderIPIssue(d){
+  const sortSelect = document.getElementById('ipSortSelect');
+  const segmentSelect = document.getElementById('ipSegmentSelect');
+  const colorBySelect = document.getElementById('ipColorBySelect');
+  const stores = uniqueVals(d.ip_detail, 'Department Name');
+  const specs = uniqueVals(d.ip_detail, 'Specialisation Name');
+
+  function recompute(){
+    const selStores = ipStoreSel ? ipStoreSel.getSelected() : stores;
+    const selSpecs = ipSpecSel ? ipSpecSel.getSelected() : specs;
+    // If this data has no Specialisation Name column at all, don't let an empty selection wipe everything out.
+    const specFilterActive = specs.length > 0;
+    const filtered = d.ip_detail.filter(r =>
+      selStores.includes(r['Department Name']) &&
+      (!specFilterActive || selSpecs.includes(r['Specialisation Name']))
+    );
+
+    const itemMap = groupBy(filtered, r => r['Item Code'] + '||' + r['Item Name']);
+    let arr = Array.from(itemMap.entries()).map(([k, rows]) => ({
+      'Item Code': rows[0]['Item Code'], 'Item Name': rows[0]['Item Name'],
+      times_issued: rows.length,
+      qty_issued: rows.reduce((a,r)=>a+toNum(r['Qty']),0),
+      total_epr: rows.reduce((a,r)=>a+toNum(r['Total EPR']),0)
+    }));
+
+    const mode = sortSelect.value;
+    let title, valueFormatter, yLabel, aggregateFn;
+    if(mode === 'qty'){
+      arr.sort((a,b)=>b.qty_issued-a.qty_issued);
+      title = 'Quantity Issued by Item — All Items (scroll horizontally →)';
+      valueFormatter = v=>fmt(v); yLabel='Qty Issued';
+      aggregateFn = rows => rows.reduce((a,r)=>a+toNum(r['Qty']),0);
+    } else if(mode === 'times'){
+      arr.sort((a,b)=>b.times_issued-a.times_issued);
+      title = 'Number of Times Issued by Item — All Items (scroll horizontally →)';
+      valueFormatter = v=>fmt(v); yLabel='Times Issued';
+      aggregateFn = rows => rows.length;
+    } else {
+      arr.sort((a,b)=>b.total_epr-a.total_epr);
+      title = 'EPR by Item — All Items, High to Low (scroll horizontally →)';
+      valueFormatter = v=>fmtINR(v); yLabel='Total EPR';
+      aggregateFn = rows => rows.reduce((a,r)=>a+toNum(r['Total EPR']),0);
+    }
+    document.getElementById('ipChartTitle').textContent = title;
+
+    const colorByMode = colorBySelect.value;
+    const colorStackField = colorByMode === 'specialisation' ? 'Specialisation Name' : 'UNIT';
+    document.getElementById('ipChartColorHint').textContent = colorByMode === 'specialisation'
+      ? 'Each color segment is a specialisation — hover any segment to see its exact value and share.'
+      : 'Each color segment is a hospital unit — hover any segment for its exact value.';
+    // Each stacked segment = one unit or one specialisation (per the Color By toggle above);
+    // hovering shows its name and exact value via the dataset label.
+    scrollableStackedByUnitChart('ipChartInner', 'chartIPCombined', filtered,
+      r => shortLabel(r['Item Name'], r['Item Code']), colorStackField, aggregateFn, valueFormatter, yLabel);
+
+    const segmentField = segmentSelect.value === 'specialisation' ? 'Specialisation Name' : 'Department Name';
+    stackedCategoryItemChart('chartIPDept', filtered, segmentField, r => toNum(r['Qty']));
+
+    renderTable('tblIP', arr, [
+      {key:'Item Code', label:'Item Code'}, {key:'Item Name', label:'Item Name'},
+      {key:'times_issued', label:'Times Issued'},
+      {key:'qty_issued', label:'Total Qty Issued', fmt:v=>fmt(v)},
+      {key:'total_epr', label:'Total EPR', fmt:v=>fmtINR(v)}
+    ]);
+
+    // Item x Unit x Specialisation breakdown for the Export to Excel button. Always includes both
+    // Unit and Specialisation as separate columns (regardless of the chart's Color By toggle, which
+    // only controls the chart's segmentation) so the export is self-sufficient either way. Percent
+    // is each row's share of THAT ITEM's own total EPR — not the whole dataset's — since "how much
+    // of this item's usage came from this unit/specialisation" is the useful comparison here.
+    const exportMap = new Map();
+    const itemTotalEPR = new Map();
+    filtered.forEach(r => {
+      const itemKey = r['Item Code'] + '||' + r['Item Name'];
+      const unit = r['UNIT'] || 'Unspecified';
+      const spec = r['Specialisation Name'] || 'Unspecified';
+      const key = itemKey + '::' + unit + '::' + spec;
+      if(!exportMap.has(key)) exportMap.set(key, {
+        'Item Code': r['Item Code'], 'Item Name': r['Item Name'], unit, spec, qty: 0, epr: 0
+      });
+      const entry = exportMap.get(key);
+      const rowEpr = toNum(r['Total EPR']);
+      entry.qty += toNum(r['Qty']);
+      entry.epr += rowEpr;
+      itemTotalEPR.set(itemKey, (itemTotalEPR.get(itemKey) || 0) + rowEpr);
+    });
+    const exportRows = Array.from(exportMap.values());
+    window.__ipExportRows = exportRows
+      .sort((a,b) => {
+        const totA = itemTotalEPR.get(a['Item Code']+'||'+a['Item Name']) || 0;
+        const totB = itemTotalEPR.get(b['Item Code']+'||'+b['Item Name']) || 0;
+        return totB - totA || b.epr - a.epr;
+      })
+      .map(r => {
+        const itemTotal = itemTotalEPR.get(r['Item Code']+'||'+r['Item Name']) || 0;
+        return {
+          'Item Code': r['Item Code'],
+          'Item Name': r['Item Name'],
+          'Unit': r.unit,
+          'Specialisation': r.spec,
+          'Qty Issued': r.qty,
+          'Total EPR': Math.round(r.epr * 100) / 100,
+          "Share of This Item's Total EPR (%)": itemTotal > 0 ? Math.round((r.epr/itemTotal) * 10000) / 100 : 0
+        };
+      });
+  }
+
+  ipStoreSel = buildMultiSelect(document.getElementById('mselIPStore'), stores, 'Stores', recompute);
+  ipSpecSel = buildMultiSelect(document.getElementById('mselIPSpec'), specs, 'Specialisations', recompute);
+  sortSelect.onchange = recompute;
+  segmentSelect.onchange = recompute;
+  colorBySelect.onchange = recompute;
+  document.getElementById('ipExportBtn').onclick = exportIPIssueToExcel;
+  recompute();
+}
+
+/* Exports the currently-displayed item x (Unit/Specialisation) breakdown to a real .xlsx file,
+   entirely client-side via the same SheetJS library already used to read uploads — nothing is
+   sent anywhere. Always matches whatever filters/toggles are active on screen at the time. */
+function exportIPIssueToExcel(){
+  const rows = window.__ipExportRows;
+  if(!rows || rows.length === 0){
+    alert('Nothing to export yet — build the dashboard and make sure the IP Issue chart has data first.');
+    return;
+  }
+  try{
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:16},{wch:42},{wch:12},{wch:22},{wch:13},{wch:14},{wch:24}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'IP Issue Breakdown');
+    const stamp = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `ip_issue_breakdown_${stamp}.xlsx`);
+  }catch(err){
+    alert('Could not generate the Excel file: ' + err.message);
+    console.error(err);
+  }
+}
+
+let grnStoreSel;
+function renderGRN(d){
+  const stores = uniqueVals(d.grn_detail, 'Store');
+  const sortSelect = document.getElementById('grnSortSelect');
+
+  function recompute(){
+    const sel = grnStoreSel ? grnStoreSel.getSelected() : stores;
+    const filtered = d.grn_detail.filter(r => sel.includes(r['Store']));
+
+    document.getElementById('grnTotalCount').textContent = fmt(uniqueCount(filtered,'GRN No.'));
+    document.getElementById('grnTotalQty').textContent = fmt(filtered.reduce((a,r)=>a+toNum(r['Received Qty.']),0));
+
+    const mode = sortSelect.value;
+    let chartTitle, valueFormatter, aggregateFn;
+    if(mode === 'qty'){
+      chartTitle = 'Qty Received by Item (Top 15, filtered)'; valueFormatter = v=>fmt(v);
+      aggregateFn = rows => rows.reduce((a,r)=>a+toNum(r['Received Qty.']),0);
+    } else if(mode === 'epr'){
+      chartTitle = 'EPR by Item (Top 15, filtered)'; valueFormatter = v=>fmtINR(v);
+      aggregateFn = rows => rows.reduce((a,r)=>a+toNum(r['EPR'])*toNum(r['Received Qty.']),0);
+    } else {
+      chartTitle = 'GRN Count by Item (Top 15, filtered)'; valueFormatter = v=>fmt(v);
+      aggregateFn = rows => uniqueCount(rows,'GRN No.');
+    }
+    document.getElementById('grnItemChartTitle').textContent = chartTitle;
+    // Each stacked segment = one hospital unit; hover any segment for its unit name and value.
+    stackedByUnitBarChart('chartGRNItem', filtered, r=>shortLabel(r['Item Name'], r['Item Code']), 'UNIT', aggregateFn, valueFormatter, 15, false);
+
+    renderTable('tblGRN', filtered, [
+      {key:'GRN Date', label:'Date'}, {key:'GRN No.', label:'GRN No.'}, {key:'Store', label:'Store'},
+      {key:'Supplier Name', label:'Supplier'}, {key:'Item Code', label:'Item Code'}, {key:'Item Name', label:'Item Name'},
+      {key:'Received Qty.', label:'Qty Received'}, {key:'Total Value', label:'Value', fmt:v=>fmtINR(toNum(v))}
+    ], r => isIPPharmacy(r['Store']));
+  }
+
+  grnStoreSel = buildMultiSelect(document.getElementById('mselGRNStore'), stores, 'Stores', recompute);
+  sortSelect.onchange = recompute;
+  recompute();
+}
+
+let prStoreSel;
+function renderPR(d){
+  const stores = uniqueVals(d.pr_detail, 'Store Name');
+
+  function recompute(){
+    const sel = prStoreSel ? prStoreSel.getSelected() : stores;
+    const filtered = d.pr_detail.filter(r => sel.includes(r['Store Name']));
+
+    // Each stacked segment = one hospital unit; hover any segment for its unit name and value.
+    stackedByUnitBarChart('chartPOStore', filtered, r=>r['Store Name']||'Unspecified', 'UNIT', rows=>uniqueCount(rows,'PO No'), v=>fmt(v), 50, false);
+    stackedByUnitBarChart('chartPOAmount', filtered, r=>r['Store Name']||'Unspecified', 'UNIT', rows=>rows.reduce((a,r)=>a+toNum(r['PO Amount']),0), v=>fmtINR(v), 50, false);
+
+    // Segmented by item, so hovering a person's bar shows exactly which items they raised POs for.
+    stackedCategoryItemChart('chartPOMaker', filtered, 'PO Saved By', r => 1);
+
+    renderTable('tblPO', filtered, [
+      {key:'PO Date', label:'Date'}, {key:'PO No', label:'PO No.'}, {key:'Store Name', label:'Store'},
+      {key:'Supplier Name', label:'Supplier'}, {key:'Item Code', label:'Item Code'}, {key:'Item Name', label:'Item Name'},
+      {key:'PO Qty.', label:'Qty'}, {key:'PO Amount', label:'Amount', fmt:v=>fmtINR(toNum(v))},
+      {key:'PO Saved By', label:'Made By'}, {key:'Status', label:'Status'}
+    ], r => isIPPharmacy(r['Store Name']));
+  }
+
+  prStoreSel = buildMultiSelect(document.getElementById('mselPRStore'), stores, 'Stores', recompute);
+  recompute();
+}
+
+let currentDateRange = {from: null, to: null};
+
+function render(selectedUnits){
+  if(!selectedUnits || selectedUnits.length === 0) return;
+  const d = computeUnitData(selectedUnits, currentDateRange);
+  renderKPIs(d.kpis);
+  renderStoreOverview(d);
+  renderStockTransfer(d);
+  renderIPIssue(d);
+  renderGRN(d);
+  renderPR(d);
+}
+
+/* Horizontal multi-select unit pill bar, with an "All Units" pill. */
+let selectedUnits = [];
+function buildUnitPills(units){
+  const container = document.getElementById('unitPills');
+  container.innerHTML = '';
+  selectedUnits = [...units];
+
+  const allPill = document.createElement('button');
+  allPill.type = 'button';
+  allPill.className = 'unit-pill all-pill active';
+  allPill.textContent = 'All Units';
+  container.appendChild(allPill);
+
+  const unitPillEls = {};
+  units.forEach(u => {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'unit-pill';
+    pill.textContent = u;
+    unitPillEls[u] = pill;
+    container.appendChild(pill);
+  });
+
+  function updatePillStates(){
+    const allSelected = selectedUnits.length === units.length;
+    allPill.classList.toggle('active', allSelected);
+    units.forEach(u => unitPillEls[u].classList.toggle('active', !allSelected && selectedUnits.includes(u)));
+  }
+
+  allPill.addEventListener('click', () => {
+    selectedUnits = [...units];
+    updatePillStates();
+    render(selectedUnits);
+  });
+
+  units.forEach(u => {
+    unitPillEls[u].addEventListener('click', () => {
+      const allCurrentlySelected = selectedUnits.length === units.length;
+      if(allCurrentlySelected){
+        selectedUnits = [u];
+      } else if(selectedUnits.includes(u)){
+        selectedUnits = selectedUnits.filter(x => x !== u);
+        if(selectedUnits.length === 0) selectedUnits = [...units]; // don't allow an empty selection
+      } else {
+        selectedUnits = [...selectedUnits, u];
+      }
+      updatePillStates();
+      render(selectedUnits);
+    });
+  });
+}
+
+function fmtDateInput(d){
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+/* Scans all 4 sources for their earliest/latest dates (to bound the pickers) and wires up the inputs. */
+function setupDateRangeControls(payload){
+  const dateFields = [
+    [payload.ST, 'Transfer Date'], [payload.IP, 'Posting Date'],
+    [payload.GRN, 'GRN Date'], [payload.PR, 'PO Date']
+  ];
+  let minDate = null, maxDate = null;
+  dateFields.forEach(([rows, field]) => {
+    rows.forEach(r => {
+      const d = parseFlexibleDate(r[field]);
+      if(!d) return;
+      if(!minDate || d < minDate) minDate = d;
+      if(!maxDate || d > maxDate) maxDate = d;
+    });
+  });
+
+  const fromInput = document.getElementById('dateFrom');
+  const toInput = document.getElementById('dateTo');
+  const hint = document.getElementById('dateHint');
+
+  currentDateRange = {from: null, to: null};
+  fromInput.value = ''; toInput.value = '';
+
+  let baseHint = '';
+  if(minDate && maxDate){
+    fromInput.min = toInput.min = fmtDateInput(minDate);
+    fromInput.max = toInput.max = fmtDateInput(maxDate);
+    baseHint = `Data spans ${fmtDateInput(minDate)} to ${fmtDateInput(maxDate)}`;
+  }
+  hint.textContent = baseHint;
+  hint.classList.remove('date-hint-error');
+
+  function applyDates(){
+    const fromVal = fromInput.value ? dateOnly(new Date(fromInput.value + 'T00:00:00')) : null;
+    const toVal = toInput.value ? dateOnly(new Date(toInput.value + 'T00:00:00')) : null;
+
+    if(fromVal && toVal && fromVal > toVal){
+      hint.textContent = '"From" date is after "To" date — showing the full range until this is fixed.';
+      hint.classList.add('date-hint-error');
+      currentDateRange = {from: null, to: null};
+      render(selectedUnits);
+      return;
+    }
+    hint.textContent = baseHint;
+    hint.classList.remove('date-hint-error');
+    currentDateRange = {from: fromVal, to: toVal};
+    render(selectedUnits);
+  }
+
+  fromInput.onchange = applyDates;
+  toInput.onchange = applyDates;
+  document.getElementById('dateClearBtn').onclick = () => {
+    fromInput.value = ''; toInput.value = '';
+    hint.textContent = baseHint;
+    hint.classList.remove('date-hint-error');
+    currentDateRange = {from: null, to: null};
+    render(selectedUnits);
+  };
+}
+
+function renderDiagnostics(payload){
+  const panel = document.getElementById('diagnosticsPanel');
+  if(!payload.hasCoverageIssue){
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  const rows = payload.unitCoverage.map(r => {
+    const issue = !(r.inST && r.inIP && r.inGRN && r.inPR);
+    const cell = ok => ok ? '<span class="diag-ok">✓</span>' : '<span class="diag-missing">✗ missing</span>';
+    return `<tr class="${issue?'diag-row-issue':''}"><td><b>${escapeHtml(r.unit)}</b></td><td>${cell(r.inST)}</td><td>${cell(r.inIP)}</td><td>${cell(r.inGRN)}</td><td>${cell(r.inPR)}</td></tr>`;
+  }).join('');
+  panel.innerHTML = `
+    <div class="diag-panel glass">
+      <h3>⚠️ Unit code mismatch detected across your files</h3>
+      <p>Some unit codes appear in only some of your 4 files. This usually means the same hospital is being recorded under a different code in different systems (e.g. one export uses "DBH", another uses "DBG" for the same site). Rows below highlighted in red are affected — figures for that unit may be incomplete until this is corrected at the source.</p>
+      <table class="diag-table">
+        <thead><tr><th>Unit Code</th><th>Stock Transfer</th><th>IP Issue</th><th>GRN</th><th>Purchase Register</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  panel.style.display = 'block';
+}
+
+/* ============================================================
+   BUILD BUTTON
+   ============================================================ */
+document.getElementById('buildBtn').addEventListener('click', () => {
+  if(!loaded.items || !loaded.st || !loaded.ip || !loaded.grn || !loaded.pr){
+    alert('One or more files did not load correctly. Please check the red status messages above and re-upload those files.');
+    return;
+  }
+
+  const btn = document.getElementById('buildBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Building…';
+
+  // Yield one frame so the browser actually paints the "Building…" state before the (synchronous,
+  // potentially CPU-heavy on very large datasets) aggregation and chart rendering work runs —
+  // otherwise the button change and the heavy work would land in the same paint cycle and the UI
+  // would appear to freeze with no feedback.
+  setTimeout(() => {
+    try{
+      PAYLOAD = buildPayload();
+      if(PAYLOAD.units.length === 0){
+        alert('No matching UNIT values were found across your files, or no items matched. Please check the "Item Code" and "UNIT" columns in your files.');
+        return;
+      }
+      renderDiagnostics(PAYLOAD);
+      buildUnitPills(PAYLOAD.units);
+      setupDateRangeControls(PAYLOAD);
+      document.getElementById('mcount').textContent = PAYLOAD.master_count;
+      render(PAYLOAD.units);
+
+      document.getElementById('unitFilterBox').style.display = 'block';
+      document.getElementById('dashboardBody').classList.add('visible');
+      document.getElementById('resetBtn').style.display = 'inline-block';
+      document.getElementById('dashboardBody').scrollIntoView({behavior:'smooth'});
+    }catch(err){
+      alert('Something went wrong while building the dashboard: ' + err.message);
+      console.error(err);
+    }finally{
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }, 20);
+});
+</script>
+</body>
+</html>

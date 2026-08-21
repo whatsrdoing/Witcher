@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paras Health — Supply Chain Command Centre</title>
+<meta name="description" content="Offline launcher and workspace for Paras Health supply chain dashboards.">
+<link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/css/command-centre.css">
+</head>
+<body>
+
+<div class="bg-field" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<div class="app">
+
+  <!-- ============================ TOP BAR ============================ -->
+  <header class="topbar">
+    <button class="brand" id="brand" title="Back to the Command Centre">
+      <svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true">
+        <defs>
+          <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#4E86E0"/><stop offset="1" stop-color="#1B3B73"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="44" height="44" rx="13" fill="url(#pg)"/>
+        <path d="M20.5 11h7v9.5H37v7h-9.5V37h-7v-9.5H11v-7h9.5z" fill="#fff" opacity=".95"/>
+      </svg>
+      <span class="brand-txt">
+        <span class="brand-org" id="brandOrg">PARAS HEALTH</span>
+        <span class="brand-sub" id="brandSub">Supply Chain Command Centre</span>
+      </span>
+    </button>
+
+    <div class="topbar-mid">
+      <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"><span class="cur">Command Centre</span></nav>
+      <div class="search">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg>
+        <input id="search" type="search" placeholder="Search dashboards, categories, tags…" aria-label="Search dashboards" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="mode" id="modeSwitch" role="group" aria-label="Data mode">
+        <button data-mode="local" aria-pressed="true"><span class="dot"></span>LOCAL</button>
+        <button data-mode="session" aria-pressed="false"><span class="dot"></span>SESSION</button>
+      </div>
+      <div class="live-tray">
+        <button class="btn icon-only" id="liveBtn" title="Open dashboards" aria-label="Open dashboards">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3.5 12.5 8.5 4.7 8.5-4.7"/></svg>
+          <span class="live-count" id="liveCount" style="display:none">0</span>
+        </button>
+        <div class="pop" id="livePop" style="display:none">
+          <h4>Open dashboards</h4>
+          <div id="livePopList"></div>
+        </div>
+      </div>
+      <button class="btn icon-only" id="themeBtn" title="Toggle theme" aria-label="Toggle theme"></button>
+      <button class="btn icon-only" id="homeBtn" title="Command Centre home" aria-label="Home">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.6V20h13V9.6"/><path d="M9.8 20v-5.6h4.4V20"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================== VIEWS ============================= -->
+  <main class="views">
+
+    <!-- -------------------------- HOME ---------------------------- -->
+    <section class="view active" id="viewHome" data-view="home">
+      <div class="home-wrap">
+
+        <div class="hero">
+          <div>
+            <p class="eyebrow" id="heroOrg">PARAS HEALTH</p>
+            <h1 id="heroTitle">Supply Chain Command Centre</h1>
+            <p class="lede" id="heroLede"></p>
+          </div>
+          <div class="stats" id="stats"></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="chips" id="chips"></div>
+          <button class="btn sm" id="resetBtn" title="Restore the default card order and unhide every card">
+            <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5V10H9"/></svg>
+            Reset layout
+          </button>
+        </div>
+
+        <div class="grid" id="grid"></div>
+        <div id="gridEmpty" style="display:none"></div>
+
+        <div id="hiddenWrap" style="display:none">
+          <h2 class="section-title">Hidden cards</h2>
+          <div class="hidden-tray" id="hiddenTray"></div>
+        </div>
+
+        <p class="drawer-foot" id="modeNote" style="margin-top:34px;border:none;padding:0;"></p>
+        <p style="margin-top:10px;font-size:11.5px;color:var(--ink-3)">
+          Registry: <code style="font-family:var(--mono)" id="regSource">—</code> ·
+          Drag a card to rearrange · Drop a file on a card to attach it · Press <kbd style="font-family:var(--mono)">/</kbd> to search
+        </p>
+
+      </div>
+    </section>
+
+    <!-- ------------------------ DASHBOARD ------------------------- -->
+    <section class="view" id="viewDash" data-view="dash">
+      <div class="dash-bar">
+        <button class="btn" id="backBtn">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg>
+          Back to Command Centre
+        </button>
+        <div class="title">
+          <span class="card-ico" id="dashIcon"></span>
+          <h2 id="dashTitle">Dashboard</h2>
+        </div>
+        <button class="btn sm" id="dashFilesBtn" title="Files attached to this dashboard"></button>
+        <button class="btn sm icon-only" id="dashReload" title="Reload this dashboard">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10H15"/></svg>
+        </button>
+        <button class="btn sm icon-only" id="dashFull" title="Full screen">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4.5h5"/><path d="M20 9V4.5h-5"/><path d="M4 15v4.5h5"/><path d="M20 15v4.5h-5"/></svg>
+        </button>
+        <button class="btn sm icon-only" id="dashTab" title="Open in a new browser tab">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="m20 4-8.5 8.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>
+        </button>
+        <button class="btn sm icon-only danger" id="dashClose" title="Close this dashboard and release its state">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="frames" id="frames">
+        <div class="frame-loading" id="frameLoading" style="display:none">
+          <span class="spinner"></span><span id="frameLoadingTxt">Opening…</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================= FILES DRAWER ========================== -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Attached files">
+  <div class="drawer-head">
+    <div class="row">
+      <svg class="icon lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4L10.5 7h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+      <h3>Files</h3>
+      <button class="btn sm icon-only" id="drawerClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <p class="for">Attached to <b id="drawerFor">—</b></p>
+  </div>
+  <div class="drawer-body">
+    <div class="dropzone" id="dropzone">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V8"/><path d="m7.5 12 4.5-4.5 4.5 4.5"/><path d="M4.5 4.5h15"/></svg>
+      <b>Drop files here</b>
+      SOPs, registers, vendor masters — or click to browse
+    </div>
+    <input type="file" id="filePick" multiple hidden>
+    <div class="file-search">
+      <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg>
+      <input id="fileSearchInput" type="search" placeholder="Search files…" aria-label="Search files" autocomplete="off">
+    </div>
+    <div id="fileList"></div>
+  </div>
+  <div class="drawer-foot">
+    <span id="fileTally">0 files</span><span style="flex:1"></span><span id="filePersist"></span>
+  </div>
+</aside>
+
+<!-- ============================== MODALS =============================== -->
+<div class="modal-scrim" id="previewModal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <h3 id="previewTitle">File</h3>
+      <button class="btn sm" id="previewDl">Download</button>
+      <button class="btn sm" id="previewTab">New tab</button>
+      <button class="btn sm icon-only" id="previewClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="previewBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmBody"></p>
+    <div class="acts">
+      <button class="btn" id="confirmCancel">Cancel</button>
+      <button class="btn primary" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<!-- Registry: dashboards.json is the source of truth. dashboards.js is the
+     generated mirror that lets a plain file:// double-click work too. -->
+<script src="dashboards.js" onerror="void 0"></script>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/registry.js"></script>
+<script src="assets/js/storage.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

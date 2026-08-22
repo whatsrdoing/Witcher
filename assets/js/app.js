@@ -560,8 +560,11 @@
               '<div class="file-sub">' + esc(fmtSize(r.size)) + ' · ' + esc(fmtDate(r.addedAt)) +
                 (r.headers && r.headers.length ? ' · ' + r.headers.length + ' columns' : '') + '</div>' +
               (drawerTab === 'library' ? usedByHtml(r) : '') +
+              (isBig(r) ? '<div class="file-warn">' + esc(fmtSize(r.size)) +
+                ' — too large to open directly. Condense it first (⚡).</div>' : '') +
             '</div>' +
             '<div class="file-acts">' +
+              (isBig(r) ? '<button class="cond" data-fcond="' + esc(r.id) + '" title="Too large for a browser — condense it">' + ico('bolt', 'sm') + '</button>' : '') +
               '<button class="use" data-fuse="' + esc(r.id) + '" title="Load into this dashboard\'s upload box">' + ico('upload', 'sm') + '</button>' +
               '<button data-fopen="' + esc(r.id) + '" title="Open">' + ico('eye', 'sm') + '</button>' +
               '<button data-fdl="' + esc(r.id) + '" title="Download">' + ico('download', 'sm') + '</button>' +
@@ -579,6 +582,115 @@
         ? ico('lock', 'sm') + 'Saved on this computer'
         : ico('bolt', 'sm') + 'Temporary (this tab only)';
     });
+  }
+
+  /* ---- condensing an oversized export ------------------------------------
+     A quarter-gigabyte CSV cannot be opened in a browser tab: the dashboard
+     reads the whole file, then the spreadsheet parser turns it into millions
+     of cell objects. Rather than change the dashboards, shrink the file first
+     — stream it, keep the columns that dashboard actually reads, and add up
+     rows that agree on every one of them. Totals come out identical. */
+  var condenseFile = null, condenseCols = null;
+
+  function openCondense(fileMeta) {
+    condenseFile = fileMeta;
+    $('#condTitle').textContent = 'Condense "' + fileMeta.name + '"';
+    $('#condCols').innerHTML = '<div class="cond-loading"><span class="spinner"></span>Reading the columns…</div>';
+    $('#condStats').textContent = fmtSize(fileMeta.size) + ' — too large for a browser tab to open directly.';
+    $('#condRun').disabled = true;
+    $('#condModal').classList.add('open');
+
+    w.Store.Files.blob(fileMeta.id).then(function (blob) {
+      if (!blob) throw new Error('that file is no longer in the workspace');
+      return w.Library.profile(blob, 400);
+    }).then(function (cols) {
+      condenseCols = cols;
+      var suggested = suggestedKeep(fileMeta);
+      $('#condCols').innerHTML = cols.map(function (c, i) {
+        var on = !suggested || suggested.some(function (k) {
+          return w.Library.tokens(k).join(' ') === w.Library.tokens(c.name).join(' ');
+        });
+        return '<label class="cond-col' + (c.numeric ? ' num' : '') + '">' +
+          '<input type="checkbox" data-col="' + i + '"' + (on ? ' checked' : '') + '>' +
+          '<span class="cond-name">' + esc(c.name) + '</span>' +
+          '<span class="cond-tag">' + (c.numeric ? 'Σ added up' : 'grouped') + '</span>' +
+          '</label>';
+      }).join('');
+      $('#condRun').disabled = false;
+      $('#condStats').textContent = fmtSize(fileMeta.size) + ' · ' + cols.length +
+        ' columns. Ticked columns are kept; number columns are added up.';
+    }).catch(function (e) {
+      $('#condCols').innerHTML = '<div class="cond-loading">Could not read the columns: ' +
+        esc(e && e.message || e) + '</div>';
+    });
+  }
+
+  /* Pre-tick exactly the columns the dashboard this file suits actually reads. */
+  function suggestedKeep(fileMeta) {
+    var best = null, bestScore = 0;
+    REG.dashboards.forEach(function (db) {
+      (db.inputs || []).forEach(function (slot) {
+        if (!slot.keep || !slot.keep.length) return;
+        var r = w.Library.score(fileMeta, slot);
+        if (r.score > bestScore) { bestScore = r.score; best = slot.keep; }
+      });
+    });
+    return bestScore >= 60 ? best : null;
+  }
+
+  function closeCondense() {
+    $('#condModal').classList.remove('open');
+    condenseFile = null; condenseCols = null;
+  }
+
+  function runCondense() {
+    if (!condenseFile || !condenseCols) return;
+    var picked = $$('#condCols input[type=checkbox]').filter(function (b) { return b.checked; })
+      .map(function (b) { return condenseCols[+b.dataset.col]; });
+    if (!picked.length) return toast('Tick at least one column.', 'warn');
+
+    var keys = picked.filter(function (c) { return !c.numeric; }).map(function (c) { return c.name; });
+    var sums = picked.filter(function (c) { return c.numeric; }).map(function (c) { return c.name; });
+    var meta = condenseFile;
+
+    $('#condRun').classList.add('working');
+    $('#condRun').disabled = true;
+    $('#condStats').textContent = 'Reading… this runs in the background and never loads the whole file.';
+
+    w.Store.Files.blob(meta.id).then(function (blob) {
+      return w.Library.condense(blob, {
+        keys: keys, sums: sums,
+        onProgress: function (p) {
+          $('#condStats').textContent = p.read.toLocaleString() + ' rows read · ' +
+            p.kept.toLocaleString() + ' combined rows so far';
+        }
+      });
+    }).then(function (out) {
+      var name = meta.name.replace(/\.[^.]+$/, '') + ' (condensed).csv';
+      var file = new File([out.blob], name, { type: 'text/csv' });
+      return w.Library.sniff(file).then(function (headers) {
+        return w.Store.Files.add(w.Library.ID, file, headers);
+      }).then(function () {
+        $('#condRun').classList.remove('working');
+        $('#condRun').disabled = false;
+        closeCondense();
+        return refreshCounts().then(function () {
+          renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
+          toast(out.rowsIn.toLocaleString() + ' rows became ' + out.rowsOut.toLocaleString() +
+            ' — ' + fmtSize(meta.size) + ' down to ' + fmtSize(out.blob.size) +
+            '. Totals are unchanged.', 'ok', 9000);
+        });
+      });
+    }).catch(function (e) {
+      $('#condRun').classList.remove('working');
+      $('#condRun').disabled = false;
+      $('#condStats').textContent = '';
+      toast('Could not condense: ' + (e && e.message || e), 'err', 11000);
+    });
+  }
+
+  function isBig(r) {
+    return r.size > w.Library.BIG_FILE && /\.(csv|tsv|txt)$/i.test(r.name);
   }
 
   function usedByHtml(file) {
@@ -1101,6 +1213,13 @@
       var row = e.target.closest('.file-row'); if (!row) return;
       var id = row.dataset.fid;
       var name = ($('.file-name', row) || {}).textContent || 'file';
+      if (e.target.closest('[data-fcond]')) {
+        var rec = null;
+        return w.Store.Files.list(drawerScope()).then(function (rows) {
+          rec = rows.filter(function (x) { return x.id === id; })[0];
+          if (rec) openCondense(rec);
+        });
+      }
       if (e.target.closest('[data-fuse]')) {
         if (!drawerFor) return toast('Open a dashboard first, then send the file to it.', 'warn');
         return sendToDashboard(id, name, row.dataset.ftype || '', drawerFor);
@@ -1136,6 +1255,9 @@
       closePick();
       if (cb) cb(slot);
     });
+    $('#condCancel').addEventListener('click', closeCondense);
+    $('#condRun').addEventListener('click', runCondense);
+    $('#condModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeCondense(); });
     $('#pickCancel').addEventListener('click', closePick);
     $('#pickModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closePick(); });
 
@@ -1147,6 +1269,7 @@
     d.addEventListener('keydown', function (e) {
       var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
       if (e.key === 'Escape') {
+        if ($('#condModal').classList.contains('open')) return closeCondense();
         if ($('#pickModal').classList.contains('open')) return closePick();
         if ($('#previewModal').classList.contains('open')) return closePreview();
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();

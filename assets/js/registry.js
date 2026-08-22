@@ -89,7 +89,10 @@
             match: Array.isArray(x.match) ? x.match : [],
             accept: x.accept || '',
             optional: !!x.optional,
-            auto: x.auto !== false      // false keeps it out of one-click fill
+            auto: x.auto !== false,     // false keeps it out of one-click fill
+            // Every column this dashboard reads. Used to pre-tick the right
+            // boxes when condensing an oversized export.
+            keep: Array.isArray(x.keep) ? x.keep : []
 
           };
         }) : []

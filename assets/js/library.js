@@ -8,8 +8,10 @@
   'use strict';
 
   var LIBRARY_ID = '__library__';
-  var SNIFF_LIMIT = 30 * 1024 * 1024;   // don't parse enormous workbooks for a header
-  var TEXT_SLICE = 256 * 1024;
+  var WORKBOOK_SNIFF_LIMIT = 30 * 1024 * 1024;  // workbooks must be parsed to be read
+  var TEXT_SLICE = 256 * 1024;                  // a CSV header costs one small slice
+  var BIG_FILE = 40 * 1024 * 1024;              // past this, a browser tab starts to struggle
+  var MAX_GROUPS = 400000;                      // give up aggregating rather than run out of memory
 
   /* ---- lazy SheetJS: only pulled in when a spreadsheet is actually added -- */
   var xlsxPromise = null;
@@ -42,7 +44,6 @@
   /* Reads just the header row. Returns [] when it cannot tell. */
   function sniff(file) {
     var e = ext(file.name);
-    if (file.size > SNIFF_LIMIT) return Promise.resolve([]);
 
     if (['csv', 'tsv', 'txt'].indexOf(e) >= 0) {
       return file.slice(0, TEXT_SLICE).text().then(function (t) {
@@ -56,6 +57,7 @@
     }
 
     if (['xlsx', 'xls', 'xlsm', 'ods'].indexOf(e) >= 0) {
+      if (file.size > WORKBOOK_SNIFF_LIMIT) return Promise.resolve([]);
       return loadXLSX().then(function (XLSX) {
         return file.arrayBuffer().then(function (buf) {
           var wb = XLSX.read(new Uint8Array(buf), { type: 'array', sheetRows: 8, cellDates: false });
@@ -159,8 +161,155 @@
     return out;
   }
 
+  /* ---- lazy PapaParse, for streaming very large CSVs --------------------- */
+  var papaPromise = null;
+  function loadPapa() {
+    if (w.Papa) return Promise.resolve(w.Papa);
+    if (papaPromise) return papaPromise;
+    papaPromise = new Promise(function (res, rej) {
+      var s = d.createElement('script');
+      s.src = 'assets/vendor/papaparse-5.4.1.min.js';
+      s.onload = function () { res(w.Papa); };
+      s.onerror = function () { rej(new Error('could not load the CSV reader')); };
+      d.head.appendChild(s);
+    });
+    return papaPromise;
+  }
+
+  /* Headers that name an identifier — never sum these even when every value
+     happens to be digits. A summed Item Id or Bill No is not a smaller
+     version of the truth, it is a different, wrong number, and it would
+     silently corrupt whatever the dashboard keys on. */
+  var ID_LIKE = /\b(id|no\.?|number|num|code|sku|nbr)\b/i;
+  function isIdColumn(name) {
+    var n = String(name || '');
+    return ID_LIKE.test(n) && !/\b(qty|quantity|amount|value|price|rate|cost|total|sum)\b/i.test(n);
+  }
+
+  function looksNumeric(v) {
+    if (v === null || v === undefined) return false;
+    var t = String(v).trim().replace(/[,\s\u00a0₹$]/g, '');
+    if (!t || t === '-') return false;
+    if (/^\(.*\)$/.test(t)) t = '-' + t.slice(1, -1);
+    return isFinite(parseFloat(t)) && /^-?\d*\.?\d+(e[-+]?\d+)?$/i.test(t);
+  }
+  function toNum(v) {
+    var t = String(v == null ? '' : v).trim().replace(/[,\s\u00a0₹$]/g, '');
+    if (/^\(.*\)$/.test(t)) t = '-' + t.slice(1, -1);
+    var n = parseFloat(t);
+    return isFinite(n) ? n : 0;
+  }
+  function csvCell(v) {
+    var s = String(v == null ? '' : v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  /* Reads the first rows to work out which columns hold numbers. */
+  function profile(file, sampleRows) {
+    var limit = sampleRows || 400;
+    return loadPapa().then(function (Papa) {
+      return new Promise(function (res, rej) {
+        var headers = null, numeric = {}, seen = 0, settled = false;
+
+        function finish() {
+          if (settled) return;
+          settled = true;
+          res((headers || []).map(function (h) {
+            return { name: h, numeric: !!numeric[h] && seen > 0 && !isIdColumn(h) };
+          }));
+        }
+
+        // preview + step does not reliably fire "complete" in PapaParse when
+        // the source is a File/Blob (the streamer keeps waiting for more
+        // input once the preview cap is hit). Counting rows and aborting the
+        // parser ourselves is the version of this that actually finishes.
+        Papa.parse(file, {
+          header: true, skipEmptyLines: true,
+          step: function (row, parser) {
+            if (settled) return;
+            if (!headers) headers = (row.meta && row.meta.fields) || Object.keys(row.data || {});
+            seen++;
+            var data = row.data || {};
+            for (var k in data) {
+              if (numeric[k] === false) continue;
+              if (String(data[k] || '').trim() === '') continue;
+              numeric[k] = looksNumeric(data[k]);
+            }
+            if (seen >= limit) { parser.abort(); finish(); }
+          },
+          complete: finish,
+          error: function (e) { if (!settled) { settled = true; rej(e); } }
+        });
+      });
+    });
+  }
+
+  /* Streams a CSV and collapses it: the chosen text columns become the group,
+     the chosen number columns are summed. Nothing is read whole, so memory
+     stays flat however large the file is.  Rows that share every text value
+     add up exactly, so any total the dashboard computes is unchanged. */
+  function condense(file, opts) {
+    opts = opts || {};
+    var keys = opts.keys || [], sums = opts.sums || [];
+    var onProgress = opts.onProgress || function () {};
+    if (!keys.length && !sums.length) return Promise.reject(new Error('choose at least one column'));
+
+    return loadPapa().then(function (Papa) {
+      return new Promise(function (res, rej) {
+        var groups = Object.create(null), order = [];
+        var read = 0, kept = 0, overflow = false;
+
+        Papa.parse(file, {
+          header: true, skipEmptyLines: true, worker: false, chunkSize: 4 * 1024 * 1024,
+          chunk: function (results, parser) {
+            var rows = results.data;
+            for (var i = 0; i < rows.length; i++) {
+              var r = rows[i];
+              read++;
+              var k = '';
+              for (var a = 0; a < keys.length; a++) k += String(r[keys[a]] == null ? '' : r[keys[a]]) + '\u0001';
+              var g = groups[k];
+              if (!g) {
+                if (order.length >= MAX_GROUPS) { overflow = true; parser.abort(); return; }
+                g = groups[k] = { key: [], sum: [] };
+                for (a = 0; a < keys.length; a++) g.key.push(r[keys[a]] == null ? '' : r[keys[a]]);
+                for (a = 0; a < sums.length; a++) g.sum.push(0);
+                order.push(k);
+                kept++;
+              }
+              for (a = 0; a < sums.length; a++) g.sum[a] += toNum(r[sums[a]]);
+            }
+            onProgress({ read: read, kept: kept });
+          },
+          complete: function () {
+            if (overflow) {
+              return rej(new Error('too many distinct rows to combine (' + MAX_GROUPS.toLocaleString() +
+                '+). Untick a column that is different on every row — a date, a bill number — and try again.'));
+            }
+            var parts = [keys.concat(sums).map(csvCell).join(',') + '\n'];
+            var buf = [];
+            for (var i = 0; i < order.length; i++) {
+              var g = groups[order[i]];
+              var line = [];
+              for (var a = 0; a < g.key.length; a++) line.push(csvCell(g.key[a]));
+              for (a = 0; a < g.sum.length; a++) line.push(Math.round(g.sum[a] * 1e6) / 1e6);
+              buf.push(line.join(','));
+              if (buf.length >= 5000) { parts.push(buf.join('\n') + '\n'); buf = []; }
+            }
+            if (buf.length) parts.push(buf.join('\n') + '\n');
+            res({ blob: new Blob(parts, { type: 'text/csv' }), rowsIn: read, rowsOut: kept });
+          },
+          error: function (e) { rej(e); }
+        });
+      });
+    });
+  }
+
   w.Library = {
     ID: LIBRARY_ID,
+    BIG_FILE: BIG_FILE,
+    profile: profile,
+    condense: condense,
     sniff: sniff,
     score: score,
     assign: assign,

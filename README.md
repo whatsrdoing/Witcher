@@ -238,6 +238,23 @@ Everything else is optional. Full field reference:
   dashboard toolbar) closes one and frees its memory.
 - Deep links work: `index.html#/d/pharmacy-console`.
 
+**Files too big for a browser** — condense them first
+
+A GRN or COGS export can run into the hundreds of megabytes. A browser tab
+cannot open that directly — it runs out of memory and the tab crashes ("Aw,
+Snap!" / "Out of Memory"). Anything over 40 MB gets a lightning-bolt button in
+the Data Library instead of the usual upload arrow.
+
+Click it and the Command Centre reads the file's columns (a fraction of a
+second, however large the file is — it never loads the whole thing), pre-ticks
+the ones the target dashboard actually reads, and offers **Condense**. It then
+streams the file end to end: text columns you keep become the grouping key,
+number columns get added together, and rows that agree on every kept column
+collapse into one. Nothing is dropped and every total comes out identical —
+verified on a 252 MB / 1.6 million row file against numbers computed
+independently outside the browser, matched to the cent. The condensed file
+lands back in the Data Library, ready to fill.
+
 **Data Library** — one place for every export
 
 Drop your registers into the **Data Library** once (button in the top bar).

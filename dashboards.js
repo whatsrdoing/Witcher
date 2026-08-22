@@ -190,6 +190,20 @@ window.__PARAS_REGISTRY__ = {
             "Ispackage",
             "Total EPR",
             "Total MRP"
+          ],
+          "keep": [
+            "UNIT",
+            "Item Id",
+            "Ispackage",
+            "Item Name",
+            "Item Category Name",
+            "Item Sub Category Name",
+            "Department Name",
+            "Generic Name",
+            "Qty",
+            "Total EPR",
+            "Total Unit Cost",
+            "Total MRP"
           ]
         },
         {
@@ -317,6 +331,16 @@ window.__PARAS_REGISTRY__ = {
             "Item Name",
             "Transfered Qty.",
             "EPR."
+          ],
+          "keep": [
+            "UNIT",
+            "Transfer Date",
+            "From Store",
+            "To Store",
+            "Item Name",
+            "Item Code",
+            "Transfered Qty.",
+            "EPR."
           ]
         },
         {
@@ -331,6 +355,16 @@ window.__PARAS_REGISTRY__ = {
             "From Store",
             "To Store",
             "Item Name",
+            "Transfered Qty.",
+            "EPR."
+          ],
+          "keep": [
+            "UNIT",
+            "Transfer Date",
+            "From Store",
+            "To Store",
+            "Item Name",
+            "Item Code",
             "Transfered Qty.",
             "EPR."
           ]

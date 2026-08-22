@@ -13,8 +13,9 @@
   var MODE_KEY = 'paras.cc.mode';
   var PREFS_KEY = 'paras.cc.prefs.v1';
   var DB_NAME = 'paras-command-centre';
-  var DB_VER = 1;
-  var STORE = 'files';
+  var DB_VER = 2;
+  var STORE = 'files';      // metadata only — small, safe to iterate
+  var BLOBS = 'blobs';      // the file data itself, fetched only when needed
 
   /* ---- safe web-storage wrappers (private mode / file:// can throw) ------- */
   function probe(store) {
@@ -71,11 +72,30 @@
       try { req = w.indexedDB.open(DB_NAME, DB_VER); }
       catch (e) { return rej(e); }
       if (!req) return rej(new Error('IndexedDB unavailable'));
-      req.onupgradeneeded = function () {
-        var db = req.result;
+      req.onupgradeneeded = function (ev) {
+        var db = req.result, tx = req.transaction;
         if (!db.objectStoreNames.contains(STORE)) {
           var os = db.createObjectStore(STORE, { keyPath: 'id' });
           os.createIndex('dashboardId', 'dashboardId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(BLOBS)) db.createObjectStore(BLOBS, { keyPath: 'id' });
+
+        // v1 kept the file data inside the metadata record, so listing files
+        // read every byte of every file. Move the data to its own store.
+        if (ev.oldVersion && ev.oldVersion < 2 && tx) {
+          var meta = tx.objectStore(STORE), blobs = tx.objectStore(BLOBS);
+          var cur = meta.openCursor();
+          cur.onsuccess = function () {
+            var c = cur.result;
+            if (!c) return;
+            var v = c.value;
+            if (v && v.blob) {
+              blobs.put({ id: v.id, blob: v.blob });
+              delete v.blob;
+              c.update(v);
+            }
+            c.continue();
+          };
         }
       };
       req.onsuccess = function () { res(req.result); };
@@ -85,15 +105,19 @@
     return dbPromise;
   }
 
-  function tx(mode2, fn) {
+  function tx(mode2, fn, stores) {
     return openDB().then(function (db) {
       return new Promise(function (res, rej) {
-        var t = db.transaction(STORE, mode2);
+        var names = stores || STORE;
+        var t = db.transaction(names, mode2);
         var out;
         t.oncomplete = function () { res(out); };
         t.onerror = function () { rej(t.error); };
         t.onabort = function () { rej(t.error || new Error('aborted')); };
-        out = fn(t.objectStore(STORE), function (v) { out = v; });
+        var set = function (v) { out = v; };
+        out = (typeof names === 'string')
+          ? fn(t.objectStore(names), set)
+          : fn(t, set);
       });
     });
   }
@@ -120,9 +144,38 @@
         };
       });
     },
-    put: function (rec) { return tx('readwrite', function (os, set) { os.put(rec); set(meta(rec)); }); },
-    get: function (id) { return tx('readonly', function (os, set) { var r = os.get(id); r.onsuccess = function () { set(r.result || null); }; }); },
-    del: function (id) { return tx('readwrite', function (os) { os.delete(id); }); },
+    put: function (rec) {
+      var m = meta(rec);
+      return tx('readwrite', function (t, set) {
+        t.objectStore(STORE).put(m);
+        t.objectStore(BLOBS).put({ id: rec.id, blob: rec.blob });
+        set(m);
+      }, [STORE, BLOBS]);
+    },
+    /* Only ever called for one file at a time, so the data is read on demand
+       rather than every time the list is drawn. */
+    get: function (id) {
+      return tx('readonly', function (t, set) {
+        var mv = null, bv = null, left = 2;
+        var done = function () {
+          if (--left) return;
+          if (!mv) return set(null);
+          set(Object.assign({}, mv, { blob: (bv && bv.blob) || mv.blob || null }));
+        };
+        var m = t.objectStore(STORE).get(id);
+        m.onsuccess = function () { mv = m.result || null; done(); };
+        m.onerror = done;
+        var b = t.objectStore(BLOBS).get(id);
+        b.onsuccess = function () { bv = b.result || null; done(); };
+        b.onerror = done;
+      }, [STORE, BLOBS]);
+    },
+    del: function (id) {
+      return tx('readwrite', function (t) {
+        t.objectStore(STORE).delete(id);
+        t.objectStore(BLOBS).delete(id);
+      }, [STORE, BLOBS]);
+    },
     rename: function (id, name) {
       return tx('readwrite', function (os, set) {
         var r = os.get(id);
@@ -132,7 +185,12 @@
         };
       });
     },
-    clearAll: function () { return tx('readwrite', function (os) { os.clear(); }); }
+    clearAll: function () {
+      return tx('readwrite', function (t) {
+        t.objectStore(STORE).clear();
+        t.objectStore(BLOBS).clear();
+      }, [STORE, BLOBS]);
+    }
   };
 
   /* ---- file store: memory backend (session mode / no IndexedDB) ---------- */

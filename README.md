@@ -245,6 +245,12 @@ cannot open that directly — it runs out of memory and the tab crashes ("Aw,
 Snap!" / "Out of Memory"). Anything over 40 MB gets a lightning-bolt button in
 the Data Library instead of the usual upload arrow.
 
+**Once a file is flagged too large, the Command Centre will not hand it to a
+dashboard at all** — not through Fill upload boxes, not through the per-file
+send button. Either path is refused with a message pointing at Condense.
+Handing an oversized file straight to a dashboard is exactly what crashes the
+tab, so there is no way around this short of condensing first.
+
 Click it and the Command Centre reads the file's columns (a fraction of a
 second, however large the file is — it never loads the whole thing), pre-ticks
 the ones the target dashboard actually reads, and offers **Condense**. It then

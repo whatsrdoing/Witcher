@@ -725,3 +725,5 @@ a{color:var(--brand-soft); text-decoration:none;}
 .file-acts button.cond{opacity:1; color:var(--warn);}
 .file-acts button.cond:hover{color:#fff; background:var(--warn);}
 .file-row .file-acts button.cond{opacity:1;}
+
+.match-detail span.too-big{color:var(--warn); font-weight:600;}

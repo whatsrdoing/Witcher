@@ -551,7 +551,7 @@
         host.innerHTML = shown.map(function (r) {
           var k = kindOf(r.name, r.type);
           var isRen = renaming === r.id;
-          return '<div class="file-row" data-fid="' + esc(r.id) + '" data-ftype="' + esc(r.type || '') + '">' +
+          return '<div class="file-row" data-fid="' + esc(r.id) + '" data-ftype="' + esc(r.type || '') + '" data-fsize="' + esc(r.size || 0) + '">' +
             '<div class="file-ico ' + esc(k) + '">' + esc(k.toUpperCase()) + '</div>' +
             '<div class="file-meta">' +
               (isRen
@@ -938,9 +938,27 @@
     return frameInputs(forDash).then(function (slots) {
       if (!slots || !slots.length) return null;
       return libraryFiles().then(function (files) {
-        if (!files.length) return { slots: slots, pairs: [], files: files, dashId: forDash };
+        if (!files.length) return { slots: slots, pairs: [], files: files, blocked: [], dashId: forDash };
         var auto = slots.filter(function (s) { return s.auto; });
-        return { slots: slots, pairs: w.Library.assign(files, auto), files: files, dashId: forDash };
+        var safe = files.filter(function (f) { return !isBig(f); });
+        var big = files.filter(isBig);
+        var pairs = w.Library.assign(safe, auto);
+        // A big file that would otherwise have been the best match for a slot
+        // nobody else filled — surfaced so the match bar can point at Condense
+        // instead of silently leaving the box empty.
+        var filledSlots = {};
+        pairs.forEach(function (p) { filledSlots[p.slotIndex] = 1; });
+        var blocked = [];
+        auto.forEach(function (slot, si) {
+          if (filledSlots[si]) return;
+          var best = null, bestScore = 0;
+          big.forEach(function (f) {
+            var r = w.Library.score(f, slot);
+            if (r.score > bestScore) { bestScore = r.score; best = f; }
+          });
+          if (best && bestScore >= 30) blocked.push({ slot: slot, file: best });
+        });
+        return { slots: slots, pairs: pairs, files: files, blocked: blocked, dashId: forDash };
       });
     });
   }
@@ -951,14 +969,21 @@
     if (!current) { bar.style.display = 'none'; return; }
     matchesForOpen().then(function (m) {
       if (!m || m.dashId !== current) { bar.style.display = 'none'; return; }
-      if (!m.pairs.length) { bar.style.display = 'none'; return; }
+      if (!m.pairs.length && !m.blocked.length) { bar.style.display = 'none'; return; }
       bar.style.display = 'flex';
       var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
       $('#matchText').innerHTML = '<b>' + m.pairs.length + ' of ' + required + '</b> required file' +
-        (required === 1 ? '' : 's') + ' matched in the Data Library';
-      $('#matchDetail').innerHTML = m.pairs.map(function (p) {
+        (required === 1 ? '' : 's') + ' matched in the Data Library' +
+        (m.blocked.length ? ' — ' + m.blocked.length + ' too large to auto-fill' : '');
+      var rows = m.pairs.map(function (p) {
         return '<span>' + esc(p.slot.label) + ' &larr; ' + esc(p.file.name) + '</span>';
-      }).join('');
+      });
+      rows = rows.concat(m.blocked.map(function (b) {
+        return '<span class="too-big">' + esc(b.slot.label) + ' &larr; ' + esc(b.file.name) +
+          ' (' + fmtSize(b.file.size) + ' — condense it first, see ⚡)</span>';
+      }));
+      $('#matchDetail').innerHTML = rows.join('');
+      $('#matchFill').disabled = !m.pairs.length;
     });
   }
 
@@ -1222,6 +1247,11 @@
       }
       if (e.target.closest('[data-fuse]')) {
         if (!drawerFor) return toast('Open a dashboard first, then send the file to it.', 'warn');
+        var size = +row.dataset.fsize || 0;
+        if (isBig({ name: name, size: size })) {
+          toast('"' + name + '" is ' + fmtSize(size) + ' — too large to hand to a dashboard directly. Condense it first (⚡).', 'warn', 8000);
+          return;
+        }
         return sendToDashboard(id, name, row.dataset.ftype || '', drawerFor);
       }
       if (e.target.closest('[data-fopen]')) return previewFile(id, name);

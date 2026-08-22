@@ -19,6 +19,9 @@ SRC = os.path.join(ROOT, "dashboards.json")
 OUT = os.path.join(ROOT, "dashboards.js")
 AUTH_SRC = os.path.join(ROOT, "auth.json")
 AUTH_OUT = os.path.join(ROOT, "auth.js")
+BRIDGE_SRC = os.path.join(ROOT, "assets", "js", "dashboard-bridge.js")
+BRIDGE_OPEN = "<!-- paras-command-centre-bridge -->"
+BRIDGE_CLOSE = "<!-- /paras-command-centre-bridge -->"
 
 BANNER = (
     "/* GENERATED FILE — do not edit.\n"
@@ -50,6 +53,70 @@ def check(reg):
         elif not path and not planned:
             problems.append('%s: no "file" and status is not "planned"' % label)
     return problems
+
+
+def ensure_bridge(reg):
+    """Make sure each dashboard can accept a file handed to it.
+
+    Adds a small, invisible listener to the bottom of each dashboard. It does
+    not touch the dashboard's markup, styling or behaviour -- it only lets the
+    Command Centre put a file into an upload box the same way you would. This
+    is what makes the one-click fill work when the app is opened straight from
+    disk, where pages are otherwise sealed off from one another.
+
+    Runs every sync, so a dashboard you add later is covered automatically.
+    Delete the marked block to opt a dashboard out.
+    """
+    try:
+        with open(BRIDGE_SRC, encoding="utf-8") as fh:
+            code = fh.read()
+    except OSError:
+        return
+    block = "%s\n<script>\n%s</script>\n%s\n" % (BRIDGE_OPEN, code, BRIDGE_CLOSE)
+
+    touched, skipped = 0, []
+    for dsh in reg.get("dashboards", []):
+        rel = dsh.get("file")
+        if not rel:
+            continue
+        path = os.path.join(ROOT, rel)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, encoding="utf-8", errors="surrogateescape") as fh:
+                html = fh.read()
+        except OSError:
+            continue
+
+        if BRIDGE_OPEN in html:
+            start = html.index(BRIDGE_OPEN)
+            end = html.find(BRIDGE_CLOSE)
+            if end < 0:
+                continue
+            current = html[start:end + len(BRIDGE_CLOSE) + 1]
+            if current.strip() == block.strip():
+                continue                       # already current
+            html = html[:start] + block + html[end + len(BRIDGE_CLOSE) + 1:]
+        else:
+            i = html.rfind("</body>")
+            if i < 0:
+                i = html.rfind("</html>")
+            if i < 0:
+                html = html + "\n" + block
+            else:
+                html = html[:i] + block + html[i:]
+
+        try:
+            with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
+                fh.write(html)
+            touched += 1
+        except OSError as exc:
+            skipped.append("%s (%s)" % (rel, exc))
+
+    if touched:
+        print("bridge added to %d dashboard%s" % (touched, "" if touched == 1 else "s"))
+    for sk in skipped:
+        print("  ! could not update " + sk)
 
 
 def mirror_auth():
@@ -88,6 +155,7 @@ def main():
     print("dashboards.js updated - %d dashboard%s" % (n, "" if n == 1 else "s"))
     for p in check(reg):
         print("  ! " + p)
+    ensure_bridge(reg)
     mirror_auth()
     return 0
 

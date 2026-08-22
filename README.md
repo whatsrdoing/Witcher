@@ -264,9 +264,12 @@ The routing lives in `dashboards.json` under each dashboard's `inputs`, listed
 **in the order the upload boxes appear in that dashboard**. `↑` on any file
 sends it into a box by hand.
 
-Handing a file over needs the dashboards to be served from the same origin, so
-it works when you launch with `start.bat` — not from `file://`, where the
-browser keeps every file in its own origin.
+This works whichever way you open the Command Centre. `sync.py` adds a small
+listener to the bottom of each dashboard so a file can be handed over even from
+`file://`, where pages are otherwise sealed off from one another. It changes
+nothing you can see and nothing the dashboard does — delete the marked block if
+you ever want a dashboard left completely alone. Dashboards you add later get
+it automatically on the next sync.
 
 **Files pinned to one dashboard**
 - Attach SOPs, registers and masters to a specific dashboard — drop them on the

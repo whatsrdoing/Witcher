@@ -474,8 +474,12 @@
     $('#dropHint').textContent = lib
       ? 'Registers, GRN, transfers — dropped once, used everywhere'
       : 'SOPs and notes that belong to this dashboard only';
-    var slots = drawerFor ? frameInputs(drawerFor) : null;
-    $('#drawerTip').style.display = (lib && slots && slots.length) ? 'flex' : 'none';
+    $('#drawerTip').style.display = 'none';
+    if (lib && drawerFor) {
+      frameInputs(drawerFor).then(function (slots) {
+        if (slots && slots.length && drawerTab === 'library') $('#drawerTip').style.display = 'flex';
+      });
+    }
   }
 
   function drawerScope() { return drawerTab === 'library' ? w.Library.ID : drawerFor; }
@@ -694,30 +698,99 @@
     return txt || ('File input ' + (i + 1));
   }
 
-  function frameInputs(id) {
-    var doc = frameDoc(id);
-    if (!doc) return null;
+  /* ---- talking to a dashboard ------------------------------------------
+     Same-origin (launched with start.bat) we read the dashboard's inputs
+     directly. Opened straight from disk the browser seals each page off, so we
+     ask the bridge sync.py injects into every dashboard instead. Same result
+     either way; the messaging path is just a round trip slower. */
+  var msgSeq = 0, pending = {};
+
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || !m.id) return;
+    var waiter = pending[m.id];
+    if (!waiter) return;
+    delete pending[m.id];
+    clearTimeout(waiter.timer);
+    waiter.resolve(m);
+  }, false);
+
+  function ask(id, payload, timeoutMs) {
+    var f = frames[id];
+    if (!f || !f.el.contentWindow) return Promise.reject(new Error('dashboard is not open'));
+    var reqId = 'p' + (++msgSeq) + '-' + Date.now();
+    return new Promise(function (resolve, reject) {
+      pending[reqId] = {
+        resolve: resolve,
+        timer: setTimeout(function () {
+          delete pending[reqId];
+          reject(new Error('the dashboard did not answer — reload it, or run sync.py to add the bridge'));
+        }, timeoutMs || 6000)
+      };
+      try {
+        f.el.contentWindow.postMessage(
+          Object.assign({ __paras: 1, id: reqId }, payload), '*');
+      } catch (e) {
+        delete pending[reqId];
+        reject(e);
+      }
+    });
+  }
+
+  function decorate(id, raw) {
     var db = byId(id) || {};
     var declared = db.inputs || [];
     var used = {};
-    var list = [];
-    var live = doc.querySelectorAll('input[type=file]');
-    var total = live.length;
-    Array.prototype.forEach.call(live, function (inp, i) {
+    var total = raw.length;
+    return raw.map(function (r, i) {
       var spec = declared.length === total ? declared[i]
-               : matchSpec(inputLabel(inp, i), declared, i, used);
-      list.push({
-        el: inp,
+               : matchSpec(r.label, declared, i, used);
+      spec = spec || {};
+      return {
+        el: r.el || null,
         index: i,
-        label: spec.label || inputLabel(inp, i),
-        accept: spec.accept || inp.getAttribute('accept') || '',
+        label: spec.label || r.label,
+        accept: spec.accept || r.accept || '',
         needs: spec.needs || [],
         match: spec.match || [],
         optional: !!spec.optional,
-        auto: spec.auto !== false
-      });
+        auto: spec.auto !== false,
+        dashId: id
+      };
     });
-    return list;
+  }
+
+  /* Resolves to the dashboard's upload boxes, or null if it isn't ready. */
+  function frameInputs(id) {
+    var f = frames[id];
+    if (!f || !f.loaded) return Promise.resolve(null);
+
+    var doc = frameDoc(id);
+    if (doc) {
+      var raw = Array.prototype.map.call(doc.querySelectorAll('input[type=file]'), function (inp, i) {
+        return { el: inp, label: inputLabel(inp, i), accept: inp.getAttribute('accept') || '' };
+      });
+      return Promise.resolve(decorate(id, raw));
+    }
+
+    return ask(id, { action: 'probe' })
+      .then(function (m) { return m.ok ? decorate(id, m.inputs || []) : null; })
+      .catch(function () { return null; });
+  }
+
+  /* Puts a file in an upload box, directly or by message. */
+  function fillInput(slot, blob, name, type) {
+    if (slot.el) {
+      var file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
+      var dt = new DataTransfer();
+      dt.items.add(file);
+      slot.el.files = dt.files;
+      slot.el.dispatchEvent(new Event('input', { bubbles: true }));
+      slot.el.dispatchEvent(new Event('change', { bubbles: true }));
+      return Promise.resolve();
+    }
+    return ask(slot.dashId, { action: 'fill', index: slot.index, blob: blob, name: name, type: type }, 15000)
+      .then(function (m) { if (!m.ok) throw new Error(m.error || 'the dashboard refused the file'); });
   }
 
   /* Fallback pairing when the registry and the dashboard disagree on how many
@@ -749,12 +822,14 @@
   /* Which library files suit the dashboard that is open right now. */
   function matchesForOpen() {
     if (!current) return Promise.resolve(null);
-    var slots = frameInputs(current);
-    if (!slots || !slots.length) return Promise.resolve(null);
-    return libraryFiles().then(function (files) {
-      if (!files.length) return { slots: slots, pairs: [], files: files };
-      var auto = slots.filter(function (s) { return s.auto; });
-      return { slots: slots, pairs: w.Library.assign(files, auto), files: files };
+    var forDash = current;
+    return frameInputs(forDash).then(function (slots) {
+      if (!slots || !slots.length) return null;
+      return libraryFiles().then(function (files) {
+        if (!files.length) return { slots: slots, pairs: [], files: files, dashId: forDash };
+        var auto = slots.filter(function (s) { return s.auto; });
+        return { slots: slots, pairs: w.Library.assign(files, auto), files: files, dashId: forDash };
+      });
     });
   }
 
@@ -763,7 +838,8 @@
     if (!bar) return;
     if (!current) { bar.style.display = 'none'; return; }
     matchesForOpen().then(function (m) {
-      if (!m || !m.pairs.length) { bar.style.display = 'none'; return; }
+      if (!m || m.dashId !== current) { bar.style.display = 'none'; return; }
+      if (!m.pairs.length) { bar.style.display = 'none'; return; }
       bar.style.display = 'flex';
       var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
       $('#matchText').innerHTML = '<b>' + m.pairs.length + ' of ' + required + '</b> required file' +
@@ -777,17 +853,23 @@
   function fillAllFromLibrary() {
     matchesForOpen().then(function (m) {
       if (!m || !m.pairs.length) return toast('Nothing in the Data Library matches this dashboard yet.', 'warn');
-      var done = 0;
+      var done = 0, failed = 0, lastError = '';
       var next = function (i) {
         if (i >= m.pairs.length) {
-          toast('Filled ' + done + ' upload box' + (done === 1 ? '' : 'es') + ' — press the dashboard\'s own build button to run it.', 'ok', 6000);
+          if (done) toast('Filled ' + done + ' upload box' + (done === 1 ? '' : 'es') +
+            (failed ? ' (' + failed + ' failed)' : '') +
+            ' — press the dashboard\'s own build button to run it.', failed ? 'warn' : 'ok', 6000);
+          else toast('Could not fill any upload box' + (lastError ? ' — ' + lastError : '') + '.', 'err', 8000);
           return;
         }
         var p = m.pairs[i];
         w.Store.Files.blob(p.file.id).then(function (blob) {
-          if (blob) { try { fillInput(p.slot, blob, p.file.name, p.file.type); done++; } catch (e) {} }
-          setTimeout(function () { next(i + 1); }, 60);
-        });
+          if (!blob) { failed++; return next(i + 1); }
+          return fillInput(p.slot, blob, p.file.name, p.file.type)
+            .then(function () { done++; })
+            .catch(function (e) { failed++; lastError = e && e.message || String(e); })
+            .then(function () { setTimeout(function () { next(i + 1); }, 50); });
+        }).catch(function () { failed++; setTimeout(function () { next(i + 1); }, 50); });
       };
       closeDrawer();
       next(0);
@@ -805,43 +887,34 @@
     });
   }
 
-  function fillInput(slot, blob, name, type) {
-    var file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
-    var dt = new DataTransfer();
-    dt.items.add(file);
-    slot.el.files = dt.files;
-    slot.el.dispatchEvent(new Event('input', { bubbles: true }));
-    slot.el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
   /* Opens the dashboard if it isn't open yet, then hands the file over. */
   function sendToDashboard(fileId, name, type, dashId) {
     var ready = function () {
-      var slots = frameInputs(dashId);
-      if (!slots) {
-        toast('This only works when the Command Centre is opened with start.bat — from a file:// page the browser will not let one page reach another. Use Download instead.', 'warn', 9000);
-        return;
-      }
-      if (!slots.length) { toast('This dashboard has no file upload of its own.', 'warn'); return; }
-
-      var matching = slots.filter(function (s) { return acceptsFile(s, name); });
-      var choices = matching.length ? matching : slots;
-
-      w.Store.Files.blob(fileId).then(function (blob) {
-        if (!blob) return toast('That file is no longer in the workspace.', 'warn');
-        if (choices.length === 1) return deliver(choices[0], blob);
-        pickSlot(choices, name, function (slot) { deliver(slot, blob); });
-      });
-
-      function deliver(slot, blob) {
-        try {
-          fillInput(slot, blob, name, type);
-          closeDrawer();
-          toast('"' + name + '" loaded into ' + slot.label, 'ok', 4200);
-        } catch (e) {
-          toast('Could not hand the file over: ' + (e && e.message || e), 'err', 7000);
+      frameInputs(dashId).then(function (slots) {
+        if (!slots) {
+          toast('Could not reach this dashboard. Reload it, or run sync.py to refresh it.', 'warn', 8000);
+          return;
         }
-      }
+        if (!slots.length) { toast('This dashboard has no file upload of its own.', 'warn'); return; }
+
+        var matching = slots.filter(function (s) { return acceptsFile(s, name); });
+        var choices = matching.length ? matching : slots;
+
+        w.Store.Files.blob(fileId).then(function (blob) {
+          if (!blob) return toast('That file is no longer in the workspace.', 'warn');
+          if (choices.length === 1) return deliver(choices[0], blob);
+          pickSlot(choices, name, function (slot) { deliver(slot, blob); });
+        });
+
+        function deliver(slot, blob) {
+          fillInput(slot, blob, name, type).then(function () {
+            closeDrawer();
+            toast('"' + name + '" loaded into ' + slot.label, 'ok', 4200);
+          }).catch(function (e) {
+            toast('Could not hand the file over: ' + (e && e.message || e), 'err', 8000);
+          });
+        }
+      });
     };
 
     if (frames[dashId] && frames[dashId].loaded) {

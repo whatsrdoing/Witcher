@@ -86,6 +86,12 @@ the same upload box twice, list it twice.
 Leave `inputs` out entirely and the dashboard still works; it just will not
 appear in the auto-fill.
 
+`sync.py` also appends a short `<!-- paras-command-centre-bridge -->` block to
+each dashboard. That is what lets the Command Centre place a file in an upload
+box when the app is opened straight from disk. It is invisible, idempotent, and
+safe to delete if you want a dashboard untouched — you lose only the one-click
+fill for that one.
+
 ## Field reference
 
 | Field | Required | Default | Notes |

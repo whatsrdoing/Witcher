@@ -287,6 +287,14 @@ The routing lives in `dashboards.json` under each dashboard's `inputs`, listed
 **in the order the upload boxes appear in that dashboard**. `↑` on any file
 sends it into a box by hand.
 
+It also guards the dashboard's own upload box, not just the Data Library: picking
+a file over 40MB straight into a dashboard's own "Choose file" or drag-and-drop
+is refused with a clear message before the dashboard's own code ever touches
+it, rather than crashing the tab partway through. That is what was crashing
+Formulary Compliance & Savings — the Data Library's size check only ever
+covered files handed over from the Library itself, not ones picked directly
+into the dashboard.
+
 This works whichever way you open the Command Centre. `sync.py` adds a small
 listener to the bottom of each dashboard so a file can be handed over even from
 `file://`, where pages are otherwise sealed off from one another. It changes

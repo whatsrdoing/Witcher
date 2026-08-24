@@ -63,7 +63,7 @@
   function clearPrefs() { prefsCache = {}; try { prefStore().removeItem(PREFS_KEY); } catch (e) {} }
 
   /* ---- file store: IndexedDB backend ------------------------------------- */
-  var dbPromise = null, idbOk = null;
+  var dbPromise = null, idbOk = null, httpOk = null;
 
   function openDB() {
     if (dbPromise) return dbPromise;
@@ -144,6 +144,18 @@
         };
       });
     },
+    /* Every record, regardless of dashboard -- used once, to migrate
+       anything already sitting here to the on-disk library. */
+    listAll: function () {
+      return tx('readonly', function (os, set) {
+        var acc = [];
+        var req = os.openCursor();
+        req.onsuccess = function () {
+          var c = req.result;
+          if (c) { acc.push(meta(c.value)); c.continue(); } else { set(acc); }
+        };
+      });
+    },
     put: function (rec) {
       var m = meta(rec);
       return tx('readwrite', function (t, set) {
@@ -219,19 +231,113 @@
              headers: r.headers || [] };
   }
 
+  /* ---- file store: on-disk backend (python3 serve.py) --------------------
+     Real files under data/library/ next to index.html, instead of the
+     browser's IndexedDB -- so they show up in that folder like any other
+     file, and survive a browser reset or a "clear browsing data". Only
+     available when the app is served over http (not opened from file://). */
+  var LIB = '__library';
+
+  function libFetch(path, opts) {
+    return fetch(LIB + path, Object.assign({ cache: 'no-store' }, opts || {}))
+      .then(function (r) { if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status); return r; });
+  }
+  function libList() {
+    return libFetch('').then(function (r) { return r.json(); }).then(function (j) { return (j && j.files) || []; });
+  }
+
+  var httpApi = {
+    list: function (d) {
+      return libList().then(function (files) {
+        return files.filter(function (r) { return r.dashboardId === d; }).map(meta);
+      });
+    },
+    counts: function () {
+      return libList().then(function (files) {
+        var acc = Object.create(null);
+        files.forEach(function (r) { acc[r.dashboardId] = (acc[r.dashboardId] || 0) + 1; });
+        return acc;
+      });
+    },
+    put: function (rec) {
+      var qs = 'id=' + encodeURIComponent(rec.id) +
+        '&dashboardId=' + encodeURIComponent(rec.dashboardId || '') +
+        '&name=' + encodeURIComponent(rec.name || 'untitled') +
+        '&type=' + encodeURIComponent(rec.type || '') +
+        '&headers=' + encodeURIComponent(JSON.stringify(rec.headers || []));
+      return libFetch('/' + encodeURIComponent(rec.id) + '?' + qs, { method: 'POST', body: rec.blob })
+        .then(function (r) { return r.json(); }).then(meta);
+    },
+    get: function (id) {
+      return libFetch('/' + encodeURIComponent(id))
+        .then(function (r) { return r.status === 404 ? null : r.blob(); })
+        .then(function (blob) { return blob ? { blob: blob } : null; });
+    },
+    del: function (id) { return libFetch('/' + encodeURIComponent(id), { method: 'DELETE' }).then(function () {}); },
+    rename: function (id, name) {
+      return libFetch('/' + encodeURIComponent(id) + '/rename?name=' + encodeURIComponent(name), { method: 'POST' })
+        .then(function (r) { return r.json(); }).then(meta);
+    },
+    clearAll: function () {
+      return libList().then(function (files) { return Promise.all(files.map(function (r) { return httpApi.del(r.id); })); });
+    }
+  };
+
   /* ---- backend selection -------------------------------------------------- */
   function backend() {
     if (mode === 'session') return memApi;
+    if (httpOk === true) return httpApi;
     return (idbOk === false) ? memApi : idb;
   }
 
-  /* Probes IndexedDB once. Resolves true when LOCAL file persistence works. */
+  /* Anything already sitting in IndexedDB from before the on-disk library
+     existed is copied up to it, once -- so switching to the new backend
+     never looks like the files vanished. Best-effort: a failure here just
+     leaves those files reachable the old way (IndexedDB) instead of
+     blocking startup. */
+  function migrateToLibrary() {
+    if (!w.indexedDB) return Promise.resolve(0);
+    return idb.listAll().then(function (rows) {
+      if (!rows.length) return 0;
+      return libList().then(function (already) {
+        var have = Object.create(null);
+        already.forEach(function (r) { have[r.id] = 1; });
+        var todo = rows.filter(function (r) { return !have[r.id]; });
+        if (!todo.length) return 0;
+        // Sequential, not parallel -- serve.py handles one request at a time,
+        // and these can each be a large file.
+        return todo.reduce(function (p, row) {
+          return p.then(function (n) {
+            return idb.get(row.id).then(function (full) {
+              if (!full || !full.blob) return n;
+              return httpApi.put(full).then(function () { return n + 1; });
+            });
+          });
+        }, Promise.resolve(0));
+      });
+    }).catch(function () { return 0; });
+  }
+
+  /* Probes the on-disk library first, then IndexedDB as a fallback (open
+     from file://, or serve.py not running). Resolves true when LOCAL file
+     persistence works either way; migratedCount() reports what moved over. */
+  var lastMigrated = 0;
   function checkPersistence() {
-    if (idbOk !== null) return Promise.resolve(idbOk);
+    if (httpOk !== null || idbOk !== null) return Promise.resolve(httpOk === true || idbOk === true);
+    if (w.location.protocol === 'file:') { httpOk = false; return probeIdb(); }
+    return fetch(LIB, { cache: 'no-store' }).then(function (r) { return r.ok; }).catch(function () { return false; })
+      .then(function (ok) {
+        httpOk = ok;
+        if (!ok) return probeIdb();
+        return migrateToLibrary().then(function (n) { lastMigrated = n; return true; });
+      });
+  }
+  function probeIdb() {
     if (!w.indexedDB) { idbOk = false; return Promise.resolve(false); }
     return openDB().then(function () { idbOk = true; return true; })
       .catch(function () { idbOk = false; dbPromise = null; return false; });
   }
+  function migratedCount() { return lastMigrated; }
 
   function uid() {
     if (w.crypto && w.crypto.randomUUID) return w.crypto.randomUUID();
@@ -251,8 +357,11 @@
     remove: function (id) { return backend().del(id); },
     rename: function (id, n) { return backend().rename(id, n); },
     clearAll: function () { return backend().clearAll(); },
-    clearPersisted: function () { return idb.clearAll().catch(function () {}); },
-    persistent: function () { return mode === 'local' && idbOk === true; }
+    clearPersisted: function () {
+      return (httpOk === true ? httpApi.clearAll() : idb.clearAll()).catch(function () {});
+    },
+    persistent: function () { return mode === 'local' && (httpOk === true || idbOk === true); },
+    onDisk: function () { return httpOk === true; }
   };
 
   w.Store = {
@@ -261,7 +370,8 @@
     loadPrefs: loadPrefs, getPref: getPref, setPref: setPref, clearPrefs: clearPrefs,
     checkPersistence: checkPersistence,
     localStorageOk: function () { return LS_OK; },
-    idbAvailable: function () { return idbOk; },
+    idbAvailable: function () { return (httpOk === true) ? true : idbOk; },
+    migratedCount: migratedCount,
     Files: Files
   };
 })(window);

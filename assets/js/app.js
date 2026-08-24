@@ -46,6 +46,11 @@
 
       w.Store.checkPersistence().then(function () {
         renderModeSwitch();
+        var moved = w.Store.migratedCount ? w.Store.migratedCount() : 0;
+        if (moved) {
+          toast('Moved ' + moved + ' file' + (moved === 1 ? '' : 's') +
+            ' already attached into this folder’s data/library.', 'ok', 6000);
+        }
         return refreshCounts();
       }).then(renderHome);
 

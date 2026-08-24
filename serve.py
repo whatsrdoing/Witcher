@@ -22,6 +22,7 @@ import hmac
 import http.server
 import json
 import os
+import re
 import socket
 import shutil
 import socketserver
@@ -29,10 +30,21 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(ROOT, "site.json")
+
+# Everything dropped into the Data Library (or pinned to a dashboard) lands
+# here as real files -- not in the browser's IndexedDB -- so it shows up in
+# this folder like any other file, survives a browser reset, and is easy to
+# find, back up or move by hand.
+LIBRARY_DIR = os.path.join(ROOT, "data", "library")
+LIBRARY_BLOBS = os.path.join(LIBRARY_DIR, "blobs")
+LIBRARY_INDEX = os.path.join(LIBRARY_DIR, "index.json")
+SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+COPY_CHUNK = 1024 * 1024
 
 DEFAULTS = {
     "hostname": "parashealth.internal",
@@ -55,12 +67,45 @@ def settings():
     return cfg
 
 
+def library_read_index():
+    if not os.path.exists(LIBRARY_INDEX):
+        return []
+    try:
+        with open(LIBRARY_INDEX, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("files") or []
+    except (OSError, ValueError):
+        return []
+
+
+def library_write_index(files):
+    os.makedirs(LIBRARY_DIR, exist_ok=True)
+    with open(LIBRARY_INDEX, "w", encoding="utf-8") as fh:
+        json.dump({"files": files}, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+
+
+def library_route(path):
+    """Splits a request path into whatever comes after '__library', or None
+    if this request is not a library one. Matches on the segment itself so
+    it works no matter what friendly prefix site.json is configured with."""
+    segs = [s for s in path.split("/") if s]
+    if "__library" not in segs:
+        return None
+    i = segs.index("__library")
+    return segs[i + 1:]
+
+
 def make_handler(prefix):
     class Handler(http.server.SimpleHTTPRequestHandler):
         """Serves the folder under a friendly path so the address bar reads like
         an internal site rather than a Downloads folder."""
 
         def do_GET(self):
+            tail = library_route(self.path.split("?")[0])
+            if tail is not None:
+                self._library_get(tail)
+                return
             if self._redirect():
                 return
             super().do_GET()
@@ -70,10 +115,134 @@ def make_handler(prefix):
                 return
             super().do_HEAD()
 
+        def do_DELETE(self):
+            tail = library_route(self.path.split("?")[0])
+            if tail is None or len(tail) != 1:
+                self.send_error(404)
+                return
+            self._library_delete(tail[0])
+
+        def _library_get(self, tail):
+            files = library_read_index()
+            if not tail:
+                self._json(200, {"files": files})
+                return
+            if len(tail) != 1:
+                self.send_error(404)
+                return
+            rec = next((f for f in files if f.get("id") == tail[0]), None)
+            blob_path = os.path.join(LIBRARY_BLOBS, tail[0])
+            if not rec or not os.path.exists(blob_path):
+                self.send_error(404)
+                return
+            size = os.path.getsize(blob_path)
+            self.send_response(200)
+            self.send_header("Content-Type", rec.get("type") or "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(blob_path, "rb") as fh:
+                shutil.copyfileobj(fh, self.wfile, COPY_CHUNK)
+
+        def _library_delete(self, file_id):
+            if not SAFE_ID.match(file_id):
+                self.send_error(400)
+                return
+            files = library_read_index()
+            kept = [f for f in files if f.get("id") != file_id]
+            if len(kept) != len(files):
+                library_write_index(kept)
+            try:
+                os.remove(os.path.join(LIBRARY_BLOBS, file_id))
+            except OSError:
+                pass
+            self._json(200, {"ok": True})
+
+        def _library_put(self, file_id, qs):
+            if not SAFE_ID.match(file_id):
+                self._json(400, {"error": "bad id"})
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
+            if n < 0:
+                self._json(400, {"error": "bad length"})
+                return
+
+            os.makedirs(LIBRARY_BLOBS, exist_ok=True)
+            blob_path = os.path.join(LIBRARY_BLOBS, file_id)
+            written = 0
+            try:
+                with open(blob_path, "wb") as out:
+                    remaining = n
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(COPY_CHUNK, remaining))
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        written += len(chunk)
+                        remaining -= len(chunk)
+            except OSError as exc:
+                self._json(500, {"error": str(exc)})
+                return
+
+            headers_raw = (qs.get("headers") or [""])[0]
+            try:
+                headers = json.loads(headers_raw) if headers_raw else []
+                if not isinstance(headers, list):
+                    headers = []
+            except ValueError:
+                headers = []
+
+            now = int(time.time() * 1000)
+            rec = {
+                "id": file_id,
+                "dashboardId": (qs.get("dashboardId") or [""])[0],
+                "name": (qs.get("name") or ["untitled"])[0][:300],
+                "size": written,
+                "type": (qs.get("type") or [""])[0][:100],
+                "addedAt": now,
+                "updatedAt": now,
+                "headers": headers[:200],
+            }
+            files = [f for f in library_read_index() if f.get("id") != file_id]
+            files.append(rec)
+            library_write_index(files)
+            self._json(200, rec)
+
+        def _library_rename(self, file_id, qs):
+            files = library_read_index()
+            rec = next((f for f in files if f.get("id") == file_id), None)
+            if not rec:
+                self._json(404, {"error": "no such file"})
+                return
+            name = (qs.get("name") or [""])[0].strip()[:300]
+            if not name:
+                self._json(400, {"error": "a name is required"})
+                return
+            rec["name"] = name
+            rec["updatedAt"] = int(time.time() * 1000)
+            library_write_index(files)
+            self._json(200, rec)
+
         def do_POST(self):
-            """Password reset and sign-up from the sign-in screen. Only ever
-            writes auth.json, only from this machine (the server binds
-            127.0.0.1), and only once the admin key checks out."""
+            """Handles two kinds of write from the browser: files dropped into
+            the Data Library (this machine's copy, under data/library/), and
+            password reset / sign-up from the sign-in screen (auth.json).
+            Only ever these two, only from this machine (the server binds
+            127.0.0.1), and the auth ones only once the admin key checks out."""
+            path_only = self.path.split("?")[0]
+            tail = library_route(path_only)
+            if tail is not None:
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                if len(tail) == 1:
+                    self._library_put(tail[0], qs)
+                elif len(tail) == 2 and tail[1] == "rename":
+                    self._library_rename(tail[0], qs)
+                else:
+                    self.send_error(404)
+                return
+
             if self.path.rstrip("/").rsplit("/", 1)[-1] != "__auth":
                 self.send_error(404)
                 return
@@ -307,6 +476,8 @@ def main(argv):
         elif a.isdigit():
             port = int(a)
         i += 1
+
+    os.makedirs(LIBRARY_BLOBS, exist_ok=True)
 
     try:
         sys.path.insert(0, ROOT)

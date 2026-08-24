@@ -33,9 +33,13 @@ Binds to `127.0.0.1` only, so it is not reachable from the network, and no
 internet connection is used.
 
 **Or just double-click `index.html`** — this works too. The only difference:
-browsers restrict `IndexedDB` on `file://`, so in some browsers attached files
-become temporary. The app detects this and says so in the footer. Layout,
-theme and mode still persist.
+attached files land in `data/library/` next to this file when `serve.py` is
+running; opened straight from disk there is no server to write to, so the
+app falls back to the browser's `IndexedDB` (or, if that is also restricted,
+attachments become temporary). The app detects this and says so in the
+footer. Layout, theme and mode still persist either way. A file already
+attached through `IndexedDB` before `serve.py` was first run is copied over
+to `data/library/` automatically the next time it starts, once.
 
 ---
 
@@ -345,7 +349,7 @@ it automatically on the next sync.
 
 | | LOCAL | SESSION |
 |---|---|---|
-| Attached files | kept on this computer (IndexedDB) | memory only |
+| Attached files | kept in `data/library/` on this computer | memory only |
 | Layout, theme, filters | kept (localStorage) | this tab only (sessionStorage) |
 | Survives closing the app | yes | no |
 

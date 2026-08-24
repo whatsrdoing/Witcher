@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# Files uploaded through the Data Library / dashboards -- real user data,
+# never something to commit. Created on disk by serve.py.
+/data/

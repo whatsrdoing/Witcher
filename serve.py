@@ -136,7 +136,8 @@ def make_handler(prefix):
                     return
                 new_acc = {"login": login, "salt": new_salt, "hash": new_hash,
                           "iterations": iterations, "createdAt": int(time.time() * 1000)}
-                for field in ("name", "designation", "department", "category"):
+                for field in ("name", "designation", "department", "category",
+                              "phone", "email", "parasId"):
                     val = str(req.get(field) or "").strip()[:200]
                     if val:
                         new_acc[field] = val

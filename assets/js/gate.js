@@ -188,6 +188,8 @@
     ['gateSignIn', 'gateReset', 'gateSignup'].forEach(function (s) {
       $('#' + s).style.display = (s === id) ? 'block' : 'none';
     });
+    var inner = $('#gateInner');
+    if (inner) inner.classList.toggle('wide', id === 'gateSignup');
     say('');
   }
 
@@ -199,23 +201,23 @@
   /* ---- admin-key reset ----------------------------------------------------
      Forgot password does not mail anyone — there is no server to mail from.
      It asks for the admin key, and only then lets that account's password be
-     changed on this machine. If a username is already typed on the sign-in
-     screen and matches an existing account, that account is the one reset;
-     otherwise it defaults to the primary account. */
+     changed on this machine. With more than one account on file, guessing
+     which one to reset from whatever happened to be typed on the sign-in
+     screen is not reliable -- so the exact username is typed here instead,
+     and has to match an existing account before the admin key is even
+     checked. */
   function showReset() {
     showScreen('gateReset');
     $('#resetMsg').style.display = 'none';
     $('#resetAdmin').textContent = cfg.admin || 'Ritik Nagar';
     if (cfg.adminEmail) $('#resetAdmin').href = 'mailto:' + cfg.adminEmail;
     else $('#resetAdmin').removeAttribute('href');
-    ['resetKey', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
+    ['resetUser', 'resetKey', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
 
     var typed = ($('#gateEmail').value || '').trim();
-    var target = findAccount(typed) ? typed : ((allAccounts()[0] || {}).login || '');
-    $('#resetFor').textContent = target || '—';
-    showReset._target = target;
+    if (typed) $('#resetUser').value = typed;
 
-    setTimeout(function () { $('#resetKey').focus(); }, 60);
+    setTimeout(function () { $('#resetUser').focus(); }, 60);
   }
   function resetSay(msg, kind) {
     var el = $('#resetMsg');
@@ -227,14 +229,14 @@
   function doReset(e) {
     e.preventDefault();
     if (busy) return;
+    var target = ($('#resetUser').value || '').trim();
     var key = ($('#resetKey').value || '').trim();
     var p1 = $('#resetPass').value || '', p2 = $('#resetPass2').value || '';
+    if (!target) return resetSay('Enter the exact username to reset.', 'err');
+    if (!findAccount(target)) return resetSay('No account named "' + target + '".', 'err');
     if (!key) return resetSay('Enter the admin key.', 'err');
     if (p1.length < 6) return resetSay('Use at least 6 characters for the new password.', 'err');
     if (p1 !== p2) return resetSay('The two new passwords do not match.', 'err');
-
-    var target = showReset._target || (allAccounts()[0] || {}).login;
-    if (!target) return resetSay('No account to reset.', 'err');
 
     busy = true;
     $('#resetSubmit').classList.add('working');
@@ -272,9 +274,10 @@
   function showSignup() {
     showScreen('gateSignup');
     $('#signupMsg').style.display = 'none';
-    ['signupKey', 'signupUser', 'signupName', 'signupDesignation', 'signupDepartment',
-     'signupCategory', 'signupPass', 'signupPass2'].forEach(function (id) { $('#' + id).value = ''; });
-    setTimeout(function () { $('#signupKey').focus(); }, 60);
+    ['signupUser', 'signupName', 'signupDesignation', 'signupDepartment', 'signupCategory',
+     'signupPhone', 'signupEmail', 'signupParasId', 'signupPass', 'signupPass2', 'signupKey']
+      .forEach(function (id) { $('#' + id).value = ''; });
+    setTimeout(function () { $('#signupUser').focus(); }, 60);
   }
   function signupSay(msg, kind) {
     var el = $('#signupMsg');
@@ -283,27 +286,36 @@
     el.style.display = msg ? 'flex' : 'none';
   }
 
+  var EMAIL_DOMAIN = '@parashealth.com';
+
   function doSignup(e) {
     e.preventDefault();
     if (busy) return;
-    var key = ($('#signupKey').value || '').trim();
     var login = ($('#signupUser').value || '').trim();
     var name = ($('#signupName').value || '').trim();
     var designation = ($('#signupDesignation').value || '').trim();
     var department = ($('#signupDepartment').value || '').trim();
     var category = ($('#signupCategory').value || '').trim();
+    var phone = ($('#signupPhone').value || '').trim();
+    var emailLocal = ($('#signupEmail').value || '').trim().split('@')[0];
+    var parasId = ($('#signupParasId').value || '').trim();
+    var key = ($('#signupKey').value || '').trim();
     var p1 = $('#signupPass').value || '', p2 = $('#signupPass2').value || '';
-    if (!key) return signupSay('Enter the admin key.', 'err');
     if (!login) return signupSay('Choose a username.', 'err');
     if (!name) return signupSay('Enter the full name.', 'err');
-    if (!designation) return signupSay('Enter the designation.', 'err');
-    if (!department) return signupSay('Enter the department.', 'err');
-    if (!category) return signupSay('Enter the category.', 'err');
+    if (!designation) return signupSay('Select a designation.', 'err');
+    if (!department) return signupSay('Select a department.', 'err');
+    if (!category) return signupSay('Select a category.', 'err');
+    if (!phone) return signupSay('Enter the phone number.', 'err');
+    if (!emailLocal) return signupSay('Enter the email.', 'err');
+    if (!parasId) return signupSay('Enter the Paras ID.', 'err');
     if (p1.length < 6) return signupSay('Use at least 6 characters for the password.', 'err');
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
+    if (!key) return signupSay('Enter the admin key.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
 
-    var profile = { name: name, designation: designation, department: department, category: category };
+    var profile = { name: name, designation: designation, department: department, category: category,
+                    phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId };
 
     busy = true;
     $('#signupSubmit').classList.add('working');

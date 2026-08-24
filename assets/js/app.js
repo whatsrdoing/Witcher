@@ -5,7 +5,13 @@
   'use strict';
 
   var REG = null;
-  var frames = Object.create(null);   // id -> { el, loaded, openedAt }
+  // Each mode keeps its own set of open dashboards. Local's survive a trip
+  // through Session and back, exactly as left; Session's are thrown away
+  // every time you leave Session, so it is always a fresh workspace when
+  // you come back to it -- the same asymmetry the mode switch already has
+  // for everything else (files, layout).
+  var framesByMode = { local: Object.create(null), session: Object.create(null) };
+  var frames = framesByMode.local;    // id -> { el, loaded, openedAt }; points at the active mode's set
   var fileCounts = Object.create(null);
   var current = null;                 // active dashboard id, null = home
   var filter = { text: '', category: 'all' };
@@ -29,6 +35,7 @@
 
       var mode = w.Store.readStoredMode(reg.app.defaultMode);
       w.Store.setMode(mode);
+      frames = framesByMode[mode] || framesByMode.local;
       w.Store.loadPrefs();
 
       applyTheme(w.Store.getPref('theme', reg.app.defaultTheme));
@@ -76,6 +83,9 @@
       ['Designation', who.designation],
       ['Department', who.department],
       ['Category', who.category],
+      ['Phone', who.phone],
+      ['Email', who.email],
+      ['Paras ID', who.parasId],
     ].filter(function (r) { return r[1]; });
     $('#profilePopBody').innerHTML = rows.length
       ? rows.map(function (r) {
@@ -117,9 +127,17 @@
   }
 
   function switchMode(next) {
-    if (next === w.Store.getMode()) return;
+    var leaving = w.Store.getMode();
+    if (next === leaving) return;
     var go = function () {
-      closeAllFrames();
+      // Session is thrown away every time you leave it, so it is a fresh
+      // workspace again next time. Local is never touched here -- its open
+      // dashboards just stop being shown and pick up again untouched.
+      if (leaving === 'session') closeFramesFor('session');
+      current = null;
+      $$('.frames iframe').forEach(function (f) { f.classList.remove('active'); });
+      frames = framesByMode[next];
+
       w.Store.setMode(next);
       w.Store.loadPrefs();
       applyTheme(w.Store.getPref('theme', REG.app.defaultTheme));
@@ -127,12 +145,15 @@
       renderModeSwitch();
       refreshCounts().then(renderHome);
       goHome();
+      renderLiveCount();
       if (drawerFor) renderFiles();
-      toast(next === 'session' ? 'Session mode — a fresh, temporary workspace. Open dashboards were closed.' : 'Local mode — back to what was saved on this computer. Open dashboards were closed.', 'ok', 4500);
+      toast(next === 'session'
+        ? 'Session mode — a fresh, temporary workspace. Dashboards open in Local stay exactly as they are.'
+        : 'Local mode — back to what was saved on this computer. Dashboards open in Session were discarded.', 'ok', 4500);
     };
     if (next === 'session') {
       confirmDialog('Switch to Session mode?',
-        'Session mode starts a completely fresh, temporary workspace — like opening an Incognito window. Any dashboards you have open right now will close. Files you attach and layout changes in Session are held in memory only and disappear when this tab closes. Nothing already saved in Local mode is touched, and it all comes back when you switch back.',
+        'Session mode starts a completely fresh, temporary workspace — like opening an Incognito window. Dashboards you have open in Local right now are not affected; switch back to Local anytime to find them exactly as you left them. Files you attach and layout changes in Session are held in memory only and disappear the moment you leave Session or close this tab.',
         'Switch to Session', go);
     } else { go(); }
   }
@@ -175,7 +196,12 @@
     $('#viewHome').classList.remove('active');
     $('#viewDash').classList.add('active');
 
-    var f = frames[id];
+    // Snapshotted so the load handler below still updates the right mode's
+    // frame set even if the mode is switched again before it fires -- Local
+    // and Session can each have their own iframe for the same dashboard id,
+    // so `frames` (which mode switching reassigns) is not safe to read late.
+    var myFrames = frames;
+    var f = myFrames[id];
     if (!f) {
       var el = d.createElement('iframe');
       el.title = db.name;
@@ -185,15 +211,18 @@
       $('#frameLoading').style.display = 'flex';
       $('#frameLoadingTxt').textContent = 'Opening ' + db.name + '…';
       el.addEventListener('load', function () {
-        frames[id].loaded = true;
+        myFrames[id].loaded = true;
         if (current === id) { $('#frameLoading').style.display = 'none'; refreshMatchBar(); }
       });
       $('#frames').appendChild(el);
-      f = frames[id] = { el: el, loaded: false, openedAt: Date.now() };
+      f = myFrames[id] = { el: el, loaded: false, openedAt: Date.now() };
     }
     $('#frameLoading').style.display = f.loaded ? 'none' : 'flex';
 
-    $$('.frames iframe').forEach(function (x) { x.classList.toggle('active', x.dataset.id === id); });
+    // Compare by element, not by dataset.id -- Local and Session can each
+    // have an iframe open for the same dashboard id at once, and only the
+    // one belonging to the mode just opened should end up visible.
+    $$('.frames iframe').forEach(function (x) { x.classList.toggle('active', x === f.el); });
 
     $('#dashIcon').innerHTML = ico(db.icon);
     $('#dashIcon').style.setProperty('--accent', db.accent);
@@ -219,21 +248,17 @@
     toast((db ? db.name : 'Dashboard') + ' closed — its in-page state was released.', 'ok');
   }
 
-  /* Closes every open dashboard at once, with no per-file toast. Used on a
-     SESSION/LOCAL switch: each mode is a separate workspace, like a normal
-     window and an Incognito one — a dashboard already open when you switch
-     is running against the mode you just left, so it carries on showing
-     whatever it had loaded instead of the new mode's (empty, for SESSION)
-     data. Closing it is what makes the switch actually behave like a fresh
-     start rather than just swapping what a future upload would use. */
-  function closeAllFrames() {
-    Object.keys(frames).forEach(function (id) {
-      var f = frames[id];
+  /* Closes every dashboard open in one mode's set, with no per-file toast.
+     Only ever called for 'session' -- on leaving it, so it is a fresh
+     workspace again next time it is entered. Local's own set is a separate
+     object and is never passed here, so switching modes never touches it. */
+  function closeFramesFor(mode) {
+    var fm = framesByMode[mode];
+    Object.keys(fm).forEach(function (id) {
+      var f = fm[id];
       if (f && f.el) f.el.remove();
     });
-    frames = Object.create(null);
-    current = null;
-    renderLiveCount();
+    framesByMode[mode] = Object.create(null);
   }
 
   function renderCrumbs(db) {
@@ -1243,7 +1268,6 @@
       var p = $('#profilePop');
       p.style.display = (p.style.display === 'block') ? 'none' : 'block';
     });
-    $('#profileSignOut').addEventListener('click', function () { w.ParasGate.lock(); });
     d.addEventListener('click', function (e) {
       if (!e.target.closest('#profileTray')) $('#profilePop').style.display = 'none';
     });

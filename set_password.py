@@ -6,7 +6,8 @@
     python3 set_password.py --admin-key NEWKEY ...   # change the reset key
     python3 set_password.py --admin-email you@x.com ...  # contact email shown on reset screen
     python3 set_password.py --name "Ritik Nagar" --designation "..." \
-      --department "..." --category "..." admin/ritik 'Secret1'  # profile shown once signed in
+      --department "..." --category "..." --phone "..." --email "..." \
+      --paras-id "..." admin/ritik 'Secret1'  # profile shown once signed in
     python3 set_password.py --remove someuser        # revoke an account
 
 Writes auth.json with a fresh random salt and a PBKDF2-HMAC-SHA256 hash, then
@@ -58,7 +59,7 @@ def build(login, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
     # name / designation / department / category shown once signed in --
     # optional, carried over from the previous entry for this login when a
     # fresh value is not given this run.
-    for field in ("name", "designation", "department", "category"):
+    for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
         val = (profile or {}).get(field)
         if val:
             entry[field] = val
@@ -152,7 +153,8 @@ def main(argv):
 
     new_profile = {}
     for flag, field in (("--name", "name"), ("--designation", "designation"),
-                        ("--department", "department"), ("--category", "category")):
+                        ("--department", "department"), ("--category", "category"),
+                        ("--phone", "phone"), ("--email", "email"), ("--paras-id", "parasId")):
         if flag in argv:
             i = argv.index(flag)
             if i + 1 >= len(argv):
@@ -205,7 +207,7 @@ def main(argv):
                 key_salt, key_hash = prev.get("adminKeySalt"), prev.get("adminKeyHash")
             existing = next((a for a in (prev_accounts or []) if a.get("login") == login), None)
             if existing:
-                for field in ("name", "designation", "department", "category"):
+                for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
                     if existing.get(field):
                         profile[field] = existing[field]
         except (OSError, ValueError):

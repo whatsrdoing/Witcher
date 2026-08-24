@@ -507,7 +507,8 @@ a{color:var(--brand-soft); text-decoration:none;}
 :root[data-theme="light"] .gate-bg i:nth-child(1){opacity:.18;}
 :root[data-theme="light"] .gate-bg i:nth-child(2){opacity:.10;}
 
-.gate-inner{position:relative; width:100%; max-width:492px; display:flex; flex-direction:column; align-items:center;}
+.gate-inner{position:relative; width:100%; max-width:492px; display:flex; flex-direction:column; align-items:center; transition:max-width .25s var(--ease);}
+.gate-inner.wide{max-width:600px;}
 
 .gate-head{text-align:center; margin-bottom:30px; animation:gateIn .5s var(--ease) both;}
 
@@ -564,18 +565,30 @@ a{color:var(--brand-soft); text-decoration:none;}
   position:absolute; left:13px; width:18px;height:18px; pointer-events:none; color:var(--ink-3);
   fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round;
 }
-.gate-field input{
+.gate-field input, .gate-field select{
   width:100%; height:48px; padding:0 44px 0 42px; border-radius:12px; font-size:14.5px; font-weight:500;
   color:var(--ink); background:var(--glass); border:1px solid var(--wire);
   transition:border-color .18s var(--ease), background .18s var(--ease), box-shadow .18s var(--ease);
 }
-:root[data-theme="light"] .gate-field input{background:#E9EFF9; border-color:transparent;}
+.gate-field select{appearance:none; -webkit-appearance:none; cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237B8792' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 13px center; background-size:16px; padding-right:38px;}
+.gate-field select:invalid{color:var(--ink-3);}
+:root[data-theme="light"] .gate-field input, :root[data-theme="light"] .gate-field select{background-color:#E9EFF9; border-color:transparent;}
 .gate-field input::placeholder{color:var(--ink-3); font-weight:400;}
-.gate-field input:focus{
-  outline:none; border-color:var(--brand-bright); background:var(--glass-2);
+.gate-field input:focus, .gate-field select:focus{
+  outline:none; border-color:var(--brand-bright); background-color:var(--glass-2);
   box-shadow:0 0 0 3px color-mix(in srgb, var(--brand-bright) 22%, transparent);
 }
-.gate-field input:focus ~ .gate-ico, .gate-field:focus-within .gate-ico{color:var(--brand-soft);}
+.gate-field input:focus ~ .gate-ico, .gate-field select:focus ~ .gate-ico, .gate-field:focus-within .gate-ico{color:var(--brand-soft);}
+
+.gate-field-email input{padding-right:132px;}
+.gate-suffix{
+  position:absolute; right:13px; font-size:12.5px; font-weight:600; color:var(--ink-3); pointer-events:none;
+}
+
+.gate-2col{display:grid; grid-template-columns:1fr 1fr; gap:0 14px;}
+@media (max-width:520px){.gate-2col{grid-template-columns:1fr;}}
 .gate-reveal{
   position:absolute; right:8px; width:32px;height:32px; border-radius:8px; display:flex;
   align-items:center; justify-content:center; color:var(--ink-3); transition:.16s var(--ease);

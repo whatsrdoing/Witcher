@@ -15,7 +15,7 @@
 <div class="gate" id="gate">
   <div class="gate-bg" aria-hidden="true"><i></i><i></i></div>
 
-  <div class="gate-inner">
+  <div class="gate-inner" id="gateInner">
     <header class="gate-head">
       <img class="gate-logo on-dark" src="assets/img/paras-health-logo-light.png" alt="Paras Health">
       <img class="gate-logo on-light" src="assets/img/paras-health-logo.png" alt="Paras Health">
@@ -70,9 +70,15 @@
 
       <div id="gateReset" style="display:none">
         <form id="resetForm" novalidate>
-          <p class="reset-lede">Enter the admin key to set a new password for
-            <b id="resetFor">—</b>. Do not have the key?
+          <p class="reset-lede">Type the exact username of the account to reset,
+            then the admin key. Do not have the key?
             Contact <a id="resetAdmin" href="#" target="_blank" rel="noopener">Ritik Nagar</a>.</p>
+
+          <label class="gate-label" for="resetUser">Username</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="resetUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
 
           <label class="gate-label" for="resetKey">Admin key</label>
           <div class="gate-field">
@@ -106,55 +112,117 @@
 
       <div id="gateSignup" style="display:none">
         <form id="signupForm" novalidate>
-          <p class="reset-lede">Register a new username and password. Needs the
-            admin key — anyone without it cannot create an account here.</p>
+          <p class="reset-lede">Register a new account. The admin key is asked
+            for at the end — anyone without it cannot create an account here.</p>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupUser">New username</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+                <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupName">Full name</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+                <input id="signupName" type="text" autocomplete="name" placeholder="Shown once signed in" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupDesignation">Designation</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"/><path d="M7 10.7V16c0 1 2.2 2.3 5 2.3s5-1.3 5-2.3v-5.3"/></svg>
+                <select id="signupDesignation" required>
+                  <option value="" disabled selected>Select designation</option>
+                  <option>Vice President</option>
+                  <option>Assistant Vice President</option>
+                  <option>General Manager</option>
+                  <option>Deputy General Manager</option>
+                  <option>Assistant General Manager</option>
+                  <option>Senior Manager</option>
+                  <option>Manager</option>
+                  <option>Deputy Manager</option>
+                  <option>Assistant Manager</option>
+                </select>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupDepartment">Department</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><rect x="13" y="13" width="7" height="7" rx="1.3"/></svg>
+                <select id="signupDepartment" required>
+                  <option value="" disabled selected>Select department</option>
+                  <option>Purchase</option>
+                  <option>CBU Purchase</option>
+                  <option>Pharmacy</option>
+                  <option>MDM</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupCategory">Category</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+                <select id="signupCategory" required>
+                  <option value="" disabled selected>Select category</option>
+                  <option>Drugs</option>
+                  <option>Consumables</option>
+                  <option>D&amp;MC</option>
+                  <option>Non Medical</option>
+                </select>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupPhone">Phone number</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
+                <input id="signupPhone" type="tel" autocomplete="tel" placeholder="10-digit number" required>
+              </div>
+            </div>
+          </div>
+
+          <label class="gate-label" for="signupEmail">Email</label>
+          <div class="gate-field gate-field-email">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="signupEmail" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="firstname.lastname" required>
+            <span class="gate-suffix">@parashealth.com</span>
+          </div>
+
+          <label class="gate-label" for="signupParasId">Paras ID</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="10.5" r="2"/><path d="M6.5 16c.5-1.8 1.9-2.7 2.5-2.7s2 .9 2.5 2.7M14 9.5h4M14 12.5h4"/></svg>
+            <input id="signupParasId" type="text" autocomplete="off" placeholder="Employee ID" required>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupPass">New password</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+                <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 6 characters" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupPass2">Repeat password</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+                <input id="signupPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+              </div>
+            </div>
+          </div>
 
           <label class="gate-label" for="signupKey">Admin key</label>
           <div class="gate-field">
             <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
-            <input id="signupKey" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
-          </div>
-
-          <label class="gate-label" for="signupUser">New username</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
-            <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
-          </div>
-
-          <label class="gate-label" for="signupName">Full name</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
-            <input id="signupName" type="text" autocomplete="name" placeholder="Shown once signed in" required>
-          </div>
-
-          <label class="gate-label" for="signupDesignation">Designation</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"/><path d="M7 10.7V16c0 1 2.2 2.3 5 2.3s5-1.3 5-2.3v-5.3"/></svg>
-            <input id="signupDesignation" type="text" autocomplete="off" placeholder="e.g. Store Manager" required>
-          </div>
-
-          <label class="gate-label" for="signupDepartment">Department</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><rect x="13" y="13" width="7" height="7" rx="1.3"/></svg>
-            <input id="signupDepartment" type="text" autocomplete="off" placeholder="e.g. Pharmacy" required>
-          </div>
-
-          <label class="gate-label" for="signupCategory">Category</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
-            <input id="signupCategory" type="text" autocomplete="off" placeholder="e.g. Procurement" required>
-          </div>
-
-          <label class="gate-label" for="signupPass">New password</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-            <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 6 characters" required>
-          </div>
-
-          <label class="gate-label" for="signupPass2">Repeat new password</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-            <input id="signupPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+            <input id="signupKey" type="password" autocomplete="off" spellcheck="false" placeholder="Needed to finish creating the account" required>
           </div>
 
           <div class="gate-msg" id="signupMsg" style="display:none"></div>
@@ -207,11 +275,6 @@
         <div class="pop" id="profilePop" style="display:none">
           <h4>Signed in</h4>
           <div id="profilePopBody"></div>
-          <hr>
-          <button class="pop-row" id="profileSignOut" type="button">
-            <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-            <span class="nm">Sign out</span>
-          </button>
         </div>
       </div>
       <div class="mode" id="modeSwitch" role="group" aria-label="Data mode">

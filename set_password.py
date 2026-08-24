@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Set the Command Centre's sign-in name(s) and password.
+"""Set the Command Centre's sign-in name and password.
 
     python3 set_password.py                          # prompts for both
-    python3 set_password.py you@example.com 'Secret1'
-    python3 set_password.py admin/ritik 'Secret1'     # either name signs in
+    python3 set_password.py admin/ritik 'Secret1'     # exact, case-sensitive
     python3 set_password.py --admin-key NEWKEY ...   # change the reset key
 
 Writes auth.json with a fresh random salt and a PBKDF2-HMAC-SHA256 hash, then
@@ -59,16 +58,6 @@ def build(logins, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMI
     }
 
 
-def split_logins(raw):
-    parts = [p.strip() for p in raw.replace(",", "/").split("/")]
-    seen, out = set(), []
-    for p in parts:
-        if p and p.lower() not in seen:
-            seen.add(p.lower())
-            out.append(p)
-    return out
-
-
 def main(argv):
     new_key = None
     if "--admin-key" in argv:
@@ -78,8 +67,12 @@ def main(argv):
         new_key = argv[i + 1]
         del argv[i:i + 2]
 
+    # The sign-in name is taken exactly as typed -- case-sensitive, no
+    # splitting on "/" or "," -- so "admin/ritik" is one literal username,
+    # not two. This also means "Admin/Ritik" is a *different* login from
+    # "admin/ritik" and will be rejected.
     if len(argv) >= 2:
-        logins = split_logins(argv[0])
+        login = argv[0]
         password = argv[1]
         hint = argv[2] if len(argv) > 2 else ""
     else:
@@ -87,14 +80,14 @@ def main(argv):
         if os.path.exists(OUT):
             try:
                 prev = json.load(open(OUT, encoding="utf-8"))
-                current = "/".join(prev.get("logins") or [prev.get("email", "")])
+                logins_prev = prev.get("logins") or [prev.get("email", "")]
+                current = logins_prev[0] if logins_prev else ""
             except (OSError, ValueError):
                 pass
-        prompt = "Sign-in name(s), separate multiple with /" + (" [%s]: " % current if current else ": ")
-        raw = input(prompt).strip() or current
-        logins = split_logins(raw)
-        if not logins:
-            sys.exit("At least one sign-in name is required.")
+        prompt = "Sign-in name (exact, case-sensitive)" + (" [%s]: " % current if current else ": ")
+        login = input(prompt).strip() or current
+        if not login:
+            sys.exit("A sign-in name is required.")
         password = getpass.getpass("New password: ")
         if not password:
             sys.exit("A password is required.")
@@ -102,8 +95,9 @@ def main(argv):
             sys.exit("The two passwords did not match. Nothing was changed.")
         hint = input("Hint shown on the sign-in screen (optional): ").strip()
 
-    if not logins:
-        sys.exit("At least one sign-in name is required.")
+    if not login:
+        sys.exit("A sign-in name is required.")
+    logins = [login]
     if len(password) < 6:
         sys.exit("Use at least 6 characters. Nothing was changed.")
 

@@ -148,42 +148,68 @@ files — until the credentials match.
 | Username | `admin/ritik` — exact, case-sensitive |
 | Password | set with `set_password.py` — ask Claude, or run it yourself |
 
-The username is matched case-sensitively against `auth.json`'s `"logins"`
-list: `Admin/Ritik` or `ADMIN/RITIK` will not sign in, only the exact spelling
-configured there. `set_password.py` takes the name exactly as given, with no
-splitting on `/` — pass a different string and that becomes the new username.
+More than one account can sign in — each with its own username and password,
+listed in `auth.json`'s `"accounts"`. Every username is matched
+case-sensitively: `Admin/Ritik` or `ADMIN/RITIK` will not sign in, only the
+exact spelling registered.
 
 A wrong username or password shows **"Wrong email or password"** and the app
-stays shut. Five wrong tries locks input for 60 seconds. You stay signed in
-while the browser tab lives; closing the browser signs you out, and the
-padlock button in the top bar signs you out on demand.
+stays shut — the message never says which half was wrong, so it can't be used
+to find out which usernames exist. Five wrong tries locks input for 60
+seconds. You stay signed in while the browser tab lives; closing the browser
+signs you out, and the padlock button in the top bar signs you out on demand.
 
-**Forgot password** asks for the **admin key**, then lets you set a new
-password on the spot. Wrong key, no reset. The key is stored the same way as
-the password — hashed, never in the clear — and is changed with:
+**Sign up** creates a brand-new account: its own username, its own password,
+right from the sign-in screen. It needs the **admin key** — without it there
+is no self-serve sign-up. Enter the key, a username that isn't already taken,
+and a password; the account is created and you're signed straight in. Every
+account added this way (or with `set_password.py`) can sign in from then on,
+each fully independent — changing one password never touches another
+account's.
+
+**Forgot password** also asks for the **admin key**, then lets you set a new
+password for the account whose name is currently typed in the username field
+(or the primary account, if that field is empty) — on the spot, no email, no
+server. Wrong key, no reset.
+
+The admin key is stored the same way as every password — hashed, never in the
+clear — and is changed with:
 
 ```
 python3 set_password.py --admin-key NEWKEY admin/ritik 'Password1'
 ```
 
-When the Command Centre is running from `start.bat` the new password is written
-to `auth.json` and survives everything. Opened from `file://` there is nothing
-to write to, so it is kept in that browser instead and the screen says so.
+When the Command Centre is running from `start.bat` a password change or a new
+sign-up is written to `auth.json` and survives everything. Opened from
+`file://` there is nothing to write to, so it is kept in that browser instead
+and the screen says so.
 
-The name shown on that screen comes from the `"admin"` field in `auth.json`.
+The name shown on both screens comes from the `"admin"` field in `auth.json`.
 
-**Changing the password**
+**Changing a password, from the machine that holds the folder**
 
 ```
 python3 set_password.py                       # asks for both, hides typing
 python3 set_password.py admin/ritik 'NewPass1' # exact, case-sensitive
 ```
 
-That writes a new random salt and a fresh PBKDF2-HMAC-SHA256 hash (250,000
-iterations) into `auth.json` and refreshes the mirror. **The password itself is
-never written anywhere** — only the hash, which cannot be read back. There is
-deliberately no "change password" screen inside the app: resetting happens on
-the machine that holds the folder.
+This always sets the **primary** account (`accounts[0]`) — reusing the same
+username updates its password in place; a different username becomes the new
+primary account, and every account added later through Sign up is left
+exactly as it was. A fresh random salt and PBKDF2-HMAC-SHA256 hash (250,000
+iterations) go into `auth.json`, and the mirror is refreshed. **No password is
+ever written anywhere** — only its hash, which cannot be read back. There is
+deliberately no "change password" screen inside the app for the primary
+account: that reset happens here.
+
+**Removing an account** — there is no in-app way to do this, on purpose:
+
+```
+python3 set_password.py --remove someusername
+```
+
+Refuses to remove the last remaining account, so you can never lock
+everyone out by accident.
 
 To turn sign-in off entirely, set `"enabled": false` in `auth.json` and run
 `python3 sync.py`.

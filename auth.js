@@ -1,16 +1,25 @@
 /* GENERATED FILE - do not edit.
    Source: auth.json   Reset the password: python3 set_password.py */
 window.__PARAS_AUTH__ = {
-  "$comment": "Sign-in for the Command Centre. The password is not stored -- only a PBKDF2-HMAC-SHA256 hash of it. Reset with: python3 set_password.py",
-  "schema": 1,
+  "$comment": "Sign-in for the Command Centre. Passwords are not stored -- only a PBKDF2-HMAC-SHA256 hash of each. Reset the primary one with: python3 set_password.py -- other accounts are added from the app's own Sign up screen (needs the admin key) and are never touched here.",
+  "schema": 2,
   "enabled": true,
+  "accounts": [
+    {
+      "login": "admin/ritik",
+      "salt": "2976106db27afc0010aced0b78d209e0",
+      "hash": "aca5bb636e3a9dbd0b0de546a14de58c04cb596c1ac22f743784dd3e93387042",
+      "iterations": 250000,
+      "createdAt": 1787545527838
+    }
+  ],
   "email": "admin/ritik",
   "logins": [
     "admin/ritik"
   ],
-  "salt": "b2ea4ce5fe7aa67cfc3050494fcc4f34",
+  "salt": "2976106db27afc0010aced0b78d209e0",
   "iterations": 250000,
-  "hash": "d76b25cc7e69366ad36d0168d7fb2ec7abaa3c5eed3654828ce4eae0981b00c0",
+  "hash": "aca5bb636e3a9dbd0b0de546a14de58c04cb596c1ac22f743784dd3e93387042",
   "hint": "",
   "admin": "Ritik Nagar",
   "adminKeySalt": "369ef9bb0037e2d9e893398371633395",

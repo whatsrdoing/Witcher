@@ -5,13 +5,18 @@
  * sit in dashboards/ and can be opened directly by anyone holding the folder.
  * For that, protect the folder at the operating-system level.
  *
- * The password is never stored: auth.json holds a random salt and a
- * PBKDF2-HMAC-SHA256 hash. Reset it with `python3 set_password.py`. */
+ * Any number of accounts can sign in, each with its own username and
+ * password (auth.json's "accounts" list). No password is ever stored —
+ * only a random salt and a PBKDF2-HMAC-SHA256 hash of it, per account.
+ * Reset the primary one with `python3 set_password.py`; anyone with the
+ * admin key can add another from the Sign up screen here. */
 (function (w, d) {
   'use strict';
 
   var UNLOCK_KEY = 'paras.cc.unlocked.v1';
   var FAIL_KEY = 'paras.cc.failed.v1';
+  var EXTRA_KEY = 'paras.cc.extraAccounts.v1';    // file:// fallback: sign-ups with nowhere to write
+  var OVERRIDE_KEY = 'paras.cc.authOverride.v1';  // file:// fallback: a reset password
   var cfg = null, busy = false, onUnlock = null;
 
   var $ = function (s) { return d.querySelector(s); };
@@ -23,6 +28,40 @@
     return fetch('auth.json', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .catch(function () { return w.__PARAS_AUTH__ || null; });
+  }
+
+  /* ---- accounts ----------------------------------------------------------
+     cfg.accounts is the real list. Older auth.json files (or a stale
+     mirror) only have the single legacy email/salt/hash fields — synthesised
+     into a one-account list so the rest of this file never has to care. */
+  function baseAccounts() {
+    if (cfg && Array.isArray(cfg.accounts) && cfg.accounts.length) return cfg.accounts;
+    if (cfg && cfg.hash) return [{ login: cfg.email || (cfg.logins || [])[0] || '', salt: cfg.salt, hash: cfg.hash, iterations: cfg.iterations }];
+    return [];
+  }
+  function readExtraAccounts() {
+    try { var v = JSON.parse(localStorage.getItem(EXTRA_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+    catch (e) { return []; }
+  }
+  function addExtraAccount(acc) {
+    var list = readExtraAccounts().filter(function (a) { return a.login !== acc.login; });
+    list.push(acc);
+    try { localStorage.setItem(EXTRA_KEY, JSON.stringify(list)); } catch (e) {}
+  }
+  /* Every account this browser knows about: the ones in auth.json, plus any
+     added from Sign up that never made it to the file (file:// with nothing
+     to write to, or a server write that failed). */
+  function allAccounts() {
+    var base = baseAccounts();
+    var extra = readExtraAccounts();
+    var seen = {}; base.forEach(function (a) { seen[a.login] = 1; });
+    extra.forEach(function (a) { if (!seen[a.login]) { base = base.concat([a]); seen[a.login] = 1; } });
+    return base;
+  }
+  function findAccount(login) {
+    var all = allAccounts();
+    for (var i = 0; i < all.length; i++) if (all[i].login === login) return all[i];
+    return null;
   }
 
   /* Failed-attempt state survives a reload so refreshing does not reset a lockout. */
@@ -74,26 +113,27 @@
     if (e) e.preventDefault();
     if (busy || lockoutRemaining() > 0) return;
 
-    var email = ($('#gateEmail').value || '').trim();
+    var login = ($('#gateEmail').value || '').trim();
     var pass = $('#gatePass').value || '';
-    if (!email || !pass) { say('Enter your email and password.', 'err'); shake(); return; }
+    if (!login || !pass) { say('Enter your username and password.', 'err'); shake(); return; }
 
     busy = true;
     $('#gateSubmit').classList.add('working');
     say('Verifying…', '');
 
-    w.ParasCrypto.derive(pass, cfg.salt, cfg.iterations || 250000).then(function (digest) {
-      // Several names can be configured to sign in (see auth.json "logins");
-      // matched case-sensitively — "admin/ritik" and "Admin/Ritik" are
-      // different logins, only the exact configured spelling is accepted.
-      var logins = Array.isArray(cfg.logins) && cfg.logins.length ? cfg.logins : [cfg.email];
-      var emailOk = logins.some(function (id) { return email === String(id || ''); });
-      var passOk = w.ParasCrypto.equal(digest, String(cfg.hash || ''));
+    // Matched case-sensitively — "admin/ritik" and "Admin/Ritik" are
+    // different logins, only the exact configured spelling is accepted.
+    var acc = findAccount(login);
+    var salt = acc ? acc.salt : (cfg.adminKeySalt || '00');   // dummy salt when unknown, so timing does not out the login
+    var iters = (acc && acc.iterations) || cfg.iterations || 250000;
+
+    w.ParasCrypto.derive(pass, salt, iters).then(function (digest) {
+      var ok = !!acc && w.ParasCrypto.equal(digest, String(acc.hash || ''));
 
       busy = false;
       $('#gateSubmit').classList.remove('working');
 
-      if (emailOk && passOk) {
+      if (ok) {
         clearFails();
         try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
         say('Access granted', 'ok');
@@ -101,8 +141,8 @@
         return;
       }
 
-      // One message for both cases: naming which half was wrong tells an
-      // attacker which accounts exist.
+      // One message whether the username or the password was wrong: naming
+      // which half failed tells an attacker which accounts exist.
       var f = fails();
       f.n = (f.n || 0) + 1;
       var max = cfg.maxAttempts || 5;
@@ -125,22 +165,38 @@
     });
   }
 
-  /* ---- admin-key reset --------------------------------------------------
-     Forgot password does not mail anyone — there is no server. It asks for the
-     admin key, and only then lets the password be changed on this machine. */
+  /* ---- screens: sign in / reset / sign up --------------------------------
+     Only one of #gateSignIn, #gateReset, #gateSignup is visible at a time. */
+  function showScreen(id) {
+    ['gateSignIn', 'gateReset', 'gateSignup'].forEach(function (s) {
+      $('#' + s).style.display = (s === id) ? 'block' : 'none';
+    });
+    say('');
+  }
+
+  function showSignIn() {
+    showScreen('gateSignIn');
+    setTimeout(function () { $('#gateEmail').focus(); }, 60);
+  }
+
+  /* ---- admin-key reset ----------------------------------------------------
+     Forgot password does not mail anyone — there is no server to mail from.
+     It asks for the admin key, and only then lets that account's password be
+     changed on this machine. If a username is already typed on the sign-in
+     screen and matches an existing account, that account is the one reset;
+     otherwise it defaults to the primary account. */
   function showReset() {
-    $('#gateSignIn').style.display = 'none';
-    $('#gateReset').style.display = 'block';
+    showScreen('gateReset');
     $('#resetMsg').style.display = 'none';
     $('#resetAdmin').textContent = cfg.admin || 'Ritik Nagar';
     ['resetKey', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
+
+    var typed = ($('#gateEmail').value || '').trim();
+    var target = findAccount(typed) ? typed : ((allAccounts()[0] || {}).login || '');
+    $('#resetFor').textContent = target || '—';
+    showReset._target = target;
+
     setTimeout(function () { $('#resetKey').focus(); }, 60);
-  }
-  function showSignIn() {
-    $('#gateReset').style.display = 'none';
-    $('#gateSignIn').style.display = 'block';
-    say('');
-    setTimeout(function () { $('#gateEmail').focus(); }, 60);
   }
   function resetSay(msg, kind) {
     var el = $('#resetMsg');
@@ -158,6 +214,9 @@
     if (p1.length < 6) return resetSay('Use at least 6 characters for the new password.', 'err');
     if (p1 !== p2) return resetSay('The two new passwords do not match.', 'err');
 
+    var target = showReset._target || (allAccounts()[0] || {}).login;
+    if (!target) return resetSay('No account to reset.', 'err');
+
     busy = true;
     $('#resetSubmit').classList.add('working');
     resetSay('Checking the admin key…', '');
@@ -172,16 +231,81 @@
       }
       var salt = randomSalt();
       return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
-        return persist({ salt: salt, hash: hash, iterations: iters }).then(function (how) {
+        return writeAuth('reset', key, target, salt, hash, iters).then(function (how) {
           busy = false; $('#resetSubmit').classList.remove('working');
-          cfg.salt = salt; cfg.hash = hash;
+          applyLocalAccount(target, salt, hash, iters);
           resetSay('Password changed' + (how === 'file' ? '.' : ' on this computer.') + ' Sign in with it now.', 'ok');
+          $('#gateEmail').value = target;
           setTimeout(showSignIn, 1700);
         });
       });
     }).catch(function (err) {
       busy = false; $('#resetSubmit').classList.remove('working');
       resetSay('Could not change the password: ' + (err && err.message || err), 'err');
+    });
+  }
+
+  /* ---- admin-key sign-up ---------------------------------------------------
+     Same admin key, different outcome: instead of changing an existing
+     account's password, this creates a brand new one. Whoever knows the
+     admin key can register a username of their choice with its own
+     password; there is no self-serve sign-up without it. */
+  function showSignup() {
+    showScreen('gateSignup');
+    $('#signupMsg').style.display = 'none';
+    ['signupKey', 'signupUser', 'signupPass', 'signupPass2'].forEach(function (id) { $('#' + id).value = ''; });
+    setTimeout(function () { $('#signupKey').focus(); }, 60);
+  }
+  function signupSay(msg, kind) {
+    var el = $('#signupMsg');
+    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
+    el.textContent = msg || '';
+    el.style.display = msg ? 'flex' : 'none';
+  }
+
+  function doSignup(e) {
+    e.preventDefault();
+    if (busy) return;
+    var key = ($('#signupKey').value || '').trim();
+    var login = ($('#signupUser').value || '').trim();
+    var p1 = $('#signupPass').value || '', p2 = $('#signupPass2').value || '';
+    if (!key) return signupSay('Enter the admin key.', 'err');
+    if (!login) return signupSay('Choose a username.', 'err');
+    if (p1.length < 6) return signupSay('Use at least 6 characters for the password.', 'err');
+    if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
+    if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
+
+    busy = true;
+    $('#signupSubmit').classList.add('working');
+    signupSay('Checking the admin key…', '');
+
+    var iters = cfg.iterations || 250000;
+    w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
+      if (!w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''))) {
+        busy = false; $('#signupSubmit').classList.remove('working');
+        signupSay('That admin key is not correct.', 'err');
+        $('#signupKey').select();
+        return;
+      }
+      var salt = randomSalt();
+      return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
+        return writeAuth('register', key, login, salt, hash, iters).then(function (how) {
+          busy = false; $('#signupSubmit').classList.remove('working');
+          applyLocalAccount(login, salt, hash, iters);
+          clearFails();
+          try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
+          signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
+          setTimeout(open_, 900);
+        }).catch(function (err) {
+          busy = false; $('#signupSubmit').classList.remove('working');
+          signupSay(err && err.message === 'taken'
+            ? 'That username was just taken — choose another.'
+            : 'Could not create the account: ' + (err && err.message || err), 'err');
+        });
+      });
+    }).catch(function (err) {
+      busy = false; $('#signupSubmit').classList.remove('working');
+      signupSay('Could not verify the admin key: ' + (err && err.message || err), 'err');
     });
   }
 
@@ -192,23 +316,45 @@
     return w.ParasCrypto.hex(b);
   }
 
-  /* Writes through the local server when there is one, so the change survives
-     a browser reset. On file:// there is nothing to write to, so it is kept in
-     this browser instead and the UI says so. */
-  function persist(next) {
-    var body = JSON.stringify({ adminKey: $('#resetKey').value, salt: next.salt,
-                                hash: next.hash, iterations: next.iterations });
-    if (location.protocol === 'file:') return Promise.resolve(saveLocal(next));
-    return fetch('__auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
-      .then(function (r) { return r.ok ? 'file' : Promise.reject(new Error('HTTP ' + r.status)); })
-      .catch(function () { return saveLocal(next); });
+  /* Reflects a just-written account into this tab's in-memory config right
+     away, so signing in (or reopening the reset/sign-up screen) works
+     without waiting for a reload. */
+  function applyLocalAccount(login, salt, hash, iterations) {
+    if (!Array.isArray(cfg.accounts)) cfg.accounts = baseAccounts();
+    var found = cfg.accounts.filter(function (a) { return a.login === login; })[0];
+    if (found) { found.salt = salt; found.hash = hash; found.iterations = iterations; }
+    else cfg.accounts.push({ login: login, salt: salt, hash: hash, iterations: iterations });
   }
-  function saveLocal(next) {
-    try { localStorage.setItem('paras.cc.authOverride.v1', JSON.stringify(next)); } catch (e) {}
+
+  /* Writes through the local server when there is one, so the change
+     survives a browser reset. On file:// — or if the write fails for any
+     other reason — there is nothing to write to, so it is kept in this
+     browser instead and the caller says so. A 409 (username taken, caught by
+     someone else a moment earlier) is surfaced as a real error rather than
+     silently falling back to a local-only account of the same name. */
+  function writeAuth(action, adminKey, login, salt, hash, iterations) {
+    var body = JSON.stringify({ action: action, adminKey: adminKey, login: login,
+                                salt: salt, hash: hash, iterations: iterations });
+    if (location.protocol === 'file:') return Promise.resolve(saveLocal(action, login, salt, hash, iterations));
+    return fetch('__auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+      .then(function (r) {
+        if (r.ok) return 'file';
+        if (r.status === 409) return Promise.reject(new Error('taken'));
+        return Promise.reject(new Error('HTTP ' + r.status));
+      })
+      .catch(function (err) {
+        if (err && err.message === 'taken') return Promise.reject(err);
+        return saveLocal(action, login, salt, hash, iterations);
+      });
+  }
+  function saveLocal(action, login, salt, hash, iterations) {
+    var next = { salt: salt, hash: hash, iterations: iterations };
+    if (action === 'register') addExtraAccount({ login: login, salt: salt, hash: hash, iterations: iterations });
+    else try { localStorage.setItem(OVERRIDE_KEY, JSON.stringify(Object.assign({ login: login }, next))); } catch (e) {}
     return 'browser';
   }
   function readOverride() {
-    try { return JSON.parse(localStorage.getItem('paras.cc.authOverride.v1') || 'null'); }
+    try { return JSON.parse(localStorage.getItem(OVERRIDE_KEY) || 'null'); }
     catch (e) { return null; }
   }
 
@@ -236,7 +382,7 @@
 
     $('#gateEmail').value = '';
     $('#gatePass').value = '';
-    say('');
+    showSignIn();
     if (cfg.hint) { $('#gateHint').textContent = cfg.hint; $('#gateHint').style.display = 'block'; }
 
     $('#gateForm').addEventListener('submit', submit);
@@ -253,8 +399,15 @@
       if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar'), ''); return; }
       showReset();
     });
+    $('#gateSignupLink').addEventListener('click', function (e) {
+      e.preventDefault();
+      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar'), ''); return; }
+      showSignup();
+    });
     $('#resetBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
+    $('#signupBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
     $('#resetForm').addEventListener('submit', doReset);
+    $('#signupForm').addEventListener('submit', doSignup);
     tickLockout();
     setTimeout(function () { $('#gateEmail').focus(); }, 120);
   }
@@ -266,9 +419,10 @@
         cfg = c;
         var ov = cfg && readOverride();
         if (ov && ov.hash && ov.salt) {
-          cfg.salt = ov.salt; cfg.hash = ov.hash; cfg.iterations = ov.iterations || cfg.iterations;
+          if (ov.login) applyLocalAccount(ov.login, ov.salt, ov.hash, ov.iterations);
+          else { cfg.salt = ov.salt; cfg.hash = ov.hash; cfg.iterations = ov.iterations || cfg.iterations; }
         }
-        if (!cfg || cfg.enabled === false || !cfg.hash) {
+        if (!cfg || cfg.enabled === false || (!cfg.hash && !(Array.isArray(cfg.accounts) && cfg.accounts.length))) {
           // No credentials configured — open normally rather than locking the
           // owner out of their own workspace.
           $('#gate').style.display = 'none';

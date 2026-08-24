@@ -28,6 +28,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -70,9 +71,9 @@ def make_handler(prefix):
             super().do_HEAD()
 
         def do_POST(self):
-            """Password reset from the sign-in screen. Only ever writes
-            auth.json, only from this machine (the server binds 127.0.0.1),
-            and only when the admin key checks out."""
+            """Password reset and sign-up from the sign-in screen. Only ever
+            writes auth.json, only from this machine (the server binds
+            127.0.0.1), and only once the admin key checks out."""
             if self.path.rstrip("/").rsplit("/", 1)[-1] != "__auth":
                 self.send_error(404)
                 return
@@ -114,9 +115,57 @@ def make_handler(prefix):
             except ValueError:
                 self._json(400, {"error": "bad payload"})
                 return
+            iterations = int(req.get("iterations") or auth.get("iterations") or 250000)
 
-            auth["salt"], auth["hash"] = new_salt, new_hash
-            auth["iterations"] = int(req.get("iterations") or auth.get("iterations") or 250000)
+            action = req.get("action") or "reset"
+            accounts = auth.get("accounts")
+            if accounts is None:
+                # Pre-multi-account file: treat the single legacy credential
+                # as the one existing account, so both actions below have a
+                # real accounts list to work against from here on.
+                accounts = [{"login": auth.get("email", ""), "salt": auth.get("salt", ""),
+                            "hash": auth.get("hash", ""), "iterations": auth.get("iterations", 250000)}]
+
+            if action == "register":
+                login = str(req.get("login") or "").strip()
+                if not login:
+                    self._json(400, {"error": "a username is required"})
+                    return
+                if any(a.get("login") == login for a in accounts):
+                    self._json(409, {"error": "that username is already taken"})
+                    return
+                accounts.append({"login": login, "salt": new_salt, "hash": new_hash,
+                                 "iterations": iterations, "createdAt": int(time.time() * 1000)})
+                auth["accounts"] = accounts
+                logmsg = "New account registered from the sign-in screen: %s" % login
+            else:
+                # "reset": update one existing account (named by "login"), or
+                # the first/primary one when none is named.
+                login = req.get("login")
+                idx = 0
+                if login:
+                    for i, a in enumerate(accounts):
+                        if a.get("login") == login:
+                            idx = i
+                            break
+                    else:
+                        self._json(404, {"error": "no such account"})
+                        return
+                accounts[idx]["salt"] = new_salt
+                accounts[idx]["hash"] = new_hash
+                accounts[idx]["iterations"] = iterations
+                auth["accounts"] = accounts
+                logmsg = "Password changed from the sign-in screen: %s" % accounts[idx].get("login", "?")
+
+            # Legacy top-level fields mirror the primary account, for any code
+            # still reading them directly.
+            if accounts:
+                auth["email"] = accounts[0].get("login", "")
+                auth["logins"] = [accounts[0].get("login", "")]
+                auth["salt"] = accounts[0].get("salt", "")
+                auth["hash"] = accounts[0].get("hash", "")
+                auth["iterations"] = accounts[0].get("iterations", iterations)
+
             try:
                 with open(path, "w", encoding="utf-8") as fh:
                     json.dump(auth, fh, indent=2, ensure_ascii=False)
@@ -126,7 +175,7 @@ def make_handler(prefix):
             except (OSError, ImportError) as exc:
                 self._json(500, {"error": str(exc)})
                 return
-            print("  Password changed from the sign-in screen.")
+            print("  " + logmsg)
             self._json(200, {"ok": True})
 
         def _json(self, code, payload):

@@ -55,6 +55,7 @@
 
         <p class="gate-hint" id="gateHint" style="display:none"></p>
         <div class="gate-row">
+          <a href="#" id="gateSignupLink">Sign up</a>
           <a href="#" id="gateForgot">Forgot password?</a>
         </div>
 
@@ -69,8 +70,9 @@
 
       <div id="gateReset" style="display:none">
         <form id="resetForm" novalidate>
-          <p class="reset-lede">Enter the admin key to set a new password.
-            Do not have it? Contact <b id="resetAdmin">Ritik Nagar</b>.</p>
+          <p class="reset-lede">Enter the admin key to set a new password for
+            <b id="resetFor">—</b>. Do not have the key?
+            Contact <b id="resetAdmin">Ritik Nagar</b>.</p>
 
           <label class="gate-label" for="resetKey">Admin key</label>
           <div class="gate-field">
@@ -98,6 +100,47 @@
           </button>
           <div class="gate-row" style="justify-content:center;margin:14px 0 0">
             <a href="#" id="resetBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
+
+      <div id="gateSignup" style="display:none">
+        <form id="signupForm" novalidate>
+          <p class="reset-lede">Register a new username and password. Needs the
+            admin key — anyone without it cannot create an account here.</p>
+
+          <label class="gate-label" for="signupKey">Admin key</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
+            <input id="signupKey" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
+          </div>
+
+          <label class="gate-label" for="signupUser">New username</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
+
+          <label class="gate-label" for="signupPass">New password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 6 characters" required>
+          </div>
+
+          <label class="gate-label" for="signupPass2">Repeat new password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="signupPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+          </div>
+
+          <div class="gate-msg" id="signupMsg" style="display:none"></div>
+
+          <button class="gate-submit" id="signupSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.8"/><circle cx="12" cy="12" r="8.5"/></svg>
+            <span>Create account</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="signupBack">Back to sign in</a>
           </div>
         </form>
       </div>

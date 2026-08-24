@@ -114,21 +114,26 @@
 
   function renderModeSwitch() {
     var mode = w.Store.getMode();
-    var persistOk = w.Store.idbAvailable() !== false;
+    var onDisk = w.Store.Files.onDisk();               // attachments are real files in data/library/
+    var persistOk = w.Store.idbAvailable() !== false;   // attachments persist at all (on disk, or at least IndexedDB)
     $$('#modeSwitch button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
     });
     var local = $('#modeSwitch button[data-mode="local"]');
-    if (!persistOk) {
-      local.title = 'Local file storage needs a local server — run "python3 serve.py". Layout still persists.';
+    if (onDisk) {
+      local.title = 'Local mode — dashboards, layout and attached files stay on this computer, in this folder\'s data/library.';
+    } else if (persistOk) {
+      local.title = 'Local file storage isn\'t reachable right now, so attachments are only in this browser (not data/library). Restart "python3 serve.py" to fix this. Layout still persists.';
     } else {
-      local.title = 'Local mode — dashboards, layout and attached files stay on this computer.';
+      local.title = 'Local file storage needs a local server — run "python3 serve.py". Layout still persists.';
     }
     $('#modeNote').innerHTML = mode === 'session'
       ? ico('bolt', 'sm') + '<span>Session mode — attachments and layout changes are discarded when you close this tab.</span>'
-      : (persistOk
-          ? ico('lock', 'sm') + '<span>Local mode — everything is stored on this computer only. Nothing leaves the machine.</span>'
-          : ico('warn', 'sm') + '<span>Local mode — layout persists, but attachments need <code>python3 serve.py</code> to survive a restart.</span>');
+      : onDisk
+        ? ico('lock', 'sm') + '<span>Local mode — everything is stored on this computer only, in this folder\'s <code>data/library</code>. Nothing leaves the machine.</span>'
+        : persistOk
+          ? ico('warn', 'sm') + '<span>Local mode — attachments are only in this browser\'s storage right now, not this folder\'s <code>data/library</code>, because the local server isn\'t reachable. Restart <code>python3 serve.py</code> to fix this.</span>'
+          : ico('warn', 'sm') + '<span>Local mode — layout persists, but attachments need <code>python3 serve.py</code> to survive a restart.</span>';
   }
 
   function switchMode(next) {

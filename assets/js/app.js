@@ -394,35 +394,26 @@
       card.addEventListener('dragend', function () {
         dragId = null;
         card.classList.remove('dragging');
-        $$('#grid .card').forEach(function (c) { c.classList.remove('drop-before', 'drop-after', 'file-target'); });
+        $$('#grid .card').forEach(function (c) { c.classList.remove('drop-before', 'drop-after'); });
       });
       card.addEventListener('dragover', function (e) {
-        if (dragId) {
-          if (card.dataset.id === dragId) return;
-          e.preventDefault();
-          try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
-          var r = card.getBoundingClientRect();
-          var before = (e.clientX - r.left) < r.width / 2;
-          card.classList.toggle('drop-before', before);
-          card.classList.toggle('drop-after', !before);
-        } else if (hasFiles(e)) {
-          e.preventDefault();
-          card.classList.add('file-target');
-        }
+        if (!dragId || card.dataset.id === dragId) return;
+        e.preventDefault();
+        try { e.dataTransfer.dropEffect = 'move'; } catch (err) {}
+        var r = card.getBoundingClientRect();
+        var before = (e.clientX - r.left) < r.width / 2;
+        card.classList.toggle('drop-before', before);
+        card.classList.toggle('drop-after', !before);
       });
       card.addEventListener('dragleave', function () {
-        card.classList.remove('drop-before', 'drop-after', 'file-target');
+        card.classList.remove('drop-before', 'drop-after');
       });
       card.addEventListener('drop', function (e) {
-        card.classList.remove('drop-before', 'drop-after', 'file-target');
-        if (dragId && card.dataset.id !== dragId) {
-          e.preventDefault(); e.stopPropagation();
-          var r = card.getBoundingClientRect();
-          reorder(dragId, card.dataset.id, (e.clientX - r.left) < r.width / 2);
-        } else if (hasFiles(e)) {
-          e.preventDefault(); e.stopPropagation();
-          addFiles(w.Library.ID, e.dataTransfer.files);
-        }
+        card.classList.remove('drop-before', 'drop-after');
+        if (!dragId || card.dataset.id === dragId) return;
+        e.preventDefault(); e.stopPropagation();
+        var r = card.getBoundingClientRect();
+        reorder(dragId, card.dataset.id, (e.clientX - r.left) < r.width / 2);
       });
     });
   }
@@ -1331,9 +1322,15 @@
     });
 
     /* block accidental navigation when a file is dropped outside a zone */
+    /* Files are only ever added through the Data Library's own dropzone —
+       cards no longer accept a file drop, since a dropped file always went
+       into the shared library and was auto-matched regardless of which card
+       received it, so highlighting one particular card as a target was
+       misleading. This just stops the browser from navigating away if a file
+       is dropped anywhere else on the page. */
     ['dragover', 'drop'].forEach(function (n) {
       w.addEventListener(n, function (e) {
-        if (hasFiles(e) && !e.target.closest('#dropzone,.card')) e.preventDefault();
+        if (hasFiles(e) && !e.target.closest('#dropzone')) e.preventDefault();
       });
     });
   }

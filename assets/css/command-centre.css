@@ -282,7 +282,6 @@ a{color:var(--brand-soft); text-decoration:none;}
 .card.dragging{opacity:.42; transform:scale(.97) rotate(-.6deg); cursor:grabbing;}
 .card.drop-before{box-shadow:-4px 0 0 var(--brand-bright), var(--shadow);}
 .card.drop-after{box-shadow:4px 0 0 var(--brand-bright), var(--shadow);}
-.card.file-target{border-color:var(--brand-bright); box-shadow:0 0 0 2px var(--brand-bright) inset, var(--shadow-lg);}
 
 .card-top{display:flex; align-items:flex-start; gap:12px;}
 .card-ico{

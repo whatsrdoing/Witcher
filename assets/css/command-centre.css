@@ -575,11 +575,13 @@ a{color:var(--brand-soft); text-decoration:none;}
   background-repeat:no-repeat; background-position:right 13px center; background-size:16px; padding-right:38px;}
 .gate-field select:invalid{color:var(--ink-3);}
 /* The dropdown popup itself is native, OS-rendered chrome -- it does not
-   pick up the page's glass/dark background, so its option rows need their
-   own explicit, always-readable colors rather than inheriting the closed
-   box's (light-on-dark) text color. */
-.gate-field select option{color:#1B2740; background:#fff; font-weight:500;}
+   pick up the page's glass background by default, so its option rows need
+   their own explicit colors that match the sign-in screen's theme instead
+   of the browser's plain white/black default. */
+.gate-field select option{color:#EAF0FB; background:#1E2E4E; font-weight:500;}
 .gate-field select option:disabled{color:#8892A6;}
+:root[data-theme="light"] .gate-field select option{color:#16233E; background:#fff;}
+:root[data-theme="light"] .gate-field select option:disabled{color:#93A0B8;}
 :root[data-theme="light"] .gate-field input, :root[data-theme="light"] .gate-field select{background-color:#E9EFF9; border-color:transparent;}
 .gate-field input::placeholder{color:var(--ink-3); font-weight:400;}
 .gate-field input:focus, .gate-field select:focus{

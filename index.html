@@ -72,7 +72,7 @@
         <form id="resetForm" novalidate>
           <p class="reset-lede">Enter the admin key to set a new password for
             <b id="resetFor">—</b>. Do not have the key?
-            Contact <b id="resetAdmin">Ritik Nagar</b>.</p>
+            Contact <a id="resetAdmin" href="#" target="_blank" rel="noopener">Ritik Nagar</a>.</p>
 
           <label class="gate-label" for="resetKey">Admin key</label>
           <div class="gate-field">
@@ -119,6 +119,30 @@
           <div class="gate-field">
             <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
             <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
+
+          <label class="gate-label" for="signupName">Full name</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+            <input id="signupName" type="text" autocomplete="name" placeholder="Shown once signed in" required>
+          </div>
+
+          <label class="gate-label" for="signupDesignation">Designation</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"/><path d="M7 10.7V16c0 1 2.2 2.3 5 2.3s5-1.3 5-2.3v-5.3"/></svg>
+            <input id="signupDesignation" type="text" autocomplete="off" placeholder="e.g. Store Manager" required>
+          </div>
+
+          <label class="gate-label" for="signupDepartment">Department</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><rect x="13" y="13" width="7" height="7" rx="1.3"/></svg>
+            <input id="signupDepartment" type="text" autocomplete="off" placeholder="e.g. Pharmacy" required>
+          </div>
+
+          <label class="gate-label" for="signupCategory">Category</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+            <input id="signupCategory" type="text" autocomplete="off" placeholder="e.g. Procurement" required>
           </div>
 
           <label class="gate-label" for="signupPass">New password</label>
@@ -175,11 +199,26 @@
     </div>
 
     <div class="topbar-right">
+      <div class="live-tray" id="profileTray">
+        <button class="btn" id="profileBtn" title="Account details">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+          <span class="lib-label" id="profileName">Account</span>
+        </button>
+        <div class="pop" id="profilePop" style="display:none">
+          <h4>Signed in</h4>
+          <div id="profilePopBody"></div>
+          <hr>
+          <button class="pop-row" id="profileSignOut" type="button">
+            <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <span class="nm">Sign out</span>
+          </button>
+        </div>
+      </div>
       <div class="mode" id="modeSwitch" role="group" aria-label="Data mode">
         <button data-mode="local" aria-pressed="true"><span class="dot"></span>LOCAL</button>
         <button data-mode="session" aria-pressed="false"><span class="dot"></span>SESSION</button>
       </div>
-      <div class="live-tray">
+      <div class="live-tray" id="liveTray">
         <button class="btn icon-only" id="liveBtn" title="Open dashboards" aria-label="Open dashboards">
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3.5 12.5 8.5 4.7 8.5-4.7"/></svg>
           <span class="live-count" id="liveCount" style="display:none">0</span>

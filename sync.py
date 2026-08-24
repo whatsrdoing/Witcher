@@ -12,6 +12,7 @@ automatically on start.
 """
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +23,9 @@ AUTH_OUT = os.path.join(ROOT, "auth.js")
 BRIDGE_SRC = os.path.join(ROOT, "assets", "js", "dashboard-bridge.js")
 BRIDGE_OPEN = "<!-- paras-command-centre-bridge -->"
 BRIDGE_CLOSE = "<!-- /paras-command-centre-bridge -->"
+GUARD_SRC = os.path.join(ROOT, "assets", "js", "dashboard-session-guard.js")
+GUARD_OPEN = "<!-- paras-command-centre-session-guard -->"
+GUARD_CLOSE = "<!-- /paras-command-centre-session-guard -->"
 
 BANNER = (
     "/* GENERATED FILE — do not edit.\n"
@@ -55,24 +59,36 @@ def check(reg):
     return problems
 
 
-def ensure_bridge(reg):
-    """Make sure each dashboard can accept a file handed to it.
+def _place_before_body_end(html, block):
+    i = html.rfind("</body>")
+    if i < 0:
+        i = html.rfind("</html>")
+    if i < 0:
+        return html + "\n" + block
+    return html[:i] + block + html[i:]
 
-    Adds a small, invisible listener to the bottom of each dashboard. It does
-    not touch the dashboard's markup, styling or behaviour -- it only lets the
-    Command Centre put a file into an upload box the same way you would. This
-    is what makes the one-click fill work when the app is opened straight from
-    disk, where pages are otherwise sealed off from one another.
 
-    Runs every sync, so a dashboard you add later is covered automatically.
-    Delete the marked block to opt a dashboard out.
+def _place_after_head_open(html, block):
+    m = re.search(r"<head[^>]*>", html, re.IGNORECASE)
+    if not m:
+        return None                            # no <head> -- caller decides what to do
+    i = m.end()
+    return html[:i] + block + html[i:]
+
+
+def _apply_marked_block(reg, src_path, open_marker, close_marker, place, label):
+    """Keep one marked, generated block in sync across every dashboard file.
+
+    Idempotent: re-running leaves an up-to-date block untouched, and only
+    rewrites a dashboard whose block is missing or stale. `place` decides
+    where a fresh block goes; an existing block is always refreshed in place.
     """
     try:
-        with open(BRIDGE_SRC, encoding="utf-8") as fh:
+        with open(src_path, encoding="utf-8") as fh:
             code = fh.read()
     except OSError:
         return
-    block = "%s\n<script>\n%s</script>\n%s\n" % (BRIDGE_OPEN, code, BRIDGE_CLOSE)
+    block = "%s\n<script>\n%s</script>\n%s\n" % (open_marker, code, close_marker)
 
     touched, skipped = 0, []
     for dsh in reg.get("dashboards", []):
@@ -88,35 +104,61 @@ def ensure_bridge(reg):
         except OSError:
             continue
 
-        if BRIDGE_OPEN in html:
-            start = html.index(BRIDGE_OPEN)
-            end = html.find(BRIDGE_CLOSE)
+        if open_marker in html:
+            start = html.index(open_marker)
+            end = html.find(close_marker)
             if end < 0:
                 continue
-            current = html[start:end + len(BRIDGE_CLOSE) + 1]
+            current = html[start:end + len(close_marker) + 1]
             if current.strip() == block.strip():
                 continue                       # already current
-            html = html[:start] + block + html[end + len(BRIDGE_CLOSE) + 1:]
+            new_html = html[:start] + block + html[end + len(close_marker) + 1:]
         else:
-            i = html.rfind("</body>")
-            if i < 0:
-                i = html.rfind("</html>")
-            if i < 0:
-                html = html + "\n" + block
-            else:
-                html = html[:i] + block + html[i:]
+            new_html = place(html, block)
+            if new_html is None:
+                skipped.append("%s (no <head>/<body> to anchor to)" % rel)
+                continue
 
         try:
             with open(path, "w", encoding="utf-8", errors="surrogateescape") as fh:
-                fh.write(html)
+                fh.write(new_html)
             touched += 1
         except OSError as exc:
             skipped.append("%s (%s)" % (rel, exc))
 
     if touched:
-        print("bridge added to %d dashboard%s" % (touched, "" if touched == 1 else "s"))
+        print("%s added to %d dashboard%s" % (label, touched, "" if touched == 1 else "s"))
     for sk in skipped:
         print("  ! could not update " + sk)
+
+
+def ensure_bridge(reg):
+    """Make sure each dashboard can accept a file handed to it.
+
+    Adds a small, invisible listener to the bottom of each dashboard. It does
+    not touch the dashboard's markup, styling or behaviour -- it only lets the
+    Command Centre put a file into an upload box the same way you would. This
+    is what makes the one-click fill work when the app is opened straight from
+    disk, where pages are otherwise sealed off from one another.
+
+    Runs every sync, so a dashboard you add later is covered automatically.
+    Delete the marked block to opt a dashboard out.
+    """
+    _apply_marked_block(reg, BRIDGE_SRC, BRIDGE_OPEN, BRIDGE_CLOSE, _place_before_body_end, "bridge")
+
+
+def ensure_session_guard(reg):
+    """Make Session mode start every dashboard fresh, same as the shell itself.
+
+    A dashboard's own "remember my data" feature uses the browser's real
+    localStorage, which the Command Centre's Session/Local switch otherwise
+    has no say over. This adds a tiny script as the very first thing on the
+    page -- before the dashboard's own code runs -- that swaps localStorage
+    for an in-memory stand-in only while the Command Centre is in Session
+    mode. Local mode is untouched: dashboards keep using real storage, so
+    "remember my data" keeps working exactly as before.
+    """
+    _apply_marked_block(reg, GUARD_SRC, GUARD_OPEN, GUARD_CLOSE, _place_after_head_open, "session guard")
 
 
 def mirror_auth():
@@ -155,6 +197,7 @@ def main():
     print("dashboards.js updated - %d dashboard%s" % (n, "" if n == 1 else "s"))
     for p in check(reg):
         print("  ! " + p)
+    ensure_session_guard(reg)
     ensure_bridge(reg)
     mirror_auth()
     return 0

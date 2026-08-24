@@ -17,7 +17,8 @@
   var FAIL_KEY = 'paras.cc.failed.v1';
   var EXTRA_KEY = 'paras.cc.extraAccounts.v1';    // file:// fallback: sign-ups with nowhere to write
   var OVERRIDE_KEY = 'paras.cc.authOverride.v1';  // file:// fallback: a reset password
-  var cfg = null, busy = false, onUnlock = null;
+  var WHOAMI_KEY = 'paras.cc.whoami.v1';          // which account unlocked this tab, for a reload
+  var cfg = null, busy = false, onUnlock = null, currentProfile = null;
 
   var $ = function (s) { return d.querySelector(s); };
 
@@ -62,6 +63,21 @@
     var all = allAccounts();
     for (var i = 0; i < all.length; i++) if (all[i].login === login) return all[i];
     return null;
+  }
+
+  /* Which account unlocked this tab -- survives a reload (sessionStorage),
+     gone once the tab closes, same as the rest of what "signed in" means
+     here. Re-resolved against the account list on load so a reload always
+     shows the up-to-date name/designation/etc. */
+  function setCurrentUser(login) {
+    currentProfile = findAccount(login) || { login: login };
+    try { sessionStorage.setItem(WHOAMI_KEY, login); } catch (e) {}
+  }
+  function restoreCurrentUser() {
+    try {
+      var v = sessionStorage.getItem(WHOAMI_KEY);
+      if (v) currentProfile = findAccount(v) || { login: v };
+    } catch (e) {}
   }
 
   /* Failed-attempt state survives a reload so refreshing does not reset a lockout. */
@@ -136,6 +152,7 @@
       if (ok) {
         clearFails();
         try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
+        setCurrentUser(acc.login);
         say('Access granted', 'ok');
         open_();
         return;
@@ -189,6 +206,8 @@
     showScreen('gateReset');
     $('#resetMsg').style.display = 'none';
     $('#resetAdmin').textContent = cfg.admin || 'Ritik Nagar';
+    if (cfg.adminEmail) $('#resetAdmin').href = 'mailto:' + cfg.adminEmail;
+    else $('#resetAdmin').removeAttribute('href');
     ['resetKey', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
 
     var typed = ($('#gateEmail').value || '').trim();
@@ -253,7 +272,8 @@
   function showSignup() {
     showScreen('gateSignup');
     $('#signupMsg').style.display = 'none';
-    ['signupKey', 'signupUser', 'signupPass', 'signupPass2'].forEach(function (id) { $('#' + id).value = ''; });
+    ['signupKey', 'signupUser', 'signupName', 'signupDesignation', 'signupDepartment',
+     'signupCategory', 'signupPass', 'signupPass2'].forEach(function (id) { $('#' + id).value = ''; });
     setTimeout(function () { $('#signupKey').focus(); }, 60);
   }
   function signupSay(msg, kind) {
@@ -268,12 +288,22 @@
     if (busy) return;
     var key = ($('#signupKey').value || '').trim();
     var login = ($('#signupUser').value || '').trim();
+    var name = ($('#signupName').value || '').trim();
+    var designation = ($('#signupDesignation').value || '').trim();
+    var department = ($('#signupDepartment').value || '').trim();
+    var category = ($('#signupCategory').value || '').trim();
     var p1 = $('#signupPass').value || '', p2 = $('#signupPass2').value || '';
     if (!key) return signupSay('Enter the admin key.', 'err');
     if (!login) return signupSay('Choose a username.', 'err');
+    if (!name) return signupSay('Enter the full name.', 'err');
+    if (!designation) return signupSay('Enter the designation.', 'err');
+    if (!department) return signupSay('Enter the department.', 'err');
+    if (!category) return signupSay('Enter the category.', 'err');
     if (p1.length < 6) return signupSay('Use at least 6 characters for the password.', 'err');
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
+
+    var profile = { name: name, designation: designation, department: department, category: category };
 
     busy = true;
     $('#signupSubmit').classList.add('working');
@@ -289,11 +319,12 @@
       }
       var salt = randomSalt();
       return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
-        return writeAuth('register', key, login, salt, hash, iters).then(function (how) {
+        return writeAuth('register', key, login, salt, hash, iters, profile).then(function (how) {
           busy = false; $('#signupSubmit').classList.remove('working');
-          applyLocalAccount(login, salt, hash, iters);
+          applyLocalAccount(login, salt, hash, iters, profile);
           clearFails();
           try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
+          setCurrentUser(login);
           signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
           setTimeout(open_, 900);
         }).catch(function (err) {
@@ -319,11 +350,11 @@
   /* Reflects a just-written account into this tab's in-memory config right
      away, so signing in (or reopening the reset/sign-up screen) works
      without waiting for a reload. */
-  function applyLocalAccount(login, salt, hash, iterations) {
+  function applyLocalAccount(login, salt, hash, iterations, profile) {
     if (!Array.isArray(cfg.accounts)) cfg.accounts = baseAccounts();
     var found = cfg.accounts.filter(function (a) { return a.login === login; })[0];
     if (found) { found.salt = salt; found.hash = hash; found.iterations = iterations; }
-    else cfg.accounts.push({ login: login, salt: salt, hash: hash, iterations: iterations });
+    else cfg.accounts.push(Object.assign({ login: login, salt: salt, hash: hash, iterations: iterations }, profile || {}));
   }
 
   /* Writes through the local server when there is one, so the change
@@ -332,10 +363,10 @@
      browser instead and the caller says so. A 409 (username taken, caught by
      someone else a moment earlier) is surfaced as a real error rather than
      silently falling back to a local-only account of the same name. */
-  function writeAuth(action, adminKey, login, salt, hash, iterations) {
-    var body = JSON.stringify({ action: action, adminKey: adminKey, login: login,
-                                salt: salt, hash: hash, iterations: iterations });
-    if (location.protocol === 'file:') return Promise.resolve(saveLocal(action, login, salt, hash, iterations));
+  function writeAuth(action, adminKey, login, salt, hash, iterations, profile) {
+    var body = JSON.stringify(Object.assign({ action: action, adminKey: adminKey, login: login,
+                                salt: salt, hash: hash, iterations: iterations }, profile || {}));
+    if (location.protocol === 'file:') return Promise.resolve(saveLocal(action, login, salt, hash, iterations, profile));
     return fetch('__auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
       .then(function (r) {
         if (r.ok) return 'file';
@@ -344,12 +375,12 @@
       })
       .catch(function (err) {
         if (err && err.message === 'taken') return Promise.reject(err);
-        return saveLocal(action, login, salt, hash, iterations);
+        return saveLocal(action, login, salt, hash, iterations, profile);
       });
   }
-  function saveLocal(action, login, salt, hash, iterations) {
+  function saveLocal(action, login, salt, hash, iterations, profile) {
     var next = { salt: salt, hash: hash, iterations: iterations };
-    if (action === 'register') addExtraAccount({ login: login, salt: salt, hash: hash, iterations: iterations });
+    if (action === 'register') addExtraAccount(Object.assign({ login: login }, next, profile || {}));
     else try { localStorage.setItem(OVERRIDE_KEY, JSON.stringify(Object.assign({ login: login }, next))); } catch (e) {}
     return 'browser';
   }
@@ -370,7 +401,8 @@
   }
 
   function lock() {
-    try { sessionStorage.removeItem(UNLOCK_KEY); } catch (e) {}
+    try { sessionStorage.removeItem(UNLOCK_KEY); sessionStorage.removeItem(WHOAMI_KEY); } catch (e) {}
+    currentProfile = null;
     location.reload();
   }
 
@@ -396,12 +428,12 @@
     });
     $('#gateForgot').addEventListener('click', function (e) {
       e.preventDefault();
-      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar'), ''); return; }
+      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showReset();
     });
     $('#gateSignupLink').addEventListener('click', function (e) {
       e.preventDefault();
-      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar'), ''); return; }
+      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showSignup();
     });
     $('#resetBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
@@ -414,9 +446,11 @@
 
   /* Runs the app only once access is granted. */
   w.ParasGate = {
+    currentUser: function () { return currentProfile; },
     guard: function (start) {
       loadConfig().then(function (c) {
         cfg = c;
+        if (cfg) restoreCurrentUser();
         var ov = cfg && readOverride();
         if (ov && ov.hash && ov.salt) {
           if (ov.login) applyLocalAccount(ov.login, ov.salt, ov.hash, ov.iterations);

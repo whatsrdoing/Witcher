@@ -4,6 +4,9 @@
     python3 set_password.py                          # prompts for both
     python3 set_password.py admin/ritik 'Secret1'     # exact, case-sensitive
     python3 set_password.py --admin-key NEWKEY ...   # change the reset key
+    python3 set_password.py --admin-email you@x.com ...  # contact email shown on reset screen
+    python3 set_password.py --name "Ritik Nagar" --designation "..." \
+      --department "..." --category "..." admin/ritik 'Secret1'  # profile shown once signed in
     python3 set_password.py --remove someuser        # revoke an account
 
 Writes auth.json with a fresh random salt and a PBKDF2-HMAC-SHA256 hash, then
@@ -36,7 +39,7 @@ def kdf(secret, salt_hex):
 
 
 def build(login, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN_KEY,
-          key_salt=None, key_hash=None, prev_accounts=None):
+          key_salt=None, key_hash=None, prev_accounts=None, admin_email="", profile=None):
     salt = secrets.token_hex(16)
     digest = kdf(password, salt)
     if key_hash is None:
@@ -48,10 +51,18 @@ def build(login, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
     # this only ever replaces the one entry matching `login`, or adds it as
     # the new first (primary) account. Never wipes the others.
     accounts = [a for a in (prev_accounts or []) if a.get("login") != login]
-    accounts.insert(0, {
+    entry = {
         "login": login, "salt": salt, "hash": digest,
         "iterations": ITERATIONS, "createdAt": int(time.time() * 1000),
-    })
+    }
+    # name / designation / department / category shown once signed in --
+    # optional, carried over from the previous entry for this login when a
+    # fresh value is not given this run.
+    for field in ("name", "designation", "department", "category"):
+        val = (profile or {}).get(field)
+        if val:
+            entry[field] = val
+    accounts.insert(0, entry)
 
     return {
         "$comment": "Sign-in for the Command Centre. Passwords are not stored -- only a "
@@ -69,6 +80,7 @@ def build(login, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
         "hash": digest,
         "hint": hint,
         "admin": admin,
+        "adminEmail": admin_email,
         # Unlocks the in-app password reset and sign-up. Like a password, only
         # its hash is stored. Change it with:  python3 set_password.py --admin-key NEW
         "adminKeySalt": key_salt,
@@ -130,6 +142,24 @@ def main(argv):
         new_key = argv[i + 1]
         del argv[i:i + 2]
 
+    new_email = None
+    if "--admin-email" in argv:
+        i = argv.index("--admin-email")
+        if i + 1 >= len(argv):
+            sys.exit("--admin-email needs a value.")
+        new_email = argv[i + 1]
+        del argv[i:i + 2]
+
+    new_profile = {}
+    for flag, field in (("--name", "name"), ("--designation", "designation"),
+                        ("--department", "department"), ("--category", "category")):
+        if flag in argv:
+            i = argv.index(flag)
+            if i + 1 >= len(argv):
+                sys.exit("%s needs a value." % flag)
+            new_profile[field] = argv[i + 1]
+            del argv[i:i + 2]
+
     # The sign-in name is taken exactly as typed -- case-sensitive, no
     # splitting on "/" or "," -- so "admin/ritik" is one literal username,
     # not two. This also means "Admin/Ritik" is a *different* login from
@@ -163,22 +193,33 @@ def main(argv):
     if len(password) < 6:
         sys.exit("Use at least 6 characters. Nothing was changed.")
 
-    admin, key_salt, key_hash, prev_accounts = "Ritik Nagar", None, None, None
+    admin, key_salt, key_hash, prev_accounts, admin_email = "Ritik Nagar", None, None, None, ""
+    profile = {}
     if os.path.exists(OUT):
         try:
             prev = json.load(open(OUT, encoding="utf-8"))
             admin = prev.get("admin", admin) or admin
+            admin_email = prev.get("adminEmail", admin_email) or admin_email
             prev_accounts = prev.get("accounts")
             if new_key is None:
                 key_salt, key_hash = prev.get("adminKeySalt"), prev.get("adminKeyHash")
+            existing = next((a for a in (prev_accounts or []) if a.get("login") == login), None)
+            if existing:
+                for field in ("name", "designation", "department", "category"):
+                    if existing.get(field):
+                        profile[field] = existing[field]
         except (OSError, ValueError):
             pass
     if new_key is not None:
         key_salt = key_hash = None
+    if new_email is not None:
+        admin_email = new_email
+    profile.update(new_profile)
 
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(build(login, password, hint, admin,
-                        new_key or DEFAULT_ADMIN_KEY, key_salt, key_hash, prev_accounts),
+                        new_key or DEFAULT_ADMIN_KEY, key_salt, key_hash, prev_accounts,
+                        admin_email, profile),
                   fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 

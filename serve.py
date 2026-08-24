@@ -134,8 +134,13 @@ def make_handler(prefix):
                 if any(a.get("login") == login for a in accounts):
                     self._json(409, {"error": "that username is already taken"})
                     return
-                accounts.append({"login": login, "salt": new_salt, "hash": new_hash,
-                                 "iterations": iterations, "createdAt": int(time.time() * 1000)})
+                new_acc = {"login": login, "salt": new_salt, "hash": new_hash,
+                          "iterations": iterations, "createdAt": int(time.time() * 1000)}
+                for field in ("name", "designation", "department", "category"):
+                    val = str(req.get(field) or "").strip()[:200]
+                    if val:
+                        new_acc[field] = val
+                accounts.append(new_acc)
                 auth["accounts"] = accounts
                 logmsg = "New account registered from the sign-in screen: %s" % login
             else:

@@ -424,8 +424,12 @@
     gate.style.display = 'flex';
     gate.classList.remove('gone');
 
-    $('#gateEmail').value = '';
-    $('#gatePass').value = '';
+    // Deliberately not cleared here. The gate is shown only once auth.json
+    // has loaded, which on a slow machine is a moment after the page becomes
+    // interactive -- clearing at this point wiped anything typed (or filled
+    // in by a password manager) in that window, so the sign-in that followed
+    // submitted two empty fields. The password is still cleared on unlock in
+    // open_(), which is where it actually matters.
     showSignIn();
     if (cfg.hint) { $('#gateHint').textContent = cfg.hint; $('#gateHint').style.display = 'block'; }
 

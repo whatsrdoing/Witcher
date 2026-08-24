@@ -153,6 +153,7 @@
       applyTheme(w.Store.getPref('theme', REG.app.defaultTheme));
       filter.category = w.Store.getPref('category', 'all');
       renderModeSwitch();
+      invalidateFiles();
       refreshCounts().then(renderHome);
       goHome();
       renderLiveCount();
@@ -510,10 +511,11 @@
 
   /* ===================== files ========================================== */
   function refreshCounts() {
+    // Every mutation (add, delete, condense) funnels through here, so this is
+    // the one place the cached file list has to be dropped.
+    invalidateFiles();
     return w.Store.Files.counts().then(function (c) { fileCounts = c || {}; return c; });
   }
-
-  function libraryCount() { return fileCounts[w.Library.ID] || 0; }
 
   function openDrawer(id, tab) {
     drawerFor = id || null;
@@ -551,10 +553,16 @@
 
   function drawerScope() { return drawerTab === 'library' ? w.Library.ID : drawerFor; }
 
-  /* Names every dashboard whose upload boxes this file suits. */
   /* The one or two upload boxes this file genuinely belongs in. Deliberately
-     strict: a chip that appears everywhere tells you nothing. */
+     strict: a chip that appears everywhere tells you nothing.
+
+     Memoised per file: the answer depends only on the file's name, headers
+     and the registry, none of which change while the drawer is open, and it
+     costs a scoring pass over every upload box of every dashboard. */
+  var usedByCache = Object.create(null);
   function usedBy(file) {
+    var ck = file.id + '' + file.name;
+    if (usedByCache[ck]) return usedByCache[ck];
     var scored = [];
     REG.dashboards.forEach(function (db) {
       (db.inputs || []).forEach(function (slot) {
@@ -569,7 +577,9 @@
       seen[x.slot] = 1;
       out.push(x);
     });
-    return out.slice(0, 3);
+    out = out.slice(0, 3);
+    usedByCache[ck] = out;
+    return out;
   }
   function closeDrawer() {
     drawerFor = null; renaming = null;
@@ -599,13 +609,29 @@
     catch (e) { return ''; }
   }
 
+  /* The file list is fetched once per scope and then filtered in memory.
+     It used to be re-fetched on every keystroke in the search box: with the
+     library stored on disk that is a round trip to serve.py per character,
+     each one re-reading the whole index and re-scoring every row against
+     every dashboard, to narrow a list already sitting in the page. */
+  var fileCache = { scope: null, rows: null };
+  function invalidateFiles() { fileCache.scope = null; fileCache.rows = null; }
+
+  function loadFiles(scope) {
+    if (fileCache.scope === scope && fileCache.rows) return Promise.resolve(fileCache.rows);
+    return w.Store.Files.list(scope).then(function (rows) {
+      rows = rows.slice().sort(function (a, b) { return b.addedAt - a.addedAt; });
+      fileCache.scope = scope; fileCache.rows = rows;
+      return rows;
+    });
+  }
+
   function renderFiles() {
     if (!$('#drawer').classList.contains('open')) return;
     var scope = drawerScope();
     if (!scope) return;
     var q = ($('#fileSearchInput').value || '').trim().toLowerCase();
-    w.Store.Files.list(scope).then(function (rows) {
-      rows.sort(function (a, b) { return b.addedAt - a.addedAt; });
+    loadFiles(scope).then(function (rows) {
       var shown = q ? rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) >= 0; }) : rows;
       var host = $('#fileList');
       if (!shown.length) {
@@ -657,7 +683,11 @@
      of cell objects. Rather than change the dashboards, shrink the file first
      — stream it, keep the columns that dashboard actually reads, and add up
      rows that agree on every one of them. Totals come out identical. */
-  var condenseFile = null, condenseCols = null;
+  /* The blob is fetched once and kept while the modal is open. Profiling the
+     columns and then condensing used to fetch it twice, which on the register
+     this feature exists for (a ~300MB CSV) meant pulling the whole file over
+     twice to read a few hundred rows and then stream it. Released on close. */
+  var condenseFile = null, condenseCols = null, condenseBlob = null;
 
   function openCondense(fileMeta) {
     condenseFile = fileMeta;
@@ -669,6 +699,7 @@
 
     w.Store.Files.blob(fileMeta.id).then(function (blob) {
       if (!blob) throw new Error('that file is no longer in the workspace');
+      condenseBlob = blob;
       return w.Library.profile(blob, 400);
     }).then(function (cols) {
       condenseCols = cols;
@@ -707,7 +738,7 @@
 
   function closeCondense() {
     $('#condModal').classList.remove('open');
-    condenseFile = null; condenseCols = null;
+    condenseFile = null; condenseCols = null; condenseBlob = null;
   }
 
   function runCondense() {
@@ -724,7 +755,11 @@
     $('#condRun').disabled = true;
     $('#condStats').textContent = 'Reading… this runs in the background and never loads the whole file.';
 
-    w.Store.Files.blob(meta.id).then(function (blob) {
+    var haveBlob = condenseBlob
+      ? Promise.resolve(condenseBlob)
+      : w.Store.Files.blob(meta.id);
+    haveBlob.then(function (blob) {
+      if (!blob) throw new Error('that file is no longer in the workspace');
       return w.Library.condense(blob, {
         keys: keys, sums: sums,
         onProgress: function (p) {
@@ -808,6 +843,11 @@
 
   function previewFile(id, name, type) {
     withBlob(id, function (b) {
+      // Release whatever the modal was showing before. Every close path
+      // revokes already, but overwriting the handle without revoking would
+      // strand the previous file's bytes for the life of the tab.
+      var prev = $('#previewModal');
+      if (prev.dataset.url) { URL.revokeObjectURL(prev.dataset.url); delete prev.dataset.url; }
       var k = kindOf(name, type || b.type);
       var url = URL.createObjectURL(b.type ? b : new Blob([b], { type: guessMime(name) }));
       var body = $('#previewBody');
@@ -1406,7 +1446,9 @@
     name = (name || '').trim();
     renaming = null;
     if (!name) { renderFiles(); return; }
-    w.Store.Files.rename(id, name).then(function () { renderFiles(); toast('Renamed.', 'ok'); });
+    w.Store.Files.rename(id, name).then(function () {
+      invalidateFiles(); renderFiles(); toast('Renamed.', 'ok');
+    });
   }
 
   /* The Command Centre only starts once the sign-in gate grants access, so a

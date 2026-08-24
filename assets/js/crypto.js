@@ -71,13 +71,34 @@
     return sha256(op);
   }
 
-  /* ---- PBKDF2-HMAC-SHA256, 32-byte output -------------------------------- */
+  /* ---- PBKDF2-HMAC-SHA256, 32-byte output --------------------------------
+     The loop below runs 250,000 times with the same key over a 32-byte
+     message. Calling hmac() for each one rebuilt the key's inner and outer
+     pads and allocated three fresh buffers every time -- on the order of two
+     million throwaway arrays per sign-in, which is most of the cost whenever
+     crypto.subtle is unavailable (a plain-http hostname is not a "secure
+     context", so the friendly address falls back to this path).
+
+     The pads depend only on the key, so they are built once and the two
+     scratch buffers reused. The arithmetic is unchanged and the output is
+     byte-identical to the previous version and to Python's hashlib. */
   function pbkdf2Js(pw, salt, iters) {
     var block = new Uint8Array(salt.length + 4);
     block.set(salt); block[salt.length + 3] = 1;          // INT(1), dkLen == hLen
     var u = hmac(pw, block), acc = u.slice();
-    for (var i = 1; i < iters; i++) {
-      u = hmac(pw, u);
+
+    var key = pw.length > 64 ? sha256(pw) : pw;
+    var ipad = new Uint8Array(96), opad = new Uint8Array(96);   // 64-byte pad + 32-byte digest
+    for (var i = 0; i < 64; i++) {
+      var kb = i < key.length ? key[i] : 0;
+      ipad[i] = kb ^ 0x36;
+      opad[i] = kb ^ 0x5c;
+    }
+
+    for (i = 1; i < iters; i++) {
+      ipad.set(u, 64);
+      opad.set(sha256(ipad), 64);
+      u = sha256(opad);
       for (var j = 0; j < 32; j++) acc[j] ^= u[j];
     }
     return acc;

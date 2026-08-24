@@ -34,7 +34,6 @@
     };
   }
   var LS = bag('local'), SS = bag('session');
-  var LS_OK = !!(w.localStorage && probe(w.localStorage));
 
   /* ---- mode -------------------------------------------------------------- */
   var mode = 'local';
@@ -320,17 +319,33 @@
 
   /* Probes the on-disk library first, then IndexedDB as a fallback (open
      from file://, or serve.py not running). Resolves true when LOCAL file
-     persistence works either way; migratedCount() reports what moved over. */
-  var lastMigrated = 0;
+     persistence works either way; migratedCount() reports what moved over.
+
+     The promise is memoised, not just the result: two callers arriving
+     before the first probe settles used to each see "not decided yet" and
+     race ahead on whichever backend happened to be the default, so the same
+     file could be looked for in the wrong store. */
+  var lastMigrated = 0, probePromise = null;
   function checkPersistence() {
-    if (httpOk !== null || idbOk !== null) return Promise.resolve(httpOk === true || idbOk === true);
-    if (w.location.protocol === 'file:') { httpOk = false; return probeIdb(); }
-    return fetch(LIB, { cache: 'no-store' }).then(function (r) { return r.ok; }).catch(function () { return false; })
+    if (probePromise) return probePromise;
+    if (w.location.protocol === 'file:') {
+      httpOk = false;
+      probePromise = probeIdb();
+      return probePromise;
+    }
+    // A 200 is not enough on its own: a stale server (or anything that
+    // answers with the app's own HTML) would look like a working library and
+    // then read back as empty. It only counts if it really is the index.
+    probePromise = fetch(LIB, { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { return !!(j && Array.isArray(j.files)); })
+      .catch(function () { return false; })
       .then(function (ok) {
         httpOk = ok;
         if (!ok) return probeIdb();
         return migrateToLibrary().then(function (n) { lastMigrated = n; return true; });
       });
+    return probePromise;
   }
   function probeIdb() {
     if (!w.indexedDB) { idbOk = false; return Promise.resolve(false); }
@@ -344,22 +359,27 @@
     return 'f-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 
+  /* Every file operation waits for the backend to actually be decided.
+     Without this, anything that ran during start-up (opening a dashboard
+     straight from a #/d/... link, say) picked a backend while the probe was
+     still in flight and could read from IndexedDB while everything after it
+     wrote to disk -- the same file present or missing depending on which
+     call won. checkPersistence() is memoised, so this costs one microtask. */
+  function on(fn) { return checkPersistence().then(fn); }
+
   var Files = {
     add: function (dashboardId, file, headers) {
       var rec = { id: uid(), dashboardId: dashboardId, name: file.name || 'untitled',
                   size: file.size || 0, type: file.type || '', addedAt: Date.now(),
                   updatedAt: Date.now(), headers: headers || [], blob: file };
-      return backend().put(rec);
+      return on(function () { return backend().put(rec); });
     },
-    list: function (d) { return backend().list(d).catch(function () { return []; }); },
-    counts: function () { return backend().counts().catch(function () { return {}; }); },
-    blob: function (id) { return backend().get(id).then(function (r) { return r ? r.blob : null; }); },
-    remove: function (id) { return backend().del(id); },
-    rename: function (id, n) { return backend().rename(id, n); },
-    clearAll: function () { return backend().clearAll(); },
-    clearPersisted: function () {
-      return (httpOk === true ? httpApi.clearAll() : idb.clearAll()).catch(function () {});
-    },
+    list: function (d) { return on(function () { return backend().list(d); }).catch(function () { return []; }); },
+    counts: function () { return on(function () { return backend().counts(); }).catch(function () { return {}; }); },
+    blob: function (id) { return on(function () { return backend().get(id); }).then(function (r) { return r ? r.blob : null; }); },
+    remove: function (id) { return on(function () { return backend().del(id); }); },
+    rename: function (id, n) { return on(function () { return backend().rename(id, n); }); },
+    clearAll: function () { return on(function () { return backend().clearAll(); }); },
     persistent: function () { return mode === 'local' && (httpOk === true || idbOk === true); },
     onDisk: function () { return httpOk === true; }
   };
@@ -369,7 +389,6 @@
     getMode: getMode, setMode: setMode, readStoredMode: readStoredMode,
     loadPrefs: loadPrefs, getPref: getPref, setPref: setPref, clearPrefs: clearPrefs,
     checkPersistence: checkPersistence,
-    localStorageOk: function () { return LS_OK; },
     idbAvailable: function () { return (httpOk === true) ? true : idbOk; },
     migratedCount: migratedCount,
     Files: Files

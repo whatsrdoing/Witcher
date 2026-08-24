@@ -31,6 +31,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import uuid
 import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +41,9 @@ SITE = os.path.join(ROOT, "site.json")
 # here as real files -- not in the browser's IndexedDB -- so it shows up in
 # this folder like any other file, survives a browser reset, and is easy to
 # find, back up or move by hand.
-LIBRARY_DIR = os.path.join(ROOT, "data", "library")
+# Overridable so selftest.py can exercise the real code against a throwaway
+# directory instead of the folder holding someone's actual registers.
+LIBRARY_DIR = os.path.join(os.environ.get("PARAS_DATA_DIR") or os.path.join(ROOT, "data"), "library")
 LIBRARY_BLOBS = os.path.join(LIBRARY_DIR, "blobs")
 LIBRARY_INDEX = os.path.join(LIBRARY_DIR, "index.json")
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
@@ -67,6 +70,14 @@ def settings():
     return cfg
 
 
+# Every read-modify-write of index.json runs under this. The server is
+# threaded (so one large upload cannot freeze the whole UI), which means two
+# requests really can land on the index at the same time -- without the lock
+# the slower one would overwrite the faster one's entry and that file would
+# silently disappear from the library.
+LIBRARY_LOCK = threading.Lock()
+
+
 def library_read_index():
     if not os.path.exists(LIBRARY_INDEX):
         return []
@@ -79,10 +90,21 @@ def library_read_index():
 
 
 def library_write_index(files):
+    """Replace index.json atomically.
+
+    Written to a temp file in the same directory and then moved into place,
+    so a crash (or Ctrl+C) mid-write cannot leave a half-written index --
+    which json.load would reject, making every attached file look like it had
+    vanished at once while its bytes sat orphaned in blobs/.
+    """
     os.makedirs(LIBRARY_DIR, exist_ok=True)
-    with open(LIBRARY_INDEX, "w", encoding="utf-8") as fh:
+    tmp = LIBRARY_INDEX + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump({"files": files}, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, LIBRARY_INDEX)          # atomic on POSIX and Windows
 
 
 def library_route(path):
@@ -127,7 +149,7 @@ def make_handler(prefix):
             if not tail:
                 self._json(200, {"files": files})
                 return
-            if len(tail) != 1:
+            if len(tail) != 1 or not SAFE_ID.match(tail[0]):
                 self.send_error(404)
                 return
             rec = next((f for f in files if f.get("id") == tail[0]), None)
@@ -147,14 +169,12 @@ def make_handler(prefix):
             if not SAFE_ID.match(file_id):
                 self.send_error(400)
                 return
-            files = library_read_index()
-            kept = [f for f in files if f.get("id") != file_id]
-            if len(kept) != len(files):
-                library_write_index(kept)
-            try:
-                os.remove(os.path.join(LIBRARY_BLOBS, file_id))
-            except OSError:
-                pass
+            with LIBRARY_LOCK:
+                files = library_read_index()
+                kept = [f for f in files if f.get("id") != file_id]
+                if len(kept) != len(files):
+                    library_write_index(kept)
+            self._discard(os.path.join(LIBRARY_BLOBS, file_id))
             self._json(200, {"ok": True})
 
         def _library_put(self, file_id, qs):
@@ -171,9 +191,20 @@ def make_handler(prefix):
 
             os.makedirs(LIBRARY_BLOBS, exist_ok=True)
             blob_path = os.path.join(LIBRARY_BLOBS, file_id)
+            # Written beside the real name and only moved into place once every
+            # declared byte has arrived. A dropped connection half way through a
+            # 300MB register must not leave a truncated file indexed as whole --
+            # a dashboard would read it without complaint and quietly report
+            # totals that are short by however much never arrived.
+            #
+            # The scratch name is unique per request, not just per id: a retried
+            # upload of the same file (a reloaded migration, say) can be in
+            # flight twice at once, and two writers sharing one scratch file
+            # would interleave their bytes into something neither sent.
+            part_path = "%s.%s.part" % (blob_path, uuid.uuid4().hex)
             written = 0
             try:
-                with open(blob_path, "wb") as out:
+                with open(part_path, "wb") as out:
                     remaining = n
                     while remaining > 0:
                         chunk = self.rfile.read(min(COPY_CHUNK, remaining))
@@ -183,7 +214,13 @@ def make_handler(prefix):
                         written += len(chunk)
                         remaining -= len(chunk)
             except OSError as exc:
+                self._discard(part_path)
                 self._json(500, {"error": str(exc)})
+                return
+
+            if written != n:
+                self._discard(part_path)
+                self._json(400, {"error": "upload truncated: got %d of %d bytes" % (written, n)})
                 return
 
             headers_raw = (qs.get("headers") or [""])[0]
@@ -205,24 +242,39 @@ def make_handler(prefix):
                 "updatedAt": now,
                 "headers": headers[:200],
             }
-            files = [f for f in library_read_index() if f.get("id") != file_id]
-            files.append(rec)
-            library_write_index(files)
+            try:
+                os.replace(part_path, blob_path)
+            except OSError as exc:
+                self._discard(part_path)
+                self._json(500, {"error": str(exc)})
+                return
+            with LIBRARY_LOCK:
+                files = [f for f in library_read_index() if f.get("id") != file_id]
+                files.append(rec)
+                library_write_index(files)
             self._json(200, rec)
 
+        @staticmethod
+        def _discard(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
         def _library_rename(self, file_id, qs):
-            files = library_read_index()
-            rec = next((f for f in files if f.get("id") == file_id), None)
-            if not rec:
-                self._json(404, {"error": "no such file"})
-                return
             name = (qs.get("name") or [""])[0].strip()[:300]
             if not name:
                 self._json(400, {"error": "a name is required"})
                 return
-            rec["name"] = name
-            rec["updatedAt"] = int(time.time() * 1000)
-            library_write_index(files)
+            with LIBRARY_LOCK:
+                files = library_read_index()
+                rec = next((f for f in files if f.get("id") == file_id), None)
+                if not rec:
+                    self._json(404, {"error": "no such file"})
+                    return
+                rec["name"] = name
+                rec["updatedAt"] = int(time.time() * 1000)
+                library_write_index(files)
             self._json(200, rec)
 
         def do_POST(self):
@@ -369,16 +421,21 @@ def make_handler(prefix):
             # Anything outside the friendly path goes to it, so the browser
             # never settles on a URL that is not the real one.
             if self.path.rstrip("/") == prefix.rstrip("/") and not self.path.endswith("/"):
-                self.send_response(301)
-                self.send_header("Location", prefix)
-                self.end_headers()
+                self._send_redirect(301)
                 return True
             if not self.path.startswith(prefix):
-                self.send_response(302)
-                self.send_header("Location", prefix)
-                self.end_headers()
+                self._send_redirect(302)
                 return True
             return False
+
+        def _send_redirect(self, code):
+            # Content-Length matters here: under HTTP/1.1 the connection is
+            # reused, so a bodyless response that does not say "zero bytes"
+            # leaves the browser waiting for a body that never comes.
+            self.send_response(code)
+            self.send_header("Location", prefix)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
         def translate_path(self, path):
             if prefix != "/" and path.startswith(prefix):
@@ -389,6 +446,12 @@ def make_handler(prefix):
             # Local workspace: never let the browser serve a stale dashboard.
             self.send_header("Cache-Control", "no-store")
             super().end_headers()
+
+        # Keep-alive: the app pulls a dozen small assets on load and a dashboard
+        # pulls more, and HTTP/1.0 tears down the connection after each one.
+        # Every response this handler produces sets Content-Length (including
+        # the redirects above and send_error), which is what makes this safe.
+        protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt, *args):
             line = fmt % args
@@ -451,10 +514,24 @@ def hostname_is_mapped(host):
         return False
 
 
+class LocalServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    """Threaded on purpose.
+
+    Single-threaded, one slow request froze everything else: uploading or
+    reading back a large register held the only worker for the whole transfer,
+    so the page it was uploaded from could not even fetch its own icons until
+    the transfer finished (measured: an ordinary request went from ~7ms to
+    ~240ms behind a single 60MB upload, and a 300MB one is several seconds).
+    Writes to the library index are serialised by LIBRARY_LOCK instead, which
+    is the only shared state here.
+    """
+    allow_reuse_address = True
+    daemon_threads = True                  # never keep the process alive on Ctrl+C
+
+
 def bind(port, prefix):
-    socketserver.TCPServer.allow_reuse_address = True
     handler = functools.partial(make_handler(prefix), directory=ROOT)
-    return socketserver.TCPServer(("127.0.0.1", port), handler)
+    return LocalServer(("127.0.0.1", port), handler)
 
 
 def main(argv):

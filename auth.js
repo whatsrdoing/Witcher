@@ -4,10 +4,14 @@ window.__PARAS_AUTH__ = {
   "$comment": "Sign-in for the Command Centre. The password is not stored -- only a PBKDF2-HMAC-SHA256 hash of it. Reset with: python3 set_password.py",
   "schema": 1,
   "enabled": true,
-  "email": "ritiknagar@gmail.com",
-  "salt": "0c34bac7bbb4967824beca8f13ae2940",
+  "email": "admin",
+  "logins": [
+    "admin",
+    "ritik"
+  ],
+  "salt": "80085b43d00d1fc2c75aff1a89745f07",
   "iterations": 250000,
-  "hash": "18d5c97fcee187522703ac8f9cd214114c8f1bb1ce8d6c2e7de1917f82a8cf0a",
+  "hash": "5fe62b921153dac29baecda952f13a53a7ce3d99033c1f4ef5c3df46dbd1db5f",
   "hint": "",
   "admin": "Ritik Nagar",
   "adminKeySalt": "369ef9bb0037e2d9e893398371633395",

@@ -145,20 +145,24 @@ files — until the credentials match.
 
 | | |
 |---|---|
-| Email | `ritiknagar@gmail.com` |
+| Username | `admin` or `ritik` — either signs in |
 | Password | set with `set_password.py` — ask Claude, or run it yourself |
 
-A wrong email or password shows **"Wrong email or password"** and the app stays
-shut. Five wrong tries locks input for 60 seconds. You stay signed in while the
-browser tab lives; closing the browser signs you out, and the padlock button in
-the top bar signs you out on demand.
+More than one name can be configured to sign in — `auth.json`'s `"logins"` list
+holds all of them, matched case-insensitively. `set_password.py` sets this list
+directly from the command line: `admin/ritik` becomes two accepted names.
+
+A wrong username or password shows **"Wrong email or password"** and the app
+stays shut. Five wrong tries locks input for 60 seconds. You stay signed in
+while the browser tab lives; closing the browser signs you out, and the
+padlock button in the top bar signs you out on demand.
 
 **Forgot password** asks for the **admin key**, then lets you set a new
 password on the spot. Wrong key, no reset. The key is stored the same way as
 the password — hashed, never in the clear — and is changed with:
 
 ```
-python3 set_password.py --admin-key NEWKEY you@work.com 'Password1'
+python3 set_password.py --admin-key NEWKEY admin/ritik 'Password1'
 ```
 
 When the Command Centre is running from `start.bat` the new password is written
@@ -171,7 +175,7 @@ The name shown on that screen comes from the `"admin"` field in `auth.json`.
 
 ```
 python3 set_password.py                       # asks for both, hides typing
-python3 set_password.py you@work.com 'NewPass1'
+python3 set_password.py admin/ritik 'NewPass1' # either name signs in
 ```
 
 That writes a new random salt and a fresh PBKDF2-HMAC-SHA256 hash (250,000

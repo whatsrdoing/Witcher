@@ -83,7 +83,10 @@
     say('Verifying…', '');
 
     w.ParasCrypto.derive(pass, cfg.salt, cfg.iterations || 250000).then(function (digest) {
-      var emailOk = email.toLowerCase() === String(cfg.email || '').toLowerCase();
+      // Several names can be configured to sign in (see auth.json "logins");
+      // any one of them, matched case-insensitively, is accepted.
+      var logins = Array.isArray(cfg.logins) && cfg.logins.length ? cfg.logins : [cfg.email];
+      var emailOk = logins.some(function (id) { return email.toLowerCase() === String(id || '').toLowerCase(); });
       var passOk = w.ParasCrypto.equal(digest, String(cfg.hash || ''));
 
       busy = false;

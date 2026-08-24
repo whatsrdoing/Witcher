@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Set the Command Centre's sign-in email and password.
+"""Set the Command Centre's sign-in name(s) and password.
 
     python3 set_password.py                          # prompts for both
     python3 set_password.py you@example.com 'Secret1'
+    python3 set_password.py admin/ritik 'Secret1'     # either name signs in
     python3 set_password.py --admin-key NEWKEY ...   # change the reset key
 
 Writes auth.json with a fresh random salt and a PBKDF2-HMAC-SHA256 hash, then
@@ -30,7 +31,7 @@ def kdf(secret, salt_hex):
     ).hex()
 
 
-def build(email, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN_KEY,
+def build(logins, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN_KEY,
           key_salt=None, key_hash=None):
     salt = secrets.token_hex(16)
     digest = kdf(password, salt)
@@ -42,7 +43,8 @@ def build(email, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
                     "PBKDF2-HMAC-SHA256 hash of it. Reset with: python3 set_password.py",
         "schema": 1,
         "enabled": True,
-        "email": email,
+        "email": logins[0],
+        "logins": logins,
         "salt": salt,
         "iterations": ITERATIONS,
         "hash": digest,
@@ -57,6 +59,16 @@ def build(email, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
     }
 
 
+def split_logins(raw):
+    parts = [p.strip() for p in raw.replace(",", "/").split("/")]
+    seen, out = set(), []
+    for p in parts:
+        if p and p.lower() not in seen:
+            seen.add(p.lower())
+            out.append(p)
+    return out
+
+
 def main(argv):
     new_key = None
     if "--admin-key" in argv:
@@ -67,19 +79,22 @@ def main(argv):
         del argv[i:i + 2]
 
     if len(argv) >= 2:
-        email, password = argv[0], argv[1]
+        logins = split_logins(argv[0])
+        password = argv[1]
         hint = argv[2] if len(argv) > 2 else ""
     else:
         current = ""
         if os.path.exists(OUT):
             try:
-                current = json.load(open(OUT, encoding="utf-8")).get("email", "")
+                prev = json.load(open(OUT, encoding="utf-8"))
+                current = "/".join(prev.get("logins") or [prev.get("email", "")])
             except (OSError, ValueError):
                 pass
-        prompt = "Sign-in email" + (" [%s]: " % current if current else ": ")
-        email = input(prompt).strip() or current
-        if not email:
-            sys.exit("An email is required.")
+        prompt = "Sign-in name(s), separate multiple with /" + (" [%s]: " % current if current else ": ")
+        raw = input(prompt).strip() or current
+        logins = split_logins(raw)
+        if not logins:
+            sys.exit("At least one sign-in name is required.")
         password = getpass.getpass("New password: ")
         if not password:
             sys.exit("A password is required.")
@@ -87,6 +102,8 @@ def main(argv):
             sys.exit("The two passwords did not match. Nothing was changed.")
         hint = input("Hint shown on the sign-in screen (optional): ").strip()
 
+    if not logins:
+        sys.exit("At least one sign-in name is required.")
     if len(password) < 6:
         sys.exit("Use at least 6 characters. Nothing was changed.")
 
@@ -103,12 +120,12 @@ def main(argv):
         key_salt = key_hash = None
 
     with open(OUT, "w", encoding="utf-8") as fh:
-        json.dump(build(email, password, hint, admin,
+        json.dump(build(logins, password, hint, admin,
                         new_key or DEFAULT_ADMIN_KEY, key_salt, key_hash),
                   fh, indent=2, ensure_ascii=False)
         fh.write("\n")
 
-    print("auth.json written for %s (PBKDF2-SHA256, %d iterations)" % (email, ITERATIONS))
+    print("auth.json written for %s (PBKDF2-SHA256, %d iterations)" % ("/".join(logins), ITERATIONS))
     try:
         sys.path.insert(0, ROOT)
         import sync

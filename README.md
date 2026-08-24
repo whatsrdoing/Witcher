@@ -324,7 +324,12 @@ it automatically on the next sync.
 | Survives closing the app | yes | no |
 
 Switching to SESSION starts a clean temporary workspace; your LOCAL data is not
-deleted and comes back when you switch back.
+deleted and comes back when you switch back. Like a normal browser window and
+an Incognito one, each mode is a separate world: switching either direction
+closes every dashboard you have open, so a report you built or a file you
+uploaded inside a dashboard in one mode never shows up when you switch to the
+other. Reopen it after switching back and everything LOCAL saved is exactly
+as you left it; reopen it after switching to SESSION and it starts empty.
 
 **Theme** — dark and light, toggled from the top bar, remembered per mode.
 

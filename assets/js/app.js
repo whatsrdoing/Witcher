@@ -97,18 +97,20 @@
   function switchMode(next) {
     if (next === w.Store.getMode()) return;
     var go = function () {
+      closeAllFrames();
       w.Store.setMode(next);
       w.Store.loadPrefs();
       applyTheme(w.Store.getPref('theme', REG.app.defaultTheme));
       filter.category = w.Store.getPref('category', 'all');
       renderModeSwitch();
       refreshCounts().then(renderHome);
+      goHome();
       if (drawerFor) renderFiles();
-      toast(next === 'session' ? 'Session mode — this workspace is now temporary.' : 'Local mode — changes are saved on this computer.', 'ok');
+      toast(next === 'session' ? 'Session mode — a fresh, temporary workspace. Open dashboards were closed.' : 'Local mode — back to what was saved on this computer. Open dashboards were closed.', 'ok', 4500);
     };
     if (next === 'session') {
       confirmDialog('Switch to Session mode?',
-        'Session mode starts an empty temporary workspace. Files you attach and layout changes are held in memory only and disappear when this tab closes. Anything already saved in Local mode is kept and comes back when you switch back.',
+        'Session mode starts a completely fresh, temporary workspace — like opening an Incognito window. Any dashboards you have open right now will close. Files you attach and layout changes in Session are held in memory only and disappear when this tab closes. Nothing already saved in Local mode is touched, and it all comes back when you switch back.',
         'Switch to Session', go);
     } else { go(); }
   }
@@ -193,6 +195,23 @@
     if (current === id) goHome();
     var db = byId(id);
     toast((db ? db.name : 'Dashboard') + ' closed — its in-page state was released.', 'ok');
+  }
+
+  /* Closes every open dashboard at once, with no per-file toast. Used on a
+     SESSION/LOCAL switch: each mode is a separate workspace, like a normal
+     window and an Incognito one — a dashboard already open when you switch
+     is running against the mode you just left, so it carries on showing
+     whatever it had loaded instead of the new mode's (empty, for SESSION)
+     data. Closing it is what makes the switch actually behave like a fresh
+     start rather than just swapping what a future upload would use. */
+  function closeAllFrames() {
+    Object.keys(frames).forEach(function (id) {
+      var f = frames[id];
+      if (f && f.el) f.el.remove();
+    });
+    frames = Object.create(null);
+    current = null;
+    renderLiveCount();
   }
 
   function renderCrumbs(db) {

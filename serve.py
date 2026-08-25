@@ -578,7 +578,10 @@ def main(argv):
             sys.exit("Could not bind port %d either (%s)." % (alt, exc2))
         port = alt
 
-    host = cfg["hostname"] if hostname_is_mapped(cfg["hostname"]) else "127.0.0.1"
+    # An empty "hostname" in site.json means "just use 127.0.0.1" -- a
+    # deliberate choice, not a missing step, so no setup is suggested below.
+    want_host = cfg["hostname"]
+    host = want_host if (want_host and hostname_is_mapped(want_host)) else "127.0.0.1"
     netloc = host if port == 80 else "%s:%d" % (host, port)
     url = "http://%s%s" % (netloc, prefix)
 

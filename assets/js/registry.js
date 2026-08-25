@@ -107,7 +107,10 @@
       return {
         id: String(x.id || ('dataset' + i)),
         name: String(x.name || x.id || ('Section ' + (i + 1))),
-        hint: String(x.hint || '')
+        hint: String(x.hint || ''),
+        // Columns a file of this kind really has, so one dropped into the
+        // wrong section can be spotted from its header row.
+        needs: Array.isArray(x.needs) ? x.needs : []
       };
     });
 

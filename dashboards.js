@@ -450,43 +450,144 @@ window.__PARAS_REGISTRY__ = {
         "reorder"
       ],
       "inputs": []
+    },
+    {
+      "id": "top-50-items",
+      "name": "Top 50 Items",
+      "category": "pharmacy",
+      "description": "The fifty items driving the most spend and movement, and how that list shifts month to month.",
+      "file": "",
+      "icon": "trending",
+      "status": "planned",
+      "order": 6,
+      "tags": [
+        "top 50",
+        "ABC",
+        "spend",
+        "movement"
+      ],
+      "inputs": []
+    },
+    {
+      "id": "expiry-stock",
+      "name": "Expiry Stock",
+      "category": "inventory",
+      "description": "Stock approaching expiry by unit and batch — value at risk and the window left to act.",
+      "file": "",
+      "icon": "warn",
+      "status": "planned",
+      "order": 7,
+      "tags": [
+        "expiry",
+        "batch",
+        "near expiry",
+        "write-off"
+      ],
+      "inputs": []
+    },
+    {
+      "id": "non-moving",
+      "name": "Non Moving",
+      "category": "inventory",
+      "description": "Items with no movement over the period — where working capital is sitting still.",
+      "file": "",
+      "icon": "boxes",
+      "status": "planned",
+      "order": 8,
+      "tags": [
+        "non moving",
+        "slow moving",
+        "dead stock",
+        "ageing"
+      ],
+      "inputs": []
     }
   ],
   "datasets": [
     {
       "id": "cogs",
       "name": "COGS",
-      "hint": "Cost of goods sold / consumption valuation"
+      "hint": "Cost of goods sold / consumption valuation",
+      "needs": [
+        "UNIT",
+        "Item Id",
+        "Qty",
+        "Ispackage",
+        "Total EPR",
+        "Total MRP"
+      ]
     },
     {
       "id": "grn-register",
       "name": "GRN Register",
-      "hint": "Goods receipt notes"
+      "hint": "Goods receipt notes",
+      "needs": [
+        "UNIT",
+        "Item Code",
+        "Received Qty.",
+        "GRN No."
+      ]
     },
     {
       "id": "purchase-register",
       "name": "Purchase Register",
-      "hint": "Purchase orders and receipts"
+      "hint": "Purchase orders and receipts",
+      "needs": [
+        "UNIT",
+        "Item Code",
+        "PO No",
+        "Status"
+      ]
     },
     {
       "id": "stock-transfer",
       "name": "Stock Transfer",
-      "hint": "Store-to-store movement (STRPIR)"
+      "hint": "Store-to-store movement (STRPIR)",
+      "needs": [
+        "UNIT",
+        "From Store",
+        "To Store",
+        "Item Code",
+        "Transfered Qty."
+      ]
     },
     {
       "id": "scm-employee",
       "name": "SCM Employee",
-      "hint": "Roles, permissions and approval limits"
+      "hint": "Roles, permissions and approval limits",
+      "needs": []
     },
     {
       "id": "non-formulary",
       "name": "Non Formulary Item List",
-      "hint": "Items outside the formulary"
+      "hint": "Items outside the formulary",
+      "needs": [
+        "ItemId",
+        "ITEM NAME",
+        "ITEM CODE"
+      ]
     },
     {
       "id": "formulary",
       "name": "Formulary Item List",
-      "hint": "Approved formulary items"
+      "hint": "Approved formulary items",
+      "needs": [
+        "ItemId",
+        "ITEM NAME",
+        "ITEM CODE"
+      ]
+    },
+    {
+      "id": "expiry-stock",
+      "name": "Expiry Stock",
+      "hint": "Batch-wise stock nearing expiry",
+      "needs": []
+    },
+    {
+      "id": "non-moving",
+      "name": "Non Moving",
+      "hint": "Items with no movement in the period",
+      "needs": []
     }
   ]
 };

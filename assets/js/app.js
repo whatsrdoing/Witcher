@@ -311,6 +311,10 @@
     var list = REG.dashboards.slice();
 
     list.sort(function (a, b) {
+      // Not-yet-built dashboards always sit after the working ones, so the
+      // grid opens on what can actually be used.
+      var pa = a.status === 'live' ? 0 : 1, pb = b.status === 'live' ? 0 : 1;
+      if (pa !== pb) return pa - pb;
       var ia = order.indexOf(a.id), ib = order.indexOf(b.id);
       if (ia >= 0 || ib >= 0) {
         if (ia < 0) return 1; if (ib < 0) return -1;
@@ -343,9 +347,11 @@
     var hidden = (w.Store.getPref('hidden', []) || []).length;
     var live = REG.dashboards.filter(function (x) { return x.status === 'live'; }).length;
     var files = Object.keys(fileCounts).reduce(function (n, k) { return n + fileCounts[k]; }, 0);
+    var building = REG.dashboards.filter(function (x) { return x.status !== 'live'; }).length;
     $('#stats').innerHTML = [
       ['Dashboards', REG.dashboards.length],
       ['Live', live],
+      building ? ['In development', building] : null,
       ['Categories', REG.categories.filter(function (c) {
         return REG.dashboards.some(function (x) { return x.category === c.id; });
       }).length],
@@ -375,7 +381,7 @@
   }
 
   function statusLabel(s) {
-    return { live: 'Live', beta: 'Beta', planned: 'Coming soon', archived: 'Archived' }[s] || s;
+    return { live: 'Live', beta: 'Beta', planned: 'In development', archived: 'Archived' }[s] || s;
   }
 
   function renderGrid() {
@@ -529,16 +535,62 @@
     loadDbSummary().then(renderSectionMonths);
   }
 
+  /* One drop box per kind of register. Dropping straight onto the right box
+     is what decides where a file is filed, so there is no way to attach a
+     file and then discover it went somewhere else. Clicking a box shows just
+     that section's files. */
   function renderSectionPicker() {
-    var sel = $('#dataSection');
-    if (!sel) return;
+    var host = $('#sectionGrid');
+    if (!host) return;
     var list = (REG && REG.datasets) || [];
-    if (!list.length) { sel.closest('.section-pick').style.display = 'none'; return; }
-    sel.innerHTML = '<option value="">Data Library — files only</option>' +
+    if (!list.length) { host.style.display = 'none'; return; }
+    host.style.display = 'grid';
+    host.innerHTML =
+      '<button class="sec-box' + (section === '' ? ' on' : '') + '" data-sec="">' +
+        '<span class="sec-name">Data Library</span>' +
+        '<span class="sec-sub">files only — not filed</span>' +
+      '</button>' +
       list.map(function (d) {
-        return '<option value="' + esc(d.id) + '">' + esc(d.name) + '</option>';
+        var st = storedFor(d.id);
+        var sub = st && st.periods.length
+          ? st.periods.length + (st.periods.length === 1 ? ' month · ' : ' months · ') + st.rows.toLocaleString() + ' rows'
+          : 'nothing stored yet';
+        return '<button class="sec-box' + (section === d.id ? ' on' : '') + '" data-sec="' + esc(d.id) + '"' +
+          ' title="' + esc(d.hint || d.name) + '">' +
+          '<span class="sec-name">' + esc(d.name) + '</span>' +
+          '<span class="sec-sub">' + esc(sub) + '</span>' +
+          '</button>';
       }).join('');
-    sel.value = section;
+    wireSectionDrops();
+  }
+
+  function wireSectionDrops() {
+    $$('#sectionGrid .sec-box').forEach(function (box) {
+      box.addEventListener('click', function () { chooseSection(box.dataset.sec); });
+      ['dragenter', 'dragover'].forEach(function (n) {
+        box.addEventListener(n, function (e) {
+          if (!hasFiles(e)) return;
+          e.preventDefault(); e.stopPropagation();
+          box.classList.add('hot');
+        });
+      });
+      ['dragleave', 'dragend'].forEach(function (n) {
+        box.addEventListener(n, function () { box.classList.remove('hot'); });
+      });
+      box.addEventListener('drop', function (e) {
+        if (!hasFiles(e)) return;
+        e.preventDefault(); e.stopPropagation();
+        box.classList.remove('hot');
+        chooseSection(box.dataset.sec);
+        addFiles(drawerScope(), e.dataTransfer.files);
+      });
+    });
+  }
+
+  function chooseSection(id) {
+    section = id || '';
+    invalidateFiles();
+    renderDrawerHead(); renderSectionMonths(); renderFiles();
   }
 
   function renderDrawerHead() {
@@ -551,8 +603,7 @@
     });
     var lib = drawerTab === 'library';
     var sec = lib && section ? sectionById(section) : null;
-    $('.section-pick').style.display = lib ? 'flex' : 'none';
-    $('[for="dataSection"]').style.display = lib ? 'block' : 'none';
+    $('#sectionGrid').style.display = lib ? 'grid' : 'none';
     $('#drawerTitle').textContent = !lib ? 'Pinned files' : (sec ? sec.name : 'Data Library');
     $('#drawerFor').textContent = !lib
       ? 'Only on ' + (db ? db.name : 'this dashboard')
@@ -887,26 +938,95 @@
       }).join('');
   }
 
+  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December'];
   var pendingImport = null;
+
+  /* Does this file look like the kind of register this section holds?
+     Compared on the header row, not the file name, because a renamed file
+     still has the columns it always had. */
+  function sectionFit(ds, headers) {
+    var d = sectionById(ds);
+    var needs = (d && d.needs) || [];
+    if (!needs.length || !headers || !headers.length) return null;   // nothing to judge on
+    var hit = needs.filter(function (n) {
+      var nn = String(n).toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return headers.some(function (h) {
+        var hh = String(h).toLowerCase().replace(/[^a-z0-9]+/g, '');
+        return hh === nn || hh.indexOf(nn) >= 0 || nn.indexOf(hh) >= 0;
+      });
+    });
+    return { hit: hit.length, need: needs.length, missing: needs.filter(function (n) {
+      return hit.indexOf(n) < 0; }) };
+  }
+
+  /* The section a file's columns actually look like, when it is not the one
+     it was dropped on -- so the warning can say where it probably belongs. */
+  function bestSection(headers) {
+    var best = null;
+    ((REG && REG.datasets) || []).forEach(function (d) {
+      var f = sectionFit(d.id, headers);
+      if (!f || !f.need) return;
+      var r = f.hit / f.need;
+      if (r >= 0.6 && (!best || r > best.ratio)) best = { id: d.id, name: d.name, ratio: r };
+    });
+    return best;
+  }
+
   function askImport(fileMeta) {
     pendingImport = fileMeta;
-    var opts = ((REG && REG.datasets) || []).map(function (d) {
+    $('#importSection').innerHTML = ((REG && REG.datasets) || []).map(function (d) {
       return '<option value="' + esc(d.id) + '"' + (d.id === section ? ' selected' : '') + '>' + esc(d.name) + '</option>';
     }).join('');
-    $('#importSection').innerHTML = opts;
-    $('#importFile').textContent = fileMeta.name;
+
+    var now = new Date(), yNow = now.getFullYear();
     var g = guessPeriod(fileMeta.name);
-    $('#importPeriod').value = g;
+    var gy = g ? +g.slice(0, 4) : yNow;
+    var gm = g ? +g.slice(5, 7) : now.getMonth() + 1;
+    $('#importMonth').innerHTML = MONTH_NAMES.map(function (n, i) {
+      return '<option value="' + (i + 1) + '"' + (i + 1 === gm ? ' selected' : '') + '>' + n + '</option>';
+    }).join('');
+    var years = [];
+    for (var y = yNow + 1; y >= yNow - 6; y--) years.push(y);
+    if (years.indexOf(gy) < 0) years.unshift(gy);
+    $('#importYear').innerHTML = years.map(function (y) {
+      return '<option value="' + y + '"' + (y === gy ? ' selected' : '') + '>' + y + '</option>';
+    }).join('');
+
+    $('#importFile').textContent = fileMeta.name;
     $('#importGuess').textContent = g
-      ? 'Taken from the file name. Change it if that is not right.'
-      : 'Could not tell the month from the file name — please pick it.';
+      ? 'Month and year read from the file name. Change them if that is not right.'
+      : 'Could not tell the month from the file name — please choose it.';
     $('#importMsg').style.display = 'none';
     $('#importModal').classList.add('open');
     checkDup();
   }
+
+  function importPeriod() {
+    var m = +$('#importMonth').value, y = +$('#importYear').value;
+    if (!m || !y) return '';
+    return y + '-' + (m < 10 ? '0' : '') + m;
+  }
+
   function checkDup() {
-    var ds = $('#importSection').value, per = $('#importPeriod').value;
+    var ds = $('#importSection').value, per = importPeriod();
     var box = $('#importDup');
+
+    // Wrong-section check: does this file's header row look like this kind
+    // of register at all?
+    var mm = $('#importMismatch');
+    var fit = sectionFit(ds, (pendingImport && pendingImport.headers) || []);
+    if (fit && fit.hit / fit.need < 0.5) {
+      var elsewhere = bestSection(pendingImport.headers);
+      mm.style.display = 'flex';
+      mm.textContent = 'This does not look like ' + (sectionById(ds) || {}).name +
+        ' — only ' + fit.hit + ' of ' + fit.need + ' expected columns are there' +
+        (fit.missing.length ? ' (missing ' + fit.missing.slice(0, 3).join(', ') + ')' : '') + '.' +
+        (elsewhere && elsewhere.id !== ds ? ' It looks like ' + elsewhere.name + '.' : '') +
+        ' Add it anyway only if you are sure.';
+    } else {
+      mm.style.display = 'none';
+    }
     var d = storedFor(ds);
     var hit = d && d.periods.filter(function (p) { return p.period === per; })[0];
     if (hit) {
@@ -922,7 +1042,7 @@
 
   function runImport() {
     if (!pendingImport) return;
-    var ds = $('#importSection').value, per = $('#importPeriod').value;
+    var ds = $('#importSection').value, per = importPeriod();
     if (!per) return;
     var btn = $('#importGo');
     btn.classList.add('working'); btn.disabled = true;
@@ -1475,13 +1595,9 @@
     });
 
     /* drawer */
-    $('#dataSection').addEventListener('change', function (e) {
-      section = e.target.value;
-      invalidateFiles();
-      renderDrawerHead(); renderSectionMonths(); renderFiles();
-    });
     $('#importSection').addEventListener('change', checkDup);
-    $('#importPeriod').addEventListener('input', checkDup);
+    $('#importMonth').addEventListener('change', checkDup);
+    $('#importYear').addEventListener('change', checkDup);
     $('#importCancel').addEventListener('click', closeImport);
     $('#importClose').addEventListener('click', closeImport);
     $('#importGo').addEventListener('click', runImport);

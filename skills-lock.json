@@ -66,6 +66,96 @@
       "sourceType": "github",
       "skillPath": "SKILL.md",
       "computedHash": "b85718374d27bbada453791af92b7ae0b3256e5552d2f3f9d940ca4183131e4b"
+    },
+    "apple-bento-grid": {
+      "source": "hubeiqiao/apple-bento-grid",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "953e989d76ad3054cc84967bd18bf12a126d895c9d792baa611df691f792e11b"
+    },
+    "hig-components-content": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-content/SKILL.md",
+      "computedHash": "e04d32abffd73af9233d0564710dea44141399b70005fb70431e7ed89e82ffc4"
+    },
+    "hig-components-controls": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-controls/SKILL.md",
+      "computedHash": "38bda7acf172c15f9b82e52eed8baec83feae39ae88803bd9c458e43de870a52"
+    },
+    "hig-components-dialogs": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-dialogs/SKILL.md",
+      "computedHash": "53c53ae1b4030e8cf1cfb2c964bbaa1ba72228e8f83c4e82f98f64dedfc77fe0"
+    },
+    "hig-components-layout": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-layout/SKILL.md",
+      "computedHash": "a600afc2c56f580a7c8ab11a30dea18548c44702aecdf62ec3de637b5e1a4cf6"
+    },
+    "hig-components-menus": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-menus/SKILL.md",
+      "computedHash": "8587f6eb574b99c523f7643610314c9e2a2e41ba8738379624c23ad851082470"
+    },
+    "hig-components-search": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-search/SKILL.md",
+      "computedHash": "ab96e278ba8246c71ced70b39bfa0068162cedba7de8b7e4645a04822fca0da4"
+    },
+    "hig-components-status": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-status/SKILL.md",
+      "computedHash": "2020054bfacc5d260c58212ead90197210c17b7a1c602008c4f716d18d5d5120"
+    },
+    "hig-components-system": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-components-system/SKILL.md",
+      "computedHash": "c5e078abfb03b9639768fdeebd4c94a19fe263f6673964aff2f7997129ab69b9"
+    },
+    "hig-foundations": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-foundations/SKILL.md",
+      "computedHash": "a1535ddde3c61837b286564418c5db1da608a8c3f5b5bf32274be387c950dcf8"
+    },
+    "hig-inputs": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-inputs/SKILL.md",
+      "computedHash": "28aac5b39b801f8ec6a4c969a6ab5f59efb95638c21c32f3fc827b02e5debf83"
+    },
+    "hig-patterns": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-patterns/SKILL.md",
+      "computedHash": "279de9ec0514a96697a886e3436a52993c00e2c82943570a38ef455111b6d1eb"
+    },
+    "hig-platforms": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-platforms/SKILL.md",
+      "computedHash": "a2681ef5185697a44962e3aa0a607c08885b035e1221594625aa6d88f530d538"
+    },
+    "hig-project-context": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-project-context/SKILL.md",
+      "computedHash": "d9dc586e53e6e6dc24bc328e96ecdc3f07b1dacf010a29807c6893c1ad91f816"
+    },
+    "hig-technologies": {
+      "source": "raintree-technology/hig-doctor",
+      "sourceType": "github",
+      "skillPath": "skills/hig-technologies/SKILL.md",
+      "computedHash": "8c115fb78bc1c804fec7079c363de03a8f61198487fd304aa8c1c48f53a39cfe"
     }
   }
 }

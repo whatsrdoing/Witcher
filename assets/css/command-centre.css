@@ -213,8 +213,13 @@ a{color:var(--brand-soft); text-decoration:none;}
   backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
   border:1px solid var(--wire);
   animation:popIn .18s var(--ease);
+  /* Anchored to the control that opened it. A popover that grows out of its
+     own centre reads as unrelated to the button you just pressed; growing
+     from the corner nearest that button keeps the two obviously connected.
+     Every .pop in this shell hangs from the top-right of its tray. */
+  transform-origin:top right;
 }
-@keyframes popIn{from{opacity:0;transform:translateY(-6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes popIn{from{opacity:0;transform:translateY(-6px) scale(.96)}to{opacity:1;transform:none}}
 .pop h4{margin:6px 8px 8px; font-size:10.5px; font-weight:800; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3);}
 .pop .empty{padding:14px 10px; font-size:12.5px; color:var(--ink-3); text-align:center;}
 .pop-row{display:flex; align-items:center; gap:9px; padding:8px 9px; border-radius:9px; width:100%; text-align:left; transition:background .16s var(--ease);}
@@ -270,6 +275,16 @@ a{color:var(--brand-soft); text-decoration:none;}
   color:var(--ink);
 }
 .hero .eyebrow{font-size:11px; font-weight:800; letter-spacing:.24em; color:var(--brand-soft); margin:0 0 9px;}
+
+/* ---------- Small-text tracking -------------------------------------------
+   Tracking is size-specific: one letter-spacing across a whole UI is wrong
+   somewhere. Display type here already tightens as it grows (-.015em on the
+   hero, -.02em on the stat figures) because letters read too far apart at
+   size. The secondary labels are the other end of the same rule -- at 11px
+   they need a touch of air to stay legible, especially sitting on glass. */
+.file-sub, .drawer-head .for, .drawer-foot, .pop-id-text span, .card-sub{
+  letter-spacing:.008em;
+}
 .hero p.lede{margin:11px 0 0; color:var(--ink-2); font-size:14px; max-width:62ch; line-height:1.6;}
 .stats{display:flex; gap:11px; flex-wrap:wrap;}
 .stat{border-radius:var(--r); padding:13px 17px; min-width:104px;}
@@ -308,6 +323,11 @@ a{color:var(--brand-soft); text-decoration:none;}
   transition:opacity .28s var(--ease), transform .28s var(--ease);
 }
 .card:hover{transform:translateY(-4px); box-shadow:var(--shadow-lg); border-color:var(--glass-3);}
+/* Pressed feedback fires on pointer-down, not on click. Waiting for the
+   release to acknowledge a press is the single thing that makes a surface
+   feel dead, and it costs nothing to answer immediately.
+   A planned card is not openable, so it must not pretend to press. */
+.card:active:not(.status-planned){transform:translateY(-1px) scale(.994); transition-duration:.09s;}
 .card:hover::after{opacity:.24; transform:scale(1.15);}
 .card.dragging{opacity:.42; transform:scale(.97) rotate(-.6deg); cursor:grabbing;}
 .card.drop-before{box-shadow:-4px 0 0 var(--brand-bright), var(--shadow);}
@@ -430,6 +450,34 @@ a{color:var(--brand-soft); text-decoration:none;}
 .drawer.open{transform:none; visibility:visible;}
 .scrim{position:fixed; inset:0; z-index:65; background:rgba(3,7,15,.5); opacity:0; visibility:hidden; transition:opacity .3s var(--ease), visibility .3s;}
 .scrim.open{opacity:1; visibility:visible;}
+
+/* ---------- Grabbable sheet -----------------------------------------------
+   Once sheet.js is driving, the spring owns the transform frame by frame and
+   a CSS transition on the same property would fight it -- every inline write
+   would start a new 300ms interpolation and the sheet would lag the finger.
+   The rules above stay as the fallback for when the script is absent. */
+.drawer.fluid-sheet, .drawer.fluid-sheet.open{transition:none; will-change:transform;}
+.fluid-sheet ~ .scrim, .scrim{will-change:opacity;}
+.drawer.fluid-sheet.grabbing{cursor:grabbing;}
+/* The sheet follows the finger 1:1 while grabbed; letting the browser also
+   scroll or select during that turns one gesture into two. */
+.drawer.fluid-sheet .drawer-head{touch-action:pan-y; cursor:grab; user-select:none; -webkit-user-select:none;}
+.drawer.fluid-sheet.grabbing .drawer-head{cursor:grabbing;}
+.sheet-grip{
+  position:absolute; left:0; top:0; bottom:0; width:18px; z-index:2;
+  display:flex; align-items:center; justify-content:center;
+  cursor:grab; touch-action:none; background:transparent;
+  user-select:none; -webkit-user-select:none;
+}
+.drawer.fluid-sheet.grabbing .sheet-grip{cursor:grabbing;}
+.sheet-grip span{
+  width:3px; height:44px; border-radius:2px; background:var(--wire);
+  transition:background .18s var(--ease), height .18s var(--ease);
+}
+.sheet-grip:hover span{background:var(--ink-3); height:60px;}
+/* A grip you cannot see is a grip nobody uses. It stays quiet, but it is
+   there, and it brightens the moment the pointer is anywhere near it. */
+.drawer.fluid-sheet:hover .sheet-grip span{background:var(--glass-3);}
 .drawer-head{flex:0 0 auto; padding:17px 18px 13px; border-bottom:1px solid var(--wire);}
 .drawer-head .row{display:flex; align-items:center; gap:10px;}
 .drawer-head h3{margin:0; flex:1 1 auto; font-size:15px; font-weight:700;}
@@ -491,11 +539,26 @@ a{color:var(--brand-soft); text-decoration:none;}
 
 /* ---------- Modal --------------------------------------------------------- */
 .modal-scrim{position:fixed;inset:0;z-index:95;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(3,7,15,.62);backdrop-filter:blur(4px);}
-.modal-scrim.open{display:flex;}
+.modal-scrim.open{display:flex; animation:scrimIn .26s var(--ease);}
+/* The scrim's blur builds rather than being there from the first frame, so
+   the background reads as being pushed back behind a real surface instead of
+   a dark panel being switched on over it. */
+@keyframes scrimIn{
+  from{opacity:0; backdrop-filter:blur(0px); -webkit-backdrop-filter:blur(0px);}
+  to  {opacity:1; backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px);}
+}
 .modal{
   width:min(520px,100%); border-radius:var(--r-lg); padding:24px; box-shadow:var(--shadow-lg);
   background:color-mix(in srgb, var(--bg-2) 95%, transparent); border:1px solid var(--wire);
-  animation:popIn .22s var(--ease);
+  /* Materialise, don't just fade: scale and shadow arrive together so the
+     panel reads as a solid thing coming forward, not a picture of one being
+     turned up from zero opacity. */
+  animation:modalIn .26s var(--ease);
+  transform-origin:center;
+}
+@keyframes modalIn{
+  from{opacity:0; transform:scale(.94) translateY(8px);}
+  to  {opacity:1; transform:none;}
 }
 .modal.wide{width:min(1000px,100%); height:min(84vh,900px); display:flex; flex-direction:column; padding:0; overflow:hidden;}
 .modal h3{margin:0 0 9px; font-size:17px; font-weight:700;}
@@ -531,8 +594,49 @@ a{color:var(--brand-soft); text-decoration:none;}
   .card, .btn, .chip, .stat{ border:1px solid CanvasText; }
 }
 
+/* ---------- Accessibility preferences -------------------------------------
+   Three independent signals, not one. A person who has turned down motion has
+   not necessarily turned down transparency, and someone asking for more
+   contrast wants neither hidden. Each is answered on its own terms. */
+
+/* Reduced motion: keep the state changes, drop the travel. Feedback that
+   helps you understand what happened (colour, opacity) stays. */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important;}
+  .bg-field{display:none;}          /* a drifting full-viewport field is exactly what this setting is for */
+}
+
+/* Reduced transparency: frost the glass rather than removing the layer. The
+   material still separates chrome from content, it just stops showing what is
+   behind it -- which is what makes translucency tiring to read against. */
+@media (prefers-reduced-transparency: reduce){
+  .glass, .topbar, .pop, .drawer, .toast, .modal{
+    backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
+  }
+  .topbar{background:var(--bg);}
+  .pop, .drawer, .toast, .modal{background:var(--bg-2);}
+  .modal-scrim{backdrop-filter:none; background:rgba(3,7,15,.8);}
+  .bg-field{display:none;}
+}
+
+/* More contrast: near-solid surfaces with a border you can actually see, and
+   secondary text pulled up off the floor. */
+@media (prefers-contrast: more){
+  :root{
+    --wire:rgba(255,255,255,.34); --wire-soft:rgba(255,255,255,.2);
+    --ink-2:#D4DEEA; --ink-3:#A6B4C6;
+  }
+  :root[data-theme="light"]{
+    --wire:rgba(16,24,38,.42); --wire-soft:rgba(16,24,38,.24);
+    --ink-2:#26303E; --ink-3:#48545F;
+  }
+  .glass, .topbar, .pop, .drawer, .toast, .modal{
+    backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
+  }
+  .topbar{background:var(--bg);}
+  .pop, .drawer, .toast, .modal{background:var(--bg-2);}
+  .btn, .card, .stat, .sec-box{border-width:2px;}   /* a whole pixel, not 1.5 -- fractional widths round inconsistently across displays */
+  .bg-field{display:none;}
 }
 
 /* ==========================================================================
@@ -822,6 +926,7 @@ a{color:var(--brand-soft); text-decoration:none;}
   transition:background .16s var(--ease), border-color .16s var(--ease), transform .16s var(--ease);
 }
 .sec-box:hover{background:var(--glass-2); border-color:var(--glass-3);}
+.sec-box:active{transform:scale(.985); transition-duration:.09s;}
 .sec-box.on{
   border-style:solid; border-color:var(--brand-bright); background:var(--glass-2);
   box-shadow:0 0 0 2px color-mix(in srgb, var(--brand-bright) 22%, transparent);

@@ -1682,6 +1682,12 @@
       if (!e.target.closest('#profileTray')) $('#profilePop').style.display = 'none';
     });
     wirePhoto();
+    /* Flicked shut by hand rather than via the close button: the sheet has
+       already animated itself out, so this only has to clear the state that
+       closeDrawer() owns. Removing .open again is harmless -- the sheet is
+       already where it is going. */
+    var dr = $('#drawer');
+    if (dr) dr.addEventListener('sheet:dismiss', function () { closeDrawer(); });
 
     /* drawer */
     $('#importSection').addEventListener('change', checkDup);

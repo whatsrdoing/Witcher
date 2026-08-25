@@ -268,11 +268,26 @@
 
     <div class="topbar-right">
       <div class="live-tray" id="profileTray">
-        <button class="btn" id="profileBtn" title="Account details">
-          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+        <button class="btn has-avatar" id="profileBtn" title="Account details">
+          <span class="avatar sm" id="profileAvatar" aria-hidden="true"></span>
           <span class="lib-label" id="profileName">Account</span>
         </button>
         <div class="pop" id="profilePop" style="display:none">
+          <div class="pop-id">
+            <span class="avatar lg" id="profileAvatarLg" aria-hidden="true"></span>
+            <div class="pop-id-text">
+              <b id="profileWho">Account</b>
+              <span id="profileRole"></span>
+            </div>
+          </div>
+          <div class="pop-photo-acts">
+            <button class="btn tiny" id="photoPick" type="button">
+              <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4z"/><circle cx="12" cy="12.6" r="3.4"/></svg>
+              <span id="photoPickLabel">Add photo</span>
+            </button>
+            <button class="btn tiny ghost" id="photoDrop" type="button" style="display:none">Remove</button>
+            <input type="file" id="photoInput" accept="image/png,image/jpeg,image/webp" hidden>
+          </div>
           <h4>Signed in</h4>
           <div id="profilePopBody"></div>
         </div>
@@ -543,6 +558,7 @@
 <script src="assets/js/library.js"></script>
 <script src="assets/js/registry.js"></script>
 <script src="assets/js/storage.js"></script>
+<script src="assets/js/avatar.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

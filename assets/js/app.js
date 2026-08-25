@@ -84,6 +84,10 @@
     if (tray) tray.style.display = '';
     var label = who.name || who.login || 'Account';
     $('#profileName').textContent = label;
+    $('#profileWho').textContent = label;
+    $('#profileRole').textContent = [who.designation, who.department]
+      .filter(Boolean).join(' \u00b7 ') || who.login || '';
+    paintAvatars(who);
     var rows = [
       ['Username', who.login],
       ['Designation', who.designation],
@@ -99,6 +103,52 @@
             '<span style="color:var(--ink-2);font-weight:600">' + esc(r[1]) + '</span></div>';
         }).join('')
       : '<div class="empty">No details on file.</div>';
+  }
+
+  /* ---- account photo ------------------------------------------------------
+     Both chips are painted from the one lookup in Avatar.paint (it memoises
+     per login), and the Remove button only appears once we know a photo is
+     actually there -- offering "Remove" against initials is a dead control. */
+  function paintAvatars(who) {
+    if (!w.Avatar) return;
+    var sm = $('#profileAvatar'), lg = $('#profileAvatarLg');
+    w.Avatar.paint(sm, who);
+    w.Avatar.paint(lg, who).then(function (url) {
+      var drop = $('#photoDrop'), lab = $('#photoPickLabel');
+      if (drop) drop.style.display = url ? '' : 'none';
+      if (lab) lab.textContent = url ? 'Change photo' : 'Add photo';
+    });
+  }
+
+  function wirePhoto() {
+    var pick = $('#photoPick'), input = $('#photoInput'), drop = $('#photoDrop');
+    if (!pick || !input) return;
+    function me() {
+      return (w.ParasGate && w.ParasGate.currentUser && w.ParasGate.currentUser()) || null;
+    }
+    pick.addEventListener('click', function () { input.value = ''; input.click(); });
+    input.addEventListener('change', function () {
+      var f = input.files && input.files[0], who = me();
+      if (!f || !who) return;
+      var lg = $('#profileAvatarLg');
+      if (lg) lg.classList.add('busy');
+      w.Avatar.set(who.login, f).then(function (meta) {
+        paintAvatars(who);
+        toast(meta && meta.keptInBrowser
+          ? 'Photo saved in this browser — the data folder was not reachable.'
+          : 'Photo saved.', meta && meta.keptInBrowser ? 'warn' : 'ok');
+      }).catch(function (e) {
+        toast(e && e.message ? e.message : 'Could not save that photo.', 'err');
+      }).then(function () { if (lg) lg.classList.remove('busy'); });
+    });
+    if (drop) drop.addEventListener('click', function () {
+      var who = me();
+      if (!who) return;
+      w.Avatar.clear(who.login).then(function () {
+        paintAvatars(who);
+        toast('Photo removed.', 'ok');
+      });
+    });
   }
 
   /* ===================== theme / mode ==================================== */
@@ -1631,6 +1681,7 @@
     d.addEventListener('click', function (e) {
       if (!e.target.closest('#profileTray')) $('#profilePop').style.display = 'none';
     });
+    wirePhoto();
 
     /* drawer */
     $('#importSection').addEventListener('change', checkDup);

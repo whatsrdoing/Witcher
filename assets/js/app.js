@@ -526,23 +526,41 @@
     $('#fileSearchInput').value = '';
     renderDrawerHead();
     renderFiles();
+    loadDbSummary().then(renderSectionMonths);
+  }
+
+  function renderSectionPicker() {
+    var sel = $('#dataSection');
+    if (!sel) return;
+    var list = (REG && REG.datasets) || [];
+    if (!list.length) { sel.closest('.section-pick').style.display = 'none'; return; }
+    sel.innerHTML = '<option value="">Data Library — files only</option>' +
+      list.map(function (d) {
+        return '<option value="' + esc(d.id) + '">' + esc(d.name) + '</option>';
+      }).join('');
+    sel.value = section;
   }
 
   function renderDrawerHead() {
     var db = drawerFor ? byId(drawerFor) : null;
+    renderSectionPicker();
     $('#drawerTabs').style.display = db ? 'flex' : 'none';
     $('#tabPinned').textContent = db ? db.name : '';
     $$('#drawerTabs button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.tab === drawerTab));
     });
     var lib = drawerTab === 'library';
-    $('#drawerTitle').textContent = lib ? 'Data Library' : 'Pinned files';
-    $('#drawerFor').textContent = lib
-      ? 'Shared by every dashboard'
-      : 'Only on ' + (db ? db.name : 'this dashboard');
-    $('#dropHint').textContent = lib
-      ? 'Registers, GRN, transfers — dropped once, used everywhere'
-      : 'SOPs and notes that belong to this dashboard only';
+    var sec = lib && section ? sectionById(section) : null;
+    $('.section-pick').style.display = lib ? 'flex' : 'none';
+    $('[for="dataSection"]').style.display = lib ? 'block' : 'none';
+    $('#drawerTitle').textContent = !lib ? 'Pinned files' : (sec ? sec.name : 'Data Library');
+    $('#drawerFor').textContent = !lib
+      ? 'Only on ' + (db ? db.name : 'this dashboard')
+      : (sec ? (sec.hint || 'Filed by month into the database') : 'Shared by every dashboard');
+    $('#dropHint').textContent = !lib
+      ? 'SOPs and notes that belong to this dashboard only'
+      : (sec ? 'Name it with the month, e.g. "2026-07 ' + sec.name + '.csv"'
+             : 'Registers, GRN, transfers — dropped once, used everywhere');
     $('#drawerTip').style.display = 'none';
     if (lib && drawerFor) {
       frameInputs(drawerFor).then(function (slots) {
@@ -551,7 +569,43 @@
     }
   }
 
-  function drawerScope() { return drawerTab === 'library' ? w.Library.ID : drawerFor; }
+  /* ---- Data Library sections --------------------------------------------
+     A section is a kind of register (COGS, GRN Register, ...). Files dropped
+     into one are kept apart from the others, and their contents are filed
+     into that section's own table in the database, month by month, so July
+     and August of the same register stack up instead of overwriting. */
+  var section = '';                 // '' = the shared library, otherwise a dataset id
+  function sectionScope(id) { return 'ds:' + id; }
+  function drawerScope() {
+    if (drawerTab !== 'library') return drawerFor;
+    return section ? sectionScope(section) : w.Library.ID;
+  }
+  function sectionById(id) {
+    var list = (REG && REG.datasets) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+
+  /* The month a file is for, guessed from its name. Always shown for
+     confirmation rather than acted on: a wrong guess would file August's
+     figures under July, and nothing downstream would look wrong. */
+  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function guessPeriod(name) {
+    var s = String(name || '');
+    var m = /(20\d{2})[-_ ]?(0[1-9]|1[0-2])(?!\d)/.exec(s);          // 2026-07
+    if (m) return m[1] + '-' + m[2];
+    m = /(0[1-9]|1[0-2])[-_ ]?(20\d{2})(?!\d)/.exec(s);              // 07-2026
+    if (m) return m[2] + '-' + m[1];
+    m = /([a-z]{3,9})[-_ ]?(20\d{2}|\d{2})(?!\d)/i.exec(s);          // JULY26, Jul-2026
+    if (m) {
+      var mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
+      if (mo) {
+        var y = m[2].length === 2 ? '20' + m[2] : m[2];
+        return y + '-' + (mo < 10 ? '0' : '') + mo;
+      }
+    }
+    return '';
+  }
 
   /* The one or two upload boxes this file genuinely belongs in. Deliberately
      strict: a chip that appears everywhere tells you nothing.
@@ -803,6 +857,99 @@
     }).join('') + '</div>';
   }
 
+  /* ---- filing a dropped file into the database -------------------------- */
+  var dbSummary = null;                       // what the database holds, by section
+  function loadDbSummary() {
+    if (!w.Store.Files.onDisk()) return Promise.resolve(null);
+    return fetch('__data', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { dbSummary = (j && j.datasets) || []; return dbSummary; })
+      .catch(function () { return null; });
+  }
+  function storedFor(id) {
+    return (dbSummary || []).filter(function (d) { return d.dataset === id; })[0] || null;
+  }
+
+  function renderSectionMonths() {
+    var box = $('#sectionMonths');
+    if (!box) return;
+    if (!section || drawerTab !== 'library') { box.style.display = 'none'; return; }
+    var d = storedFor(section);
+    box.style.display = 'block';
+    if (!d || !d.periods.length) {
+      box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>';
+      return;
+    }
+    box.innerHTML = '<span class="sm-head">' + d.rows.toLocaleString() + ' rows stored</span>' +
+      d.periods.map(function (p) {
+        return '<span class="sm-pill" title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows">' +
+          esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b></span>';
+      }).join('');
+  }
+
+  var pendingImport = null;
+  function askImport(fileMeta) {
+    pendingImport = fileMeta;
+    var opts = ((REG && REG.datasets) || []).map(function (d) {
+      return '<option value="' + esc(d.id) + '"' + (d.id === section ? ' selected' : '') + '>' + esc(d.name) + '</option>';
+    }).join('');
+    $('#importSection').innerHTML = opts;
+    $('#importFile').textContent = fileMeta.name;
+    var g = guessPeriod(fileMeta.name);
+    $('#importPeriod').value = g;
+    $('#importGuess').textContent = g
+      ? 'Taken from the file name. Change it if that is not right.'
+      : 'Could not tell the month from the file name — please pick it.';
+    $('#importMsg').style.display = 'none';
+    $('#importModal').classList.add('open');
+    checkDup();
+  }
+  function checkDup() {
+    var ds = $('#importSection').value, per = $('#importPeriod').value;
+    var box = $('#importDup');
+    var d = storedFor(ds);
+    var hit = d && d.periods.filter(function (p) { return p.period === per; })[0];
+    if (hit) {
+      box.style.display = 'flex';
+      box.textContent = per + ' is already in ' + (sectionById(ds) || {}).name + ' — ' +
+        hit.rows.toLocaleString() + ' rows from "' + hit.source + '". Adding this replaces it.';
+    } else {
+      box.style.display = 'none';
+    }
+    $('#importGo').disabled = !per;
+  }
+  function closeImport() { $('#importModal').classList.remove('open'); pendingImport = null; }
+
+  function runImport() {
+    if (!pendingImport) return;
+    var ds = $('#importSection').value, per = $('#importPeriod').value;
+    if (!per) return;
+    var btn = $('#importGo');
+    btn.classList.add('working'); btn.disabled = true;
+    $('#importMsg').style.display = 'flex';
+    $('#importMsg').className = 'gate-msg';
+    $('#importMsg').textContent = 'Reading the file into the database…';
+    fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
+          '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per),
+          { method: 'POST' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        btn.classList.remove('working'); btn.disabled = false;
+        if (!res.ok) throw new Error(res.j.error || 'import failed');
+        closeImport();
+        return loadDbSummary().then(function () {
+          renderSectionMonths();
+          toast(res.j.rows.toLocaleString() + ' rows added to ' +
+            (sectionById(ds) || {}).name + ' for ' + per + '.', 'ok', 6000);
+        });
+      })
+      .catch(function (e) {
+        btn.classList.remove('working'); btn.disabled = false;
+        $('#importMsg').className = 'gate-msg err';
+        $('#importMsg').textContent = 'Could not add it: ' + (e && e.message || e);
+      });
+  }
+
   function addFiles(dashId, fileList) {
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
@@ -816,10 +963,15 @@
         return w.Store.Files.add(dashId, f, headers);
       });
     }))
-      .then(function () { return refreshCounts(); })
-      .then(function () {
+      .then(function (added) { return refreshCounts().then(function () { return added; }); })
+      .then(function (added) {
         renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
         toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
+        // Dropped into a section, and the database is reachable: offer to file
+        // its contents too. Never automatic -- the month is a guess from the
+        // file name, and filing August under July would be invisible later.
+        var csvish = (added || []).filter(function (m) { return m && /\.(csv|tsv|txt)$/i.test(m.name); });
+        if (section && w.Store.Files.onDisk() && csvish.length) askImport(csvish[0]);
       })
       .catch(function (e) { toast('Could not attach: ' + (e && e.message || e), 'err', 7000); });
   }
@@ -1323,6 +1475,18 @@
     });
 
     /* drawer */
+    $('#dataSection').addEventListener('change', function (e) {
+      section = e.target.value;
+      invalidateFiles();
+      renderDrawerHead(); renderSectionMonths(); renderFiles();
+    });
+    $('#importSection').addEventListener('change', checkDup);
+    $('#importPeriod').addEventListener('input', checkDup);
+    $('#importCancel').addEventListener('click', closeImport);
+    $('#importClose').addEventListener('click', closeImport);
+    $('#importGo').addEventListener('click', runImport);
+    $('#importModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeImport(); });
+
     $('#drawerTabs').addEventListener('click', function (e) {
       var b = e.target.closest('button[data-tab]'); if (!b) return;
       drawerTab = b.dataset.tab;
@@ -1416,6 +1580,7 @@
     d.addEventListener('keydown', function (e) {
       var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
       if (e.key === 'Escape') {
+        if ($('#importModal').classList.contains('open')) return closeImport();
         if ($('#condModal').classList.contains('open')) return closeCondense();
         if ($('#pickModal').classList.contains('open')) return closePick();
         if ($('#previewModal').classList.contains('open')) return closePreview();

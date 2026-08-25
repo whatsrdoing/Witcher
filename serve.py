@@ -107,6 +107,34 @@ def library_write_index(files):
     os.replace(tmp, LIBRARY_INDEX)          # atomic on POSIX and Windows
 
 
+DB_PATH = os.path.join(os.path.dirname(LIBRARY_DIR), "library.db")
+_store = None
+_store_lock = threading.Lock()
+
+
+def store():
+    """The month-on-month database, opened on first use.
+
+    Kept behind a lock because the server is threaded: SQLite handles
+    concurrent readers fine, but two threads importing at once would fight
+    over the same write transaction.
+    """
+    global _store
+    with _store_lock:
+        if _store is None:
+            import datastore
+            _store = datastore.DataStore(DB_PATH)
+        return _store
+
+
+def seg_route(path, name):
+    """Whatever follows /<name>/ in the path, or None if this is not one."""
+    segs = [s for s in path.split("/") if s]
+    if name not in segs:
+        return None
+    return segs[segs.index(name) + 1:]
+
+
 def library_route(path):
     """Splits a request path into whatever comes after '__library', or None
     if this request is not a library one. Matches on the segment itself so
@@ -124,9 +152,14 @@ def make_handler(prefix):
         an internal site rather than a Downloads folder."""
 
         def do_GET(self):
-            tail = library_route(self.path.split("?")[0])
+            path_only = self.path.split("?")[0]
+            tail = library_route(path_only)
             if tail is not None:
                 self._library_get(tail)
+                return
+            dtail = seg_route(path_only, "__data")
+            if dtail is not None:
+                self._data_get(dtail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
                 return
             if self._redirect():
                 return
@@ -138,7 +171,12 @@ def make_handler(prefix):
             super().do_HEAD()
 
         def do_DELETE(self):
-            tail = library_route(self.path.split("?")[0])
+            path_only = self.path.split("?")[0]
+            dtail = seg_route(path_only, "__data")
+            if dtail:
+                self._data_delete(dtail)
+                return
+            tail = library_route(path_only)
             if tail is None or len(tail) != 1:
                 self.send_error(404)
                 return
@@ -164,6 +202,93 @@ def make_handler(prefix):
             self.end_headers()
             with open(blob_path, "rb") as fh:
                 shutil.copyfileobj(fh, self.wfile, COPY_CHUNK)
+
+        # ---- the month-on-month database ---------------------------------
+        def _data_get(self, tail, qs):
+            """GET __data            -> what is stored, by section and month
+               GET __data/<ds>/columns -> that section's column names
+               GET __data/<ds>/export  -> matching rows as CSV"""
+            try:
+                if not tail:
+                    self._json(200, {"datasets": store().datasets()})
+                    return
+                dataset = tail[0]
+                what = tail[1] if len(tail) > 1 else ""
+                if what == "columns":
+                    self._json(200, {"columns": store().columns(dataset)})
+                    return
+                if what == "export":
+                    periods = [p for p in (qs.get("periods") or [""])[0].split(",") if p]
+                    filters = {}
+                    for k, v in qs.items():
+                        if k.startswith("f_") and v and v[0] != "":
+                            filters[k[2:]] = v[0]
+                    limit = int((qs.get("limit") or ["0"])[0]) or None
+                    name = "%s%s.csv" % (dataset, ("-" + "-".join(periods)) if periods else "")
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/csv; charset=utf-8")
+                    self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+                    self.send_header("Transfer-Encoding", "chunked")
+                    self.end_headers()
+                    self._write_csv_chunked(dataset, periods, filters, limit)
+                    return
+                self.send_error(404)
+            except Exception as exc:                      # noqa: BLE001
+                self._json(400, {"error": str(exc)})
+
+        def _write_csv_chunked(self, dataset, periods, filters, limit):
+            """Streamed, because an export can be millions of rows and the
+            row count is not known before the query runs."""
+            import csv as _csv
+            import io as _io
+            buf = _io.StringIO()
+            w = _csv.writer(buf)
+            try:
+                for row in store().rows(dataset, periods, filters, limit):
+                    w.writerow(row)
+                    if buf.tell() > 256 * 1024:
+                        self._chunk(buf.getvalue().encode("utf-8"))
+                        buf.seek(0), buf.truncate(0)
+                if buf.tell():
+                    self._chunk(buf.getvalue().encode("utf-8"))
+            finally:
+                try:
+                    self.wfile.write(b"0\r\n\r\n")
+                except OSError:
+                    pass
+
+        def _chunk(self, data):
+            self.wfile.write(("%X\r\n" % len(data)).encode("ascii") + data + b"\r\n")
+
+        def _data_import(self, qs):
+            """Files an already-uploaded library file into its section."""
+            file_id = (qs.get("fileId") or [""])[0]
+            dataset = (qs.get("dataset") or [""])[0]
+            period = (qs.get("period") or [""])[0]
+            if not SAFE_ID.match(file_id or ""):
+                self._json(400, {"error": "bad file id"})
+                return
+            blob = os.path.join(LIBRARY_BLOBS, file_id)
+            if not os.path.exists(blob):
+                self._json(404, {"error": "that file is no longer in the library"})
+                return
+            rec = next((f for f in library_read_index() if f.get("id") == file_id), None)
+            source = (rec or {}).get("name") or file_id
+            try:
+                out = store().import_csv(blob, dataset, period, source=source)
+                print("  imported %s %s: %s rows from %s" % (dataset, period, out["rows"], source))
+                self._json(200, out)
+            except Exception as exc:                      # noqa: BLE001
+                self._json(400, {"error": str(exc)})
+
+        def _data_delete(self, tail):
+            try:
+                dataset = tail[0]
+                period = tail[1] if len(tail) > 1 else None
+                store().drop(dataset, period)
+                self._json(200, {"ok": True})
+            except Exception as exc:                      # noqa: BLE001
+                self._json(400, {"error": str(exc)})
 
         def _library_delete(self, file_id):
             if not SAFE_ID.match(file_id):
@@ -284,9 +409,13 @@ def make_handler(prefix):
             Only ever these two, only from this machine (the server binds
             127.0.0.1), and the auth ones only once the admin key checks out."""
             path_only = self.path.split("?")[0]
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            dtail = seg_route(path_only, "__data")
+            if dtail is not None and dtail and dtail[0] == "import":
+                self._data_import(qs)
+                return
             tail = library_route(path_only)
             if tail is not None:
-                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
                 if len(tail) == 1:
                     self._library_put(tail[0], qs)
                 elif len(tail) == 2 and tail[1] == "rename":

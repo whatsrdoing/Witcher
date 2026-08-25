@@ -399,6 +399,94 @@ window.__PARAS_REGISTRY__ = {
           "auto": false
         }
       ]
+    },
+    {
+      "id": "local-purchase",
+      "name": "Local Purchase",
+      "category": "procurement",
+      "description": "Local and emergency purchases outside the rate contract — spend, approvals and vendor spread.",
+      "file": "",
+      "icon": "handshake",
+      "status": "planned",
+      "order": 3,
+      "tags": [
+        "local",
+        "emergency",
+        "LP",
+        "vendor"
+      ],
+      "inputs": []
+    },
+    {
+      "id": "scm-audit",
+      "name": "Full SCM Audit",
+      "category": "audit",
+      "description": "End-to-end supply chain audit trail — indent to issue, with exceptions flagged at each hop.",
+      "file": "",
+      "icon": "shield",
+      "status": "planned",
+      "order": 4,
+      "tags": [
+        "audit",
+        "trail",
+        "exceptions",
+        "compliance"
+      ],
+      "inputs": []
+    },
+    {
+      "id": "item-consumption",
+      "name": "Item Consumption",
+      "category": "pharmacy",
+      "description": "Item-level consumption across units and months — movement, seasonality and reorder signals.",
+      "file": "",
+      "icon": "chart",
+      "status": "planned",
+      "order": 5,
+      "tags": [
+        "consumption",
+        "usage",
+        "movement",
+        "reorder"
+      ],
+      "inputs": []
+    }
+  ],
+  "datasets": [
+    {
+      "id": "cogs",
+      "name": "COGS",
+      "hint": "Cost of goods sold / consumption valuation"
+    },
+    {
+      "id": "grn-register",
+      "name": "GRN Register",
+      "hint": "Goods receipt notes"
+    },
+    {
+      "id": "purchase-register",
+      "name": "Purchase Register",
+      "hint": "Purchase orders and receipts"
+    },
+    {
+      "id": "stock-transfer",
+      "name": "Stock Transfer",
+      "hint": "Store-to-store movement (STRPIR)"
+    },
+    {
+      "id": "scm-employee",
+      "name": "SCM Employee",
+      "hint": "Roles, permissions and approval limits"
+    },
+    {
+      "id": "non-formulary",
+      "name": "Non Formulary Item List",
+      "hint": "Items outside the formulary"
+    },
+    {
+      "id": "formulary",
+      "name": "Formulary Item List",
+      "hint": "Approved formulary items"
     }
   ]
 };

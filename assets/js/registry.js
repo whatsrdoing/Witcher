@@ -101,11 +101,22 @@
 
     categories.sort(function (a, b) { return a.order - b.order; });
 
+    // Sections of the Data Library. Each one files its contents into its own
+    // table, so registers of different shapes never land in the same place.
+    var datasets = (Array.isArray(raw.datasets) ? raw.datasets : []).map(function (x, i) {
+      return {
+        id: String(x.id || ('dataset' + i)),
+        name: String(x.name || x.id || ('Section ' + (i + 1))),
+        hint: String(x.hint || '')
+      };
+    });
+
     return {
       app: app,
       categories: categories,
       categoryById: byId,
       dashboards: dashboards,
+      datasets: datasets,
       warnings: warnings,
       source: raw.__source || 'unknown'
     };

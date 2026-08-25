@@ -12,17 +12,20 @@
   --brand-soft:#7FB2F0;
   --steel:#757D87;         /* Paras grey  — sampled from the logo */
 
-  --bg:#070B14;
-  --bg-2:#0B1220;
-  --ink:#EAF0F7;
-  --ink-2:#9DACBE;
-  --ink-3:#63728A;
+  /* Lifted off near-black: the original was dark enough that cards, the
+     drawer and the page behind them read as one flat surface, and text at
+     --ink-3 sat close to the floor. Same character, more separation. */
+  --bg:#121A2B;
+  --bg-2:#182237;
+  --ink:#EFF4FA;
+  --ink-2:#AEBCCE;
+  --ink-3:#7B8AA1;
 
-  --glass:rgba(255,255,255,.055);
-  --glass-2:rgba(255,255,255,.085);
-  --glass-3:rgba(255,255,255,.12);
-  --wire:rgba(255,255,255,.11);
-  --wire-soft:rgba(255,255,255,.06);
+  --glass:rgba(255,255,255,.06);
+  --glass-2:rgba(255,255,255,.095);
+  --glass-3:rgba(255,255,255,.135);
+  --wire:rgba(255,255,255,.13);
+  --wire-soft:rgba(255,255,255,.07);
   --shadow:0 10px 40px rgba(3,8,20,.55);
   --shadow-lg:0 28px 80px rgba(3,8,20,.7);
 

@@ -1096,14 +1096,33 @@
       .then(function (added) { return refreshCounts().then(function () { return added; }); })
       .then(function (added) {
         renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
-        toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
+        // If the server disappeared mid-session the file was kept in the
+        // browser instead. Say so plainly, and update the storage note --
+        // silently filing it somewhere else is how data goes missing.
+        var fellBack = (added || []).some(function (m) { return m && m.keptInBrowser; });
+        if (fellBack) {
+          renderModeSwitch();
+          toast('The local server is not answering, so ' +
+            (files.length === 1 ? 'that file was' : 'those files were') +
+            ' kept in this browser, not in data/library. Start serve.py again, then re-add ' +
+            (files.length === 1 ? 'it' : 'them') + ' to store ' +
+            (files.length === 1 ? 'it' : 'them') + ' on disk.', 'warn', 12000);
+        } else {
+          toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
+        }
         // Dropped into a section, and the database is reachable: offer to file
         // its contents too. Never automatic -- the month is a guess from the
         // file name, and filing August under July would be invisible later.
         var csvish = (added || []).filter(function (m) { return m && /\.(csv|tsv|txt)$/i.test(m.name); });
         if (section && w.Store.Files.onDisk() && csvish.length) askImport(csvish[0]);
       })
-      .catch(function (e) { toast('Could not attach: ' + (e && e.message || e), 'err', 7000); });
+      .catch(function (e) {
+        var msg = (e && e.message) || String(e);
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+          msg = 'the local server is not running. Start serve.py (the black window) and try again.';
+        }
+        toast('Could not attach: ' + msg, 'err', 10000);
+      });
   }
 
   function withBlob(id, fn) {

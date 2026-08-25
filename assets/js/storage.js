@@ -284,6 +284,15 @@
     }
   };
 
+  /* fetch() rejects with a TypeError when the connection itself failed --
+     the server stopped, the machine slept, the port changed. That is very
+     different from the server answering with an error, and it is the one
+     case where the right move is to stop trusting the earlier probe. */
+  function netFail(e) {
+    return !!e && (e instanceof TypeError ||
+      /failed to fetch|networkerror|load failed|connection/i.test(e.message || ''));
+  }
+
   /* ---- backend selection -------------------------------------------------- */
   function backend() {
     if (mode === 'session') return memApi;
@@ -374,7 +383,25 @@
       var rec = { id: uid(), dashboardId: dashboardId, name: file.name || 'untitled',
                   size: file.size || 0, type: file.type || '', addedAt: Date.now(),
                   updatedAt: Date.now(), headers: headers || [], blob: file };
-      return on(function () { return backend().put(rec); });
+      return on(function () {
+        var chosen = backend();
+        return chosen.put(rec).catch(function (e) {
+          // The probe decided once, at start-up, that the on-disk store was
+          // reachable and never reconsidered. Close the server window after
+          // that and every attach failed with a bare "Failed to fetch", and
+          // the file went nowhere at all. Keep it in the browser instead,
+          // and stop claiming the disk is available.
+          if (chosen !== httpApi || !netFail(e)) throw e;
+          httpOk = false;
+          probePromise = null;
+          var fallback = (idbOk === false) ? memApi : idb;
+          return fallback.put(rec).then(function (m) {
+            m = Object.assign({}, m);
+            m.keptInBrowser = true;      // the caller says so; losing it silently is the bug
+            return m;
+          });
+        });
+      });
     },
     list: function (d) { return on(function () { return backend().list(d); }).catch(function () { return []; }); },
     /* Every attached file, whichever section it went into. The auto-fill

@@ -214,6 +214,7 @@
       Object.keys(mem).forEach(function (k) { var r = mem[k]; acc[r.dashboardId] = (acc[r.dashboardId] || 0) + 1; });
       return Promise.resolve(acc);
     },
+    listAll: function () { return Promise.resolve(Object.keys(mem).map(function (k) { return meta(mem[k]); })); },
     put: function (rec) { mem[rec.id] = rec; return Promise.resolve(meta(rec)); },
     get: function (id) { return Promise.resolve(mem[id] || null); },
     del: function (id) { delete mem[id]; return Promise.resolve(); },
@@ -251,6 +252,7 @@
         return files.filter(function (r) { return r.dashboardId === d; }).map(meta);
       });
     },
+    listAll: function () { return libList().then(function (f) { return f.map(meta); }); },
     counts: function () {
       return libList().then(function (files) {
         var acc = Object.create(null);
@@ -375,6 +377,10 @@
       return on(function () { return backend().put(rec); });
     },
     list: function (d) { return on(function () { return backend().list(d); }).catch(function () { return []; }); },
+    /* Every attached file, whichever section it went into. The auto-fill
+       needs this: a register dropped into its own section is still a file
+       the dashboards should be offered. */
+    listAll: function () { return on(function () { return backend().listAll(); }).catch(function () { return []; }); },
     counts: function () { return on(function () { return backend().counts(); }).catch(function () { return {}; }); },
     blob: function (id) { return on(function () { return backend().get(id); }).then(function (r) { return r ? r.blob : null; }); },
     remove: function (id) { return on(function () { return backend().del(id); }); },

@@ -14,6 +14,7 @@
   var frames = framesByMode.local;    // id -> { el, loaded, openedAt }; points at the active mode's set
   var fileCounts = Object.create(null);
   var current = null;                 // active dashboard id, null = home
+  var DEV_CAT = '__dev';            // pseudo-category: everything not live yet
   var filter = { text: '', category: 'all' };
   var drawerFor = null;      // which dashboard the drawer is showing
   var drawerTab = 'library';  // 'library' (shared) or 'pinned' (this dashboard)
@@ -329,7 +330,8 @@
     var q = filter.text.trim().toLowerCase();
     return list.filter(function (x) {
       if (hidden.indexOf(x.id) >= 0) return false;
-      if (filter.category !== 'all' && x.category !== filter.category) return false;
+      if (filter.category === DEV_CAT) { if (x.status === 'live') return false; }
+      else if (filter.category !== 'all' && x.category !== filter.category) return false;
       if (!q) return true;
       return (x.name + ' ' + x.categoryName + ' ' + x.description + ' ' + x.tags.join(' ') + ' ' + x.owner)
         .toLowerCase().indexOf(q) >= 0;
@@ -370,8 +372,16 @@
       counts[x.category] = (counts[x.category] || 0) + 1;
     });
     var total = Object.keys(counts).reduce(function (n, k) { return n + counts[k]; }, 0);
+    var building = REG.dashboards.filter(function (x) {
+      return x.status !== 'live' && hidden.indexOf(x.id) < 0;
+    }).length;
     var html = '<button class="chip" data-cat="all" aria-pressed="' + (filter.category === 'all') + '">' +
       ico('layers', 'sm') + 'All<span class="n">' + total + '</span></button>';
+    if (building) {
+      html += '<button class="chip dev" data-cat="' + DEV_CAT + '" aria-pressed="' +
+        (filter.category === DEV_CAT) + '">' + ico('bolt', 'sm') + 'In development' +
+        '<span class="n">' + building + '</span></button>';
+    }
     html += REG.categories.filter(function (c) { return counts[c.id]; }).map(function (c) {
       return '<button class="chip" data-cat="' + esc(c.id) + '" aria-pressed="' + (filter.category === c.id) + '">' +
         '<span class="dot" style="background:' + esc(c.accent) + '"></span>' + esc(c.name) +
@@ -1306,8 +1316,17 @@
   }
 
   /* ---- shared Data Library ---------------------------------------------- */
+  /* Everything a dashboard could be offered: the shared library plus every
+     section. A register dropped into its own section is still a file the
+     dashboards want -- before this it was invisible to the auto-fill, so a
+     COGS export filed under COGS had to be picked by hand. Files pinned to
+     one dashboard stay out of it; those are deliberately private to it. */
   function libraryFiles() {
-    return w.Store.Files.list(w.Library.ID);
+    return w.Store.Files.listAll().then(function (rows) {
+      return rows.filter(function (r) {
+        return r.dashboardId === w.Library.ID || /^ds:/.test(r.dashboardId || '');
+      });
+    });
   }
 
   /* Which library files suit the dashboard that is open right now. */

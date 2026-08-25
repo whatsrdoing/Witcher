@@ -805,3 +805,8 @@ a{color:var(--brand-soft); text-decoration:none;}
 #importModal .gate-field input{height:44px;}
 #importModal .gate-msg{margin:10px 0 6px;}
 .import-guess{margin:0 0 16px; font-size:12px; color:var(--ink-3); font-style:italic; line-height:1.5;}
+
+/* The "in development" filter sits with the categories but is not one --
+   it cuts across them, so it is marked out rather than tinted like a card. */
+.chip.dev{border-style:dashed;}
+.chip.dev[aria-pressed="true"]{border-style:solid;}

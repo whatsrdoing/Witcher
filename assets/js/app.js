@@ -1014,14 +1014,23 @@
     }).then(function (out) {
       var name = meta.name.replace(/\.[^.]+$/, '') + ' (condensed).csv';
       var file = new File([out.blob], name, { type: 'text/csv' });
+      // Filed into whatever section is currently open, not always the
+      // generic library. Condensing a file while looking at a specific
+      // section (COGS -- IP Pharmacy, say) and having the result land
+      // somewhere else meant it was invisible right where it was made --
+      // ALL_FILES is the "show everything, don't file into it" marker, so
+      // that alone falls back to the real generic scope.
+      var fileScope = (drawerScope() === ALL_FILES) ? w.Library.ID : drawerScope();
       return w.Library.sniff(file).then(function (headers) {
-        return w.Store.Files.add(w.Library.ID, file, headers);
+        return w.Store.Files.add(fileScope, file, headers);
       }).then(function () {
         $('#condRun').classList.remove('working');
         $('#condRun').disabled = false;
         closeCondense();
+        invalidateFiles();
         return refreshCounts().then(function () {
           renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
+          renderSectionPicker(); renderSectionMonths();
           toast(out.rowsIn.toLocaleString() + ' rows became ' + out.rowsOut.toLocaleString() +
             ' — ' + fmtSize(meta.size) + ' down to ' + fmtSize(out.blob.size) +
             '. Totals are unchanged.', 'ok', 9000);
@@ -1710,15 +1719,36 @@
       .catch(function () { return null; });
   }
 
-  /* Puts a file in an upload box, directly or by message. */
+  /* Puts a file in an upload box, directly or by message.
+
+     slot.el is a DOM node that lives in the dashboard iframe's document, but
+     this code runs in the shell's. Each frame has its own realm -- its own
+     File, DataTransfer and Event constructors -- and instanceof is identity-
+     based, not structural: a File built with THIS window's constructor
+     still has every property and method a real file has (.name, .size,
+     .arrayBuffer(), .text() all work) but fails "x instanceof File" when
+     that check runs inside the iframe. Most dashboards never ask; Papa
+     Parse's own parser does, as the very first thing it does with whatever
+     it is handed -- and coming up empty there is what produced "Cannot read
+     properties of null (reading 'stream')": Papa's dispatcher matches
+     neither the File branch nor the stream branch, so the variable it was
+     about to call .stream() on was never assigned.
+
+     The fix is the standard one for this class of bug: build the object
+     with the TARGET realm's own constructors, taken from the iframe's own
+     window, not the shell's. */
   function fillInput(slot, blob, name, type) {
     if (slot.el) {
-      var file = new File([blob], name, { type: type || blob.type || 'application/octet-stream' });
-      var dt = new DataTransfer();
+      var iframeWin = slot.el.ownerDocument && slot.el.ownerDocument.defaultView;
+      var FileCtor = (iframeWin && iframeWin.File) || File;
+      var DTCtor = (iframeWin && iframeWin.DataTransfer) || DataTransfer;
+      var EventCtor = (iframeWin && iframeWin.Event) || Event;
+      var file = new FileCtor([blob], name, { type: type || blob.type || 'application/octet-stream' });
+      var dt = new DTCtor();
       dt.items.add(file);
       slot.el.files = dt.files;
-      slot.el.dispatchEvent(new Event('input', { bubbles: true }));
-      slot.el.dispatchEvent(new Event('change', { bubbles: true }));
+      slot.el.dispatchEvent(new EventCtor('input', { bubbles: true }));
+      slot.el.dispatchEvent(new EventCtor('change', { bubbles: true }));
       return Promise.resolve();
     }
     return ask(slot.dashId, { action: 'fill', index: slot.index, blob: blob, name: name, type: type }, 15000)

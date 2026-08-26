@@ -176,9 +176,9 @@ header{
 .chart-box{border:1px solid var(--glass-border-soft);border-radius:14px;padding:17px;background:rgba(255,255,255,.025);margin-bottom:18px;}
 .chart-box h3{margin:0 0 10px;font-size:12.5px;color:#fff;font-weight:700;letter-spacing:.2px;}
 .chart-hint{margin:-4px 0 12px;font-size:11px;color:var(--text-dim);}
-.chart-box canvas{max-height:300px;}
+.chart-box canvas{max-height:320px;}
 .scroll-chart-wrap{overflow-x:auto;border-radius:10px;padding-bottom:6px;}
-.scroll-chart-inner{height:300px;}
+.scroll-chart-inner{height:320px;}
 
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:480px;margin-top:14px;border:1px solid var(--glass-border-soft);border-radius:14px;}
 table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:600px;}
@@ -258,12 +258,12 @@ footer b{color:var(--text-muted);}
   <!-- UPLOAD PANEL -->
   <div class="upload-panel glass" id="uploadPanel">
     <h2>Step 1 — Upload Your Files</h2>
-    <p class="hint">The GRN Register auto-fills from the Data Library. Purchase Register and COGS are used to cross-check each local purchase against POs and patient consumption. <b style="color:#fff;">.xlsx, .xls or .csv are all accepted</b> for every field. Everything is read and processed locally in your browser; nothing is uploaded anywhere.</p>
+    <p class="hint">The GRN Register auto-fills from the Data Library. The Purchase Register is used to cross-check each local purchase against POs for the same item. <b style="color:#fff;">.xlsx, .xls or .csv are all accepted</b> for every field. Everything is read and processed locally in your browser; nothing is uploaded anywhere.</p>
 
     <div class="upload-grid">
       <div class="upload-card" id="card-grn">
         <label>GRN Register</label>
-        <span class="col-hint">Needs: UNIT, GRN No., GRN Date, Item Code, Item Name, PO No., Supplier Name, Received Qty., EPR, MRP, Total Value</span>
+        <span class="col-hint">Needs: UNIT, GRN No., GRN Date, Item Code, Item Name, PO No., Supplier Name, Received Qty., EPR &middot; Expiry Date is optional (used for the shelf-life breakdown)</span>
         <input type="file" id="file-grn" accept=".xlsx,.xls,.csv">
         <div class="upload-status" id="status-grn">Not loaded</div>
       </div>
@@ -273,18 +273,12 @@ footer b{color:var(--text-muted);}
         <input type="file" id="file-po" accept=".xlsx,.xls,.csv">
         <div class="upload-status" id="status-po">Not loaded</div>
       </div>
-      <div class="upload-card" id="card-cogs">
-        <label>COGS</label>
-        <span class="col-hint">Needs: UNIT, Item Id, Qty · used to check whether a locally purchased item was later issued to a patient</span>
-        <input type="file" id="file-cogs" accept=".xlsx,.xls,.csv">
-        <div class="upload-status" id="status-cogs">Not loaded</div>
-      </div>
     </div>
 
     <div class="action-row">
       <button id="buildBtn" disabled>Build Dashboard</button>
       <button id="resetBtn" style="display:none;">Upload Different Files</button>
-      <span class="build-note" id="buildNote">Load all 3 files to enable this button.</span>
+      <span class="build-note" id="buildNote">Load both files to enable this button.</span>
     </div>
   </div>
 
@@ -299,28 +293,50 @@ footer b{color:var(--text-muted);}
         <h2>Local Purchases — By Unit</h2>
         <span class="section-tag">GRN Register</span>
       </div>
-      <p class="section-desc">How many local purchases were made in each unit. Local purchase = the GRN's vendor is <b>Cash Purchase</b>, or the GRN has <b>no PO No.</b>, or the vendor is <b>Local Purchase</b>.</p>
+      <p class="section-desc">How many local purchases were made in each unit. Local purchase = the GRN's vendor is <b>Cash Purchase</b>, or the GRN has <b>no PO No.</b>, or the vendor is <b>Local Purchase</b>. Each bar is split into its items — hover a segment for the item name and its EPR value. The largest items are shown individually; the rest are grouped as <b>Other Items</b>.</p>
       <div class="action-row" style="margin-bottom:10px;">
         <div class="metric-toggle" id="unitMetricToggle">
-          <button data-metric="count" class="active">GRN Count</button>
-          <button data-metric="value">Total Value</button>
+          <button data-metric="count" class="active">GRN Made</button>
+          <button data-metric="qty">Item Procured (Qty)</button>
+          <button data-metric="value">EPR Value</button>
         </div>
       </div>
       <div class="chart-box">
         <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="unitChartInner"><canvas id="chartByUnit"></canvas></div></div>
       </div>
+      <div class="chart-box">
+        <h3>Top Items Procured Locally</h3>
+        <p class="chart-hint">The highest-procured items across the selected units. Each bar is split by unit — hover a segment for the unit name and its EPR value.</p>
+        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="topItemsChartInner"><canvas id="chartTopItems"></canvas></div></div>
+      </div>
+    </div>
+
+    <!-- SHELF LIFE AT PURCHASE -->
+    <div class="section glass">
+      <div class="section-head">
+        <h2>Shelf Life At Purchase</h2>
+        <span class="section-tag">GRN Date vs Expiry Date</span>
+      </div>
+      <p class="section-desc">For every locally purchased item, the gap between its <b>GRN Date</b> and its <b>Expiry Date</b> — how much shelf life it had left when it was bought.</p>
+      <div class="chart-box">
+        <div id="shelfEmptyState" class="empty-state" style="display:none;">No Expiry Date column was found in the GRN Register — upload a GRN Register that includes an Expiry Date column to see this breakdown.</div>
+        <div id="shelfChartHolder">
+          <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="shelfChartInner"><canvas id="chartShelf"></canvas></div></div>
+        </div>
+      </div>
+      <div class="table-wrap" id="shelfTableWrap"><table id="tblShelf"></table></div>
     </div>
 
     <!-- APPROVAL SLABS -->
     <div class="section glass">
       <div class="section-head">
         <h2>Approval Slabs (SOP Tiers)</h2>
-        <span class="section-tag">GRN value</span>
+        <span class="section-tag">GRN EPR value</span>
       </div>
-      <p class="section-desc">Every local purchase GRN, classified by its total value: <b>below ₹5,000</b> needs Unit SCM Head approval, <b>₹5,000–₹9,999</b> needs Corporate SCM Head approval, <b>₹10,000 and above</b> needs Group COO approval.</p>
+      <p class="section-desc">Every local purchase GRN, classified by its total <b>EPR value</b>: <b>below ₹5,000</b> needs Unit SCM Head approval, <b>₹5,000–₹9,999</b> needs Corporate SCM Head approval, <b>₹10,000 and above</b> needs Group COO approval.</p>
       <div class="slab-grid" id="slabGrid"></div>
       <div class="chart-box">
-        <h3>Local Purchase GRNs — Value, Highest to Lowest</h3>
+        <h3>Local Purchase GRNs — EPR Value, Highest to Lowest</h3>
         <p class="chart-hint">Colored by approval tier. Scroll for more.</p>
         <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="slabChartInner"><canvas id="chartSlabs"></canvas></div></div>
       </div>
@@ -346,19 +362,13 @@ footer b{color:var(--text-muted);}
         <span class="section-tag">Before / After</span>
       </div>
       <p class="section-desc">For every local purchase line, the nearest PO for the <b>same item</b> and <b>same unit</b> in the Purchase Register — raised before it, after it, both, or none at all. e.g. if Dolo was bought locally today, this shows whether a PO for Dolo existed before or after that date.</p>
+      <div class="chart-box">
+        <h3>Local Purchases vs PO Timing — Every Day Present</h3>
+        <p class="chart-hint">One bar per day a local purchase happened, split by whether a PO for that item was found before, after, both, or not at all.</p>
+        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="poChartInner"><canvas id="chartPO"></canvas></div></div>
+      </div>
       <div class="table-search"><input type="text" class="search-input" id="searchPO" placeholder="Search item code, name, GRN No.…"></div>
       <div class="table-wrap"><table id="tblPO"></table></div>
-    </div>
-
-    <!-- COGS CONSUMPTION CROSS-CHECK -->
-    <div class="section glass">
-      <div class="section-head">
-        <h2>Consumption Cross-Check — COGS</h2>
-        <span class="section-tag">Issued to patient?</span>
-      </div>
-      <p class="section-desc">Was each locally purchased item actually issued to / consumed by a patient (per COGS), or does it show no matching consumption for that unit?</p>
-      <div class="table-search"><input type="text" class="search-input" id="searchCogs" placeholder="Search item code or name…"></div>
-      <div class="table-wrap"><table id="tblCogs"></table></div>
     </div>
 
     <!-- REPEAT LOCAL PURCHASES -->
@@ -368,6 +378,15 @@ footer b{color:var(--text-muted);}
         <span class="section-tag">Same item, more than once</span>
       </div>
       <p class="section-desc">Items that were purchased locally more than once — a recurring local-purchase pattern that usually belongs on a regular PO instead.</p>
+      <div class="action-row" style="margin-bottom:10px;">
+        <div class="metric-toggle" id="repeatModeToggle">
+          <button data-mode="item" class="active">Item Wise</button>
+          <button data-mode="unit" >Unit Wise</button>
+        </div>
+      </div>
+      <div class="chart-box">
+        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="repeatChartInner"><canvas id="chartRepeat"></canvas></div></div>
+      </div>
       <div class="table-search"><input type="text" class="search-input" id="searchRepeat" placeholder="Search item code or name…"></div>
       <div class="table-wrap"><table id="tblRepeat"></table></div>
     </div>
@@ -376,9 +395,9 @@ footer b{color:var(--text-muted);}
     <div class="section glass">
       <div class="section-head">
         <h2>Local Purchase vs Total Procurement — By Unit</h2>
-        <span class="section-tag">GRN Register</span>
+        <span class="section-tag">GRN Register · EPR value</span>
       </div>
-      <p class="section-desc">Local purchase value against the unit's total procurement value (every GRN, local and non-local).</p>
+      <p class="section-desc">Local purchase EPR value against the unit's total procurement EPR value (every GRN, local and non-local).</p>
       <div class="chart-box">
         <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="cmpChartInner"><canvas id="chartCompare"></canvas></div></div>
       </div>
@@ -397,16 +416,14 @@ footer b{color:var(--text-muted);}
    same array-of-row-objects shape before anything else runs)
    ============================================================ */
 const REQUIRED_COLUMNS = {
-  grn:  ['UNIT','GRN No.','GRN Date','Item Code','Item Name','PO No.','Supplier Name','Received Qty.','Total Value'],
-  po:   ['UNIT','PO No','PO Date','Item Code','Status'],
-  cogs: ['UNIT','Item Id','Qty']
+  grn:  ['UNIT','GRN No.','GRN Date','Item Code','Item Name','PO No.','Supplier Name','Received Qty.','EPR'],
+  po:   ['UNIT','PO No','PO Date','Item Code','Status']
 };
 const CANONICAL_COLUMNS = {
-  grn:  ['UNIT','GRN No.','GRN Date','Item Code','Item Name','Item Category','PO No.','Supplier Name','Received Qty.','EPR','MRP','Total Value','Store'],
-  po:   ['UNIT','PO No','PO Date','Item Code','Status','Supplier Name','PO Amount','PO Qty.','Store Name'],
-  cogs: ['UNIT','Item Id','Qty','Item Name','Ispackage','Total EPR','Total MRP']
+  grn:  ['UNIT','GRN No.','GRN Date','Item Code','Item Name','Item Category','PO No.','Supplier Name','Received Qty.','EPR','MRP','Expiry Date','Store'],
+  po:   ['UNIT','PO No','PO Date','Item Code','Status','Supplier Name','PO Amount','PO Qty.','Store Name']
 };
-let loaded = {grn:null, po:null, cogs:null};
+let loaded = {grn:null, po:null};
 
 function excelDateToDisplayString(d){
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -464,8 +481,8 @@ function checkAllLoaded(){
   const allLoaded = Object.values(loaded).every(v => v !== null);
   document.getElementById('buildBtn').disabled = !allLoaded;
   document.getElementById('buildNote').textContent = allLoaded
-    ? 'All files loaded — click Build Dashboard.'
-    : 'Load all 3 files to enable this button.';
+    ? 'Both files loaded — click Build Dashboard.'
+    : 'Load both files to enable this button.';
 }
 function handleParsedRows(key, rows, fileLabel){
   try{
@@ -550,14 +567,14 @@ function parseAnyFile(file, key){
     loaded[key] = null; checkAllLoaded();
   }
 }
-['grn','po','cogs'].forEach(key => {
+['grn','po'].forEach(key => {
   document.getElementById('file-' + key).addEventListener('change', e => {
     if(e.target.files[0]) parseAnyFile(e.target.files[0], key);
   });
 });
 document.getElementById('resetBtn').addEventListener('click', () => {
   Object.keys(loaded).forEach(k => loaded[k] = null);
-  ['grn','po','cogs'].forEach(k => {
+  ['grn','po'].forEach(k => {
     document.getElementById('file-' + k).value = '';
     document.getElementById('card-' + k).classList.remove('loaded','error');
     document.getElementById('status-' + k).textContent = 'Not loaded';
@@ -636,6 +653,12 @@ function escapeHtml(v){
   if(v === null || v === undefined) return '';
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
+function joinItems(itemSet){
+  const arr = Array.from(itemSet);
+  if(arr.length === 0) return '—';
+  if(arr.length <= 2) return arr.map(escapeHtml).join(', ');
+  return escapeHtml(arr[0])+', '+escapeHtml(arr[1])+' +'+(arr.length-2)+' more';
+}
 
 /* ============================================================
    LOCAL PURCHASE CLASSIFICATION
@@ -653,6 +676,8 @@ function localPurchaseReason(poNo, supplierName){
   if(s.includes('LOCAL PURCHASE')) return 'Local Purchase';
   return 'No PO Found';
 }
+// Approval tiers are based on the GRN's EPR value, not "Total Value" -- EPR is the
+// canonical monetary figure used everywhere on this dashboard until told otherwise.
 function sopTier(v){
   if(v < 5000) return {key:'t1', label:'Below ₹5,000 — Unit SCM Head', color:'#34d399'};
   if(v < 10000) return {key:'t2', label:'₹5,000 – ₹9,999 — Corporate SCM Head', color:'#fbbf24'};
@@ -660,12 +685,42 @@ function sopTier(v){
 }
 
 /* ============================================================
+   SHELF LIFE BUCKETS (GRN Date -> Expiry Date)
+   ============================================================ */
+const SHELF_BUCKETS = [
+  {key:'expired', label:'Already Expired At Purchase', color:'#f43f5e', test:d=>d<0},
+  {key:'same',    label:'Same Date',                   color:'#FB7185', test:d=>d===0},
+  {key:'m1',      label:'Up To 1 Month',                color:'#f97316', test:d=>d>0&&d<=30},
+  {key:'m2',      label:'Up To 2 Months',                color:'#FBBF24', test:d=>d>30&&d<=60},
+  {key:'m3',      label:'Up To 3 Months',                color:'#eab308', test:d=>d>60&&d<=90},
+  {key:'m6',      label:'Up To 6 Months',                color:'#a3e635', test:d=>d>90&&d<=180},
+  {key:'y1',      label:'Up To 1 Year',                  color:'#34D399', test:d=>d>180&&d<=365},
+  {key:'y2',      label:'Up To 2 Years',                 color:'#2DD4BF', test:d=>d>365&&d<=730},
+  {key:'y34',     label:'3–4 Years',                     color:'#5B8DEF', test:d=>d>730&&d<=1460},
+  {key:'y4p',     label:'More Than 4 Years',              color:'#A78BFA', test:d=>d>1460},
+];
+function shelfBucketFor(days){
+  return SHELF_BUCKETS.find(b=>b.test(days)) || SHELF_BUCKETS[SHELF_BUCKETS.length-1];
+}
+
+/* ============================================================
    PROCESSING
    ============================================================ */
-const PALETTE = ['#5B8DEF','#2DD4BF','#FBBF24','#FB7185','#A78BFA','#34D399','#e0793f','#5a90c9'];
-let RAW = null;      // { grnLines, grnAgg, poGroups, cogsMap }
+const PALETTE = ['#5B8DEF','#2DD4BF','#FBBF24','#FB7185','#A78BFA','#34D399','#e0793f','#5a90c9','#f43f5e','#84cc16','#06b6d4','#f472b6'];
+let RAW = null;      // { grnLines, grnAgg, poGroups }
 let allUnits = [];
 let selectedUnits = [];
+// Consistent color per unit across every chart -- based on the unit's position in allUnits.
+function unitColor(u){
+  const idx = allUnits.indexOf(u);
+  return PALETTE[(idx>=0?idx:0) % PALETTE.length];
+}
+function metricValue(rec){ return unitMetric==='value' ? rec.epr : unitMetric==='qty' ? rec.qty : rec.count; }
+function metricLabelPart(val){
+  if(unitMetric==='value') return fmtINR(val);
+  if(unitMetric==='qty') return val+' qty';
+  return val+' GRN'+(val===1?'':'s');
+}
 
 function processGRN(rows){
   const lines = [];
@@ -682,18 +737,23 @@ function processGRN(rows){
     const qty = cleanNum(get(r,['Received Qty.','Received Qty']));
     const epr = cleanNum(get(r,['EPR']));
     const mrp = cleanNum(get(r,['MRP']));
-    const value = cleanNum(get(r,['Total Value']));
+    // EPR is the canonical monetary figure this dashboard uses everywhere -- KPIs, approval
+    // slabs, the by-unit and compare charts, the PO cross-check -- until asked to use something else.
+    const value = epr;
     const dateRaw = get(r,['GRN Date']);
     const dt = parseAnyDate(dateRaw);
+    const expiryRaw = get(r,['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date']);
+    const expiryDt = parseAnyDate(expiryRaw);
     const local = isLocalPurchase(poNo, supplier);
     const reason = local ? localPurchaseReason(poNo, supplier) : '';
     const key = unit+'||'+grnNo;
 
-    lines.push({grnNo, unit, poNo, supplier, itemCode, itemName, itemCategory, qty, epr, mrp, value, date:dateRaw, dt, isLocal:local, reason});
+    lines.push({grnNo, unit, poNo, supplier, itemCode, itemName, itemCategory, qty, epr, mrp, value, date:dateRaw, dt, expiryDt, isLocal:local, reason});
 
-    if(!aggMap.has(key)) aggMap.set(key, {grnNo, unit, poNo, supplier, date:dateRaw, dt, isLocal:local, reason, totalValue:0, totalQty:0, lineCount:0});
+    if(!aggMap.has(key)) aggMap.set(key, {grnNo, unit, poNo, supplier, date:dateRaw, dt, isLocal:local, reason, totalValue:0, totalQty:0, lineCount:0, items:new Set()});
     const agg = aggMap.get(key);
     agg.totalValue += value; agg.totalQty += qty; agg.lineCount++;
+    agg.items.add(itemName);
   }
   return { lines, grns: Array.from(aggMap.values()) };
 }
@@ -722,22 +782,6 @@ function buildPoGroups(poList){
   for(const arr of map.values()) arr.sort((a,b)=>a.dt-b.dt);
   return map;
 }
-function processCOGS(rows){
-  const map = new Map();
-  for(const r of rows){
-    const unit = String(get(r,['UNIT','Unit'])||'').trim() || 'DEFAULT';
-    const itemId = String(get(r,['Item Id','ItemId','Item Code'])||'').trim();
-    if(!itemId) continue;
-    const qty = cleanNum(get(r,['Qty']));
-    const itemName = String(get(r,['Item Name'])||'').trim();
-    const key = unit+'||'+itemId;
-    if(!map.has(key)) map.set(key, {qty:0, itemName});
-    const rec = map.get(key);
-    rec.qty += qty;
-    if(!rec.itemName && itemName) rec.itemName = itemName;
-  }
-  return map;
-}
 // Last PO with dt <= target (a PO raised before, or on, the GRN date)
 function lastBeforeOrOn(arr, dt){
   if(!arr) return null;
@@ -757,7 +801,7 @@ function firstAfter(arr, dt){
    BUILD BUTTON
    ============================================================ */
 document.getElementById('buildBtn').addEventListener('click', () => {
-  if(!loaded.grn || !loaded.po || !loaded.cogs){
+  if(!loaded.grn || !loaded.po){
     alert('One or more files did not load correctly. Please check the red status messages above and re-upload those files.');
     return;
   }
@@ -772,8 +816,7 @@ document.getElementById('buildBtn').addEventListener('click', () => {
       RAW = {
         grnLines: g.lines,
         grnAgg: g.grns,
-        poGroups: buildPoGroups(poList),
-        cogsMap: processCOGS(loaded.cogs)
+        poGroups: buildPoGroups(poList)
       };
       const unitSet = new Set();
       g.grns.forEach(x=>unitSet.add(x.unit));
@@ -856,7 +899,8 @@ function buildUnitPills(units){
 let charts = {};
 function killChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
 let unitMetric = 'count';
-let itemSort = {key:'value', dir:'desc'};
+let itemSort = {key:'epr', dir:'desc'};
+let repeatMode = 'item';
 
 function render(units){
   if(!RAW) return;
@@ -866,51 +910,73 @@ function render(units){
   const localGrnAgg = unitGrnAgg.filter(g => g.isLocal);
   const localLines = RAW.grnLines.filter(l => l.isLocal && selSet.has(l.unit));
 
-  const itemAgg = buildItemAgg(localLines, RAW.cogsMap);
+  const itemAgg = buildItemAgg(localLines);
+  const unitItemAgg = buildUnitItemAgg(localLines);
   const crossCheck = buildCrossCheck(localLines, RAW.poGroups);
+  const shelfAgg = buildShelfLifeAgg(localLines);
 
   renderKPIs(localGrnAgg, unitGrnAgg, itemAgg);
-  renderUnitChart(units, RAW.grnAgg);
+  renderUnitChart(units, unitItemAgg);
+  renderTopItemsChart(units, unitItemAgg);
+  renderShelfLife(shelfAgg, localLines);
   renderSlabs(localGrnAgg);
   renderItemTable(itemAgg);
   renderCrossCheckTable(crossCheck);
-  renderConsumptionTable(itemAgg);
+  renderPOChart(crossCheck);
   renderRepeatTable(itemAgg);
+  renderRepeatChart(itemAgg, unitItemAgg);
   renderCompare(units, RAW.grnAgg);
 
   document.getElementById('unitMetricToggle').querySelectorAll('button').forEach(b=>{
     b.onclick = () => {
       unitMetric = b.getAttribute('data-metric');
       document.getElementById('unitMetricToggle').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
-      renderUnitChart(selectedUnits, RAW.grnAgg);
+      renderUnitChart(selectedUnits, unitItemAgg);
+      renderTopItemsChart(selectedUnits, unitItemAgg);
+    };
+  });
+  document.getElementById('repeatModeToggle').querySelectorAll('button').forEach(b=>{
+    b.onclick = () => {
+      repeatMode = b.getAttribute('data-mode');
+      document.getElementById('repeatModeToggle').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
+      renderRepeatChart(itemAgg, unitItemAgg);
     };
   });
 }
 
-function buildItemAgg(localLines, cogsMap){
+// Item-level aggregation across whichever units are selected -- Item Ranking, Repeat Local
+// Purchases and the "By Item" repeat chart all read from this.
+function buildItemAgg(localLines){
   const map = new Map();
   for(const l of localLines){
     const key = l.itemCode || ('NAME::'+l.itemName);
-    if(!map.has(key)) map.set(key, {itemCode:l.itemCode, itemName:l.itemName, units:new Set(), grnSet:new Set(), qty:0, epr:0, mrp:0, value:0});
+    if(!map.has(key)) map.set(key, {itemCode:l.itemCode, itemName:l.itemName, units:new Set(), grnSet:new Set(), qty:0, epr:0, mrp:0});
     const a = map.get(key);
     a.units.add(l.unit);
     a.grnSet.add(l.unit+'||'+l.grnNo);
-    a.qty += l.qty; a.epr += l.epr; a.mrp += l.mrp; a.value += l.value;
+    a.qty += l.qty; a.epr += l.epr; a.mrp += l.mrp;
   }
-  return Array.from(map.values()).map(a=>{
-    let consumedQty = 0;
-    a.units.forEach(u=>{
-      const rec = cogsMap.get(u+'||'+a.itemCode);
-      if(rec) consumedQty += rec.qty;
-    });
-    return {
-      itemCode: a.itemCode, itemName: a.itemName,
-      units: Array.from(a.units).sort(),
-      qty: a.qty, epr: Math.round(a.epr*100)/100, mrp: Math.round(a.mrp*100)/100, value: Math.round(a.value*100)/100,
-      grnCount: a.grnSet.size,
-      consumedQty: Math.round(consumedQty*100)/100
-    };
-  });
+  return Array.from(map.values()).map(a=>({
+    itemCode: a.itemCode, itemName: a.itemName,
+    units: Array.from(a.units).sort(),
+    qty: a.qty, epr: Math.round(a.epr*100)/100, mrp: Math.round(a.mrp*100)/100,
+    grnCount: a.grnSet.size
+  }));
+}
+// Same aggregation, but scoped to (unit, item) -- feeds the stacked "By Unit" chart and the
+// "Unit Wise" repeat-purchase view, where a repeat only counts if it happened within one unit.
+function buildUnitItemAgg(localLines){
+  const map = new Map();
+  for(const l of localLines){
+    const key = l.unit+'||'+(l.itemCode||('NAME::'+l.itemName));
+    if(!map.has(key)) map.set(key, {unit:l.unit, itemCode:l.itemCode, itemName:l.itemName, grnSet:new Set(), epr:0, qty:0});
+    const a = map.get(key);
+    a.grnSet.add(l.grnNo); a.epr += l.epr; a.qty += l.qty;
+  }
+  return Array.from(map.values()).map(a=>({
+    unit:a.unit, itemCode:a.itemCode, itemName:a.itemName,
+    epr: Math.round(a.epr*100)/100, qty:a.qty, grnCount:a.grnSet.size
+  }));
 }
 // One row per (unit, GRN, item) local-purchase line — the actual purchase instances the PO cross-check runs against.
 function buildCrossCheck(localLines, poGroups){
@@ -940,6 +1006,20 @@ function buildCrossCheck(localLines, poGroups){
     };
   }).sort((a,b)=> b.dt - a.dt);
 }
+// Count of locally purchased item-lines per shelf-life bucket (GRN Date -> Expiry Date).
+function buildShelfLifeAgg(localLines){
+  const byKey = new Map(SHELF_BUCKETS.map(b=>[b.key, {...b, count:0, epr:0}]));
+  let usable = 0;
+  for(const l of localLines){
+    if(!l.dt || !l.expiryDt) continue;
+    usable++;
+    const days = daysBetween(l.dt, l.expiryDt);
+    const b = shelfBucketFor(days);
+    const rec = byKey.get(b.key);
+    rec.count++; rec.epr += l.epr;
+  }
+  return { buckets: SHELF_BUCKETS.map(b=>byKey.get(b.key)), usable };
+}
 
 /* ---------- KPIs ---------- */
 function renderKPIs(localGrnAgg, unitGrnAgg, itemAgg){
@@ -947,54 +1027,207 @@ function renderKPIs(localGrnAgg, unitGrnAgg, itemAgg){
   const totalProcValue = unitGrnAgg.reduce((s,g)=>s+g.totalValue,0);
   const uniqueItems = itemAgg.length;
   const repeatItems = itemAgg.filter(i=>i.grnCount>1).length;
-  const consumedItems = itemAgg.filter(i=>i.consumedQty>0).length;
-  const pctConsumed = uniqueItems ? (consumedItems/uniqueItems*100) : 0;
   const pctOfTotal = totalProcValue ? (totalLocalValue/totalProcValue*100) : 0;
   const avgGrnValue = localGrnAgg.length ? totalLocalValue/localGrnAgg.length : 0;
 
   const cards = [
     {cls:'', label:'Total Local Purchase GRNs', value: localGrnAgg.length.toLocaleString('en-IN'), note:'GRNs classified as local purchase'},
-    {cls:'alt', label:'Total Local Purchase Value', value: fmtINR(totalLocalValue), note: fmtINR(avgGrnValue)+' avg. per GRN'},
+    {cls:'alt', label:'Total Local Purchase Value (EPR)', value: fmtINR(totalLocalValue), note: fmtINR(avgGrnValue)+' avg. per GRN'},
     {cls:'', label:'Unique Items', value: uniqueItems.toLocaleString('en-IN'), note:'distinct items bought locally'},
     {cls:'warn', label:'Items Bought Locally >1×', value: repeatItems.toLocaleString('en-IN'), note:'recurring local-purchase pattern'},
-    {cls:'violet', label:'Issued To Patient (COGS)', value: pctConsumed.toFixed(0)+'%', note: consumedItems+' of '+uniqueItems+' items consumed'},
-    {cls:'', label:'Local % Of Total Procurement', value: pctOfTotal.toFixed(1)+'%', note: fmtINR(totalProcValue)+' total procurement value'}
+    {cls:'', label:'Local % Of Total Procurement (EPR)', value: pctOfTotal.toFixed(1)+'%', note: fmtINR(totalProcValue)+' total procurement value'}
   ];
   document.getElementById('kpiGrid').innerHTML = cards.map(c=>
     `<div class="kpi-card glass ${c.cls}"><div class="kpi-label">${c.label}</div><div class="kpi-value">${c.value}</div><div class="kpi-note">${c.note}</div></div>`
   ).join('');
 }
 
-/* ---------- By-unit chart ---------- */
-function renderUnitChart(units, grnAggAll){
-  const rows = grnAggAll.filter(g=>g.isLocal && units.includes(g.unit));
-  const perUnit = {};
-  units.forEach(u=>perUnit[u]={count:0,value:0});
-  rows.forEach(g=>{ perUnit[g.unit].count++; perUnit[g.unit].value+=g.totalValue; });
-  const sorted = units.slice().sort((a,b)=> perUnit[b][unitMetric]-perUnit[a][unitMetric]);
-  const labels = sorted;
-  const data = sorted.map(u=> unitMetric==='value' ? Math.round(perUnit[u].value) : perUnit[u].count);
-  const colors = sorted.map((u,i)=>PALETTE[i%PALETTE.length]);
+/* ---------- By-unit chart: stacked by item, colored, EPR in the tooltip ---------- */
+const BY_UNIT_TOP_N = 12;
+function renderUnitChart(units, unitItemAgg){
+  const rows = unitItemAgg.filter(a=>units.includes(a.unit));
+
+  const itemTotals = new Map(); // itemCode||itemName -> total epr across selected units
+  const itemNameByKey = {};
+  rows.forEach(a=>{
+    const k = a.itemCode || ('NAME::'+a.itemName);
+    itemTotals.set(k, (itemTotals.get(k)||0) + a.epr);
+    if(!itemNameByKey[k]) itemNameByKey[k] = a.itemName;
+  });
+  const topItems = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).slice(0, BY_UNIT_TOP_N).map(e=>e[0]);
+  const topSet = new Set(topItems);
+  const seriesKeys = [...topItems, '__other__'];
+  itemNameByKey['__other__'] = 'Other Items';
+
+  // unit -> seriesKey -> {count, qty, epr}
+  const byUnitKey = new Map();
+  rows.forEach(a=>{
+    const rawKey = a.itemCode || ('NAME::'+a.itemName);
+    const k = topSet.has(rawKey) ? rawKey : '__other__';
+    if(!byUnitKey.has(a.unit)) byUnitKey.set(a.unit, new Map());
+    const m = byUnitKey.get(a.unit);
+    if(!m.has(k)) m.set(k, {count:0, qty:0, epr:0});
+    const rec = m.get(k);
+    rec.count += a.grnCount; rec.qty += a.qty; rec.epr += a.epr;
+  });
+
+  const sortedUnits = units.slice().sort((a,b)=>{
+    const ta = Array.from((byUnitKey.get(a)||new Map()).values()).reduce((s,x)=>s+metricValue(x),0);
+    const tb = Array.from((byUnitKey.get(b)||new Map()).values()).reduce((s,x)=>s+metricValue(x),0);
+    return tb-ta;
+  });
+
+  const datasets = seriesKeys.map((k,i)=>{
+    const color = k==='__other__' ? '#5C6773' : PALETTE[i % PALETTE.length];
+    const eprByIndex = [], data = [];
+    sortedUnits.forEach(u=>{
+      const rec = (byUnitKey.get(u)||new Map()).get(k) || {count:0, qty:0, epr:0};
+      data.push(Math.round(metricValue(rec)));
+      eprByIndex.push(Math.round(rec.epr));
+    });
+    return { label: itemNameByKey[k], data, _eprByIndex: eprByIndex, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:52 };
+  });
 
   killChart('chartByUnit');
   const inner = document.getElementById('unitChartInner');
-  const width = Math.max(labels.length*70, inner.parentElement.clientWidth);
+  const width = Math.max(sortedUnits.length*90, inner.parentElement.clientWidth);
   inner.style.width = width+'px';
   const ctx = document.getElementById('chartByUnit').getContext('2d');
   charts['chartByUnit'] = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[{ data, backgroundColor: colors.map(c=>c+'CC'), borderColor:colors, borderWidth:1, borderRadius:5, maxBarThickness:44 }] },
+    data:{ labels: sortedUnits, datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => {
+            const ds = c.dataset;
+            const epr = ds._eprByIndex[c.dataIndex];
+            return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(epr);
+          } } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{font:{size:11}}, grid:{display:false} },
+        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
+      }
+    }
+  });
+}
+
+/* ---------- Top items procured, stacked by unit ---------- */
+const TOP_ITEMS_N = 15;
+function renderTopItemsChart(units, unitItemAgg){
+  const rows = unitItemAgg.filter(a=>units.includes(a.unit));
+
+  const itemTotals = new Map(); // key -> total (current metric) across selected units
+  const itemNameByKey = {};
+  rows.forEach(a=>{
+    const k = a.itemCode || ('NAME::'+a.itemName);
+    itemTotals.set(k, (itemTotals.get(k)||0) + metricValue({count:a.grnCount, qty:a.qty, epr:a.epr}));
+    if(!itemNameByKey[k]) itemNameByKey[k] = a.itemName;
+  });
+  const topKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).slice(0, TOP_ITEMS_N).map(e=>e[0]);
+  const topSet = new Set(topKeys);
+  const labels = topKeys.map(k=>{
+    const name = itemNameByKey[k] || k;
+    return name.length>22 ? name.slice(0,20)+'…' : name;
+  });
+
+  // item key -> unit -> {count, qty, epr}
+  const byItemUnit = new Map();
+  rows.forEach(a=>{
+    const k = a.itemCode || ('NAME::'+a.itemName);
+    if(!topSet.has(k)) return;
+    if(!byItemUnit.has(k)) byItemUnit.set(k, new Map());
+    byItemUnit.get(k).set(a.unit, {count:a.grnCount, qty:a.qty, epr:a.epr});
+  });
+
+  const datasets = units.map(u=>{
+    const color = unitColor(u);
+    const eprByIndex = [], data = [];
+    topKeys.forEach(k=>{
+      const rec = (byItemUnit.get(k)||new Map()).get(u) || {count:0, qty:0, epr:0};
+      data.push(Math.round(metricValue(rec)));
+      eprByIndex.push(Math.round(rec.epr));
+    });
+    return { label: u, data, _eprByIndex: eprByIndex, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:44 };
+  });
+
+  killChart('chartTopItems');
+  const inner = document.getElementById('topItemsChartInner');
+  const width = Math.max((labels.length||1)*80, inner.parentElement.clientWidth);
+  inner.style.width = width+'px';
+  const ctx = document.getElementById('chartTopItems').getContext('2d');
+  charts['chartTopItems'] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: labels.length?labels:['No local purchase items'], datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => {
+            const ds = c.dataset;
+            const epr = ds._eprByIndex[c.dataIndex];
+            return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(epr);
+          } } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
+        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
+      }
+    }
+  });
+}
+
+/* ---------- Shelf life at purchase ---------- */
+function renderShelfLife(shelfAgg, localLines){
+  const emptyEl = document.getElementById('shelfEmptyState');
+  const holderEl = document.getElementById('shelfChartHolder');
+  const tableWrapEl = document.getElementById('shelfTableWrap');
+  const hasExpiry = localLines.some(l=>l.expiryDt);
+  if(!hasExpiry){
+    emptyEl.style.display = 'block';
+    holderEl.style.display = 'none';
+    tableWrapEl.style.display = 'none';
+    killChart('chartShelf');
+    return;
+  }
+  emptyEl.style.display = 'none';
+  holderEl.style.display = 'block';
+  tableWrapEl.style.display = 'block';
+
+  const buckets = shelfAgg.buckets;
+  const labels = buckets.map(b=>b.label);
+  const data = buckets.map(b=>b.count);
+  const colors = buckets.map(b=>b.color);
+
+  killChart('chartShelf');
+  const inner = document.getElementById('shelfChartInner');
+  const width = Math.max(labels.length*110, inner.parentElement.clientWidth);
+  inner.style.width = width+'px';
+  const ctx = document.getElementById('chartShelf').getContext('2d');
+  charts['chartShelf'] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels, datasets:[{ data, backgroundColor: colors.map(c=>c+'CC'), borderColor: colors, borderWidth:1, borderRadius:5, maxBarThickness:54 }] },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false},
         tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
-          callbacks:{ label: c => unitMetric==='value' ? fmtINR(c.parsed.y) : (c.parsed.y+' GRN'+(c.parsed.y===1?'':'s')) } } },
+          callbacks:{ label: c => { const b=buckets[c.dataIndex]; return c.parsed.y+' item'+(c.parsed.y===1?'':'s')+' · EPR '+fmtINR(b.epr); } } } },
       scales:{
-        x:{ ticks:{font:{size:11}}, grid:{display:false} },
-        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
+        x:{ ticks:{autoSkip:false, maxRotation:35, minRotation:0, font:{size:10.5}}, grid:{display:false} },
+        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
       }
     }
   });
+
+  const thead = '<thead><tr><th>Shelf Life At Purchase</th><th>Items</th><th>EPR Value</th></tr></thead>';
+  const body = buckets.map(b=>
+    `<tr><td><span class="badge" style="background:${b.color}29;color:${b.color};border:1px solid ${b.color}55">${b.label}</span></td><td class="num">${b.count.toLocaleString('en-IN')}</td><td class="num">${fmtINR(b.epr)}</td></tr>`
+  ).join('');
+  document.getElementById('tblShelf').innerHTML = thead+'<tbody>'+body+'</tbody>';
 }
 
 /* ---------- Approval slabs ---------- */
@@ -1006,7 +1239,7 @@ function renderSlabs(localGrnAgg){
     `<div class="slab-card" style="border-top-color:${t.color}">
       <div class="sc-label">${t.label}</div>
       <div class="sc-count">${t.rows.length} <small>GRN${t.rows.length===1?'':'s'}</small></div>
-      <div class="sc-value">${fmtINR(t.value)} total</div>
+      <div class="sc-value">${fmtINR(t.value)} total (EPR)</div>
     </div>`
   ).join('');
 
@@ -1037,11 +1270,11 @@ function renderSlabs(localGrnAgg){
 
   const tableRows = sorted.map(g=>{
     const tier = sopTier(g.totalValue);
-    return `<tr><td>${escapeHtml(g.grnNo)}</td><td>${escapeHtml(g.unit)}</td><td>${g.dt?fmtDateOnly(g.dt):escapeHtml(g.date)}</td><td>${escapeHtml(g.supplier)}</td><td><span class="badge badge-neutral">${escapeHtml(g.reason)}</span></td><td class="num">${fmtINR(g.totalValue)}</td><td><span class="badge" style="background:${tier.color}29;color:${tier.color};border:1px solid ${tier.color}55">${tier.label}</span></td></tr>`;
+    return `<tr><td>${escapeHtml(g.grnNo)}</td><td>${escapeHtml(g.unit)}</td><td>${g.dt?fmtDateOnly(g.dt):escapeHtml(g.date)}</td><td>${joinItems(g.items)}</td><td>${escapeHtml(g.supplier)}</td><td><span class="badge badge-neutral">${escapeHtml(g.reason)}</span></td><td class="num">${fmtINR(g.totalValue)}</td><td><span class="badge" style="background:${tier.color}29;color:${tier.color};border:1px solid ${tier.color}55">${tier.label}</span></td></tr>`;
   });
   renderSearchableTable('tblSlabs','searchSlabs',
-    ['GRN No.','Unit','GRN Date','Supplier','Reason','Value','Approval Tier'],
-    tableRows, sorted.map(g=>[g.grnNo,g.unit,g.supplier].join(' ')));
+    ['GRN No.','Unit','GRN Date','Item Name(s)','Supplier','Reason','EPR Value','Approval Tier'],
+    tableRows, sorted.map(g=>[g.grnNo,g.unit,g.supplier,Array.from(g.items).join(' ')].join(' ')));
 }
 
 /* ---------- Item ranking ---------- */
@@ -1052,8 +1285,7 @@ const ITEM_COLS = [
   {key:'qty', label:'Total Qty', num:true},
   {key:'epr', label:'Total EPR', num:true},
   {key:'mrp', label:'Total MRP', num:true},
-  {key:'grnCount', label:'GRN Count', num:true},
-  {key:'value', label:'Total Value', num:true}
+  {key:'grnCount', label:'GRN Count', num:true}
 ];
 let LAST_ITEM_AGG = [];
 function renderItemTable(itemAgg){
@@ -1078,7 +1310,7 @@ function drawItemTable(){
   const body = rows.length ? rows.map(r=>
     `<tr><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.units.join(', '))}</td>`+
     `<td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.epr)}</td><td class="num">${fmtINR(r.mrp)}</td>`+
-    `<td class="num">${r.grnCount}</td><td class="num">${fmtINR(r.value)}</td></tr>`
+    `<td class="num">${r.grnCount}</td></tr>`
   ).join('') : `<tr><td colspan="${ITEM_COLS.length}"><div class="empty-state">No local purchase items match this filter.</div></td></tr>`;
   document.getElementById('tblItems').innerHTML = thead+'<tbody>'+body+'</tbody>';
   document.getElementById('tblItems').querySelectorAll('th.sortable').forEach(th=>{
@@ -1101,7 +1333,7 @@ function renderCrossCheckTable(crossCheck){
 function drawCrossCheckTable(){
   const q = (document.getElementById('searchPO').value||'').toLowerCase();
   const rows = LAST_CROSS.filter(r => !q || (r.itemCode||'').toLowerCase().includes(q) || (r.itemName||'').toLowerCase().includes(q) || (r.grnNo||'').toLowerCase().includes(q));
-  const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit</th><th>GRN No.</th><th>GRN Date</th><th>GRN Value</th><th>PO Before</th><th>PO After</th><th>Verdict</th></tr></thead>';
+  const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit</th><th>GRN No.</th><th>GRN Date</th><th>GRN EPR Value</th><th>PO Before</th><th>PO After</th><th>Verdict</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
     `<tr><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.unit)}</td><td>${escapeHtml(r.grnNo)}</td><td>${fmtDateOnly(r.dt)}</td><td class="num">${fmtINR(r.value)}</td>`+
     `<td>${r.poBefore ? escapeHtml(r.poBefore.poNo)+' · '+r.poBefore.date+' ('+r.poBefore.days+'d before)' : '—'}</td>`+
@@ -1112,40 +1344,126 @@ function drawCrossCheckTable(){
 }
 document.getElementById('searchPO').addEventListener('input', drawCrossCheckTable);
 
-/* ---------- COGS consumption cross-check ---------- */
-let LAST_COGS_TABLE = [];
-function renderConsumptionTable(itemAgg){
-  LAST_COGS_TABLE = itemAgg.slice().sort((a,b)=>b.value-a.value);
-  drawConsumptionTable();
+// Day-wise breakdown: every day a local purchase happened, split by verdict.
+const PO_VERDICT_SERIES = [
+  {label:'PO Found — Before & After', color:'#34D399', test:r=>r.poBefore && r.poAfter},
+  {label:'PO Found — Before', color:'#5B8DEF', test:r=>r.poBefore && !r.poAfter},
+  {label:'PO Found — After', color:'#FBBF24', test:r=>!r.poBefore && r.poAfter},
+  {label:'No PO Found For This Item', color:'#FB7185', test:r=>!r.poBefore && !r.poAfter}
+];
+function renderPOChart(crossCheck){
+  const byDay = new Map(); // dateKey -> {dt, counts:[...]}
+  crossCheck.forEach(r=>{
+    const key = fmtDateOnly(r.dt);
+    if(!byDay.has(key)) byDay.set(key, {dt:r.dt, counts: PO_VERDICT_SERIES.map(()=>0)});
+    const rec = byDay.get(key);
+    const idx = PO_VERDICT_SERIES.findIndex(s=>s.test(r));
+    if(idx>=0) rec.counts[idx]++;
+  });
+  const days = Array.from(byDay.entries()).sort((a,b)=>a[1].dt-b[1].dt);
+  const labels = days.map(([k])=>k);
+
+  killChart('chartPO');
+  const inner = document.getElementById('poChartInner');
+  const width = Math.max((labels.length||1)*46, inner.parentElement.clientWidth);
+  inner.style.width = width+'px';
+  const ctx = document.getElementById('chartPO').getContext('2d');
+  const datasets = PO_VERDICT_SERIES.map((s,i)=>({
+    label: s.label,
+    data: days.map(([,d])=>d.counts[i]),
+    backgroundColor: s.color+'CC', borderColor: s.color, borderWidth:1, maxBarThickness:28
+  }));
+  charts['chartPO'] = new Chart(ctx, {
+    type:'bar',
+    data:{ labels: labels.length?labels:['No local purchase lines'], datasets },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+          callbacks:{ label: c => c.dataset.label+': '+c.parsed.y } }
+      },
+      scales:{
+        x:{ stacked:true, ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
+        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+      }
+    }
+  });
 }
-function drawConsumptionTable(){
-  const q = (document.getElementById('searchCogs').value||'').toLowerCase();
-  const rows = LAST_COGS_TABLE.filter(r => !q || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q));
-  const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit(s)</th><th>Local Purchase Qty</th><th>Consumed Qty (COGS)</th><th>Verdict</th></tr></thead>';
-  const body = rows.length ? rows.map(r=>{
-    const issued = r.consumedQty > 0;
-    return `<tr><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.units.join(', '))}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${r.consumedQty.toLocaleString('en-IN')}</td><td><span class="badge ${issued?'badge-ok':'badge-bad'}">${issued?'Issued To Patient':'Not Issued'}</span></td></tr>`;
-  }).join('') : `<tr><td colspan="6"><div class="empty-state">No local purchase items match this filter.</div></td></tr>`;
-  document.getElementById('tblCogs').innerHTML = thead+'<tbody>'+body+'</tbody>';
-}
-document.getElementById('searchCogs').addEventListener('input', drawConsumptionTable);
 
 /* ---------- Repeat local purchases ---------- */
 let LAST_REPEAT = [];
 function renderRepeatTable(itemAgg){
-  LAST_REPEAT = itemAgg.filter(r=>r.grnCount>1).sort((a,b)=> b.grnCount-a.grnCount || b.value-a.value);
+  LAST_REPEAT = itemAgg.filter(r=>r.grnCount>1).sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
   drawRepeatTable();
 }
 function drawRepeatTable(){
   const q = (document.getElementById('searchRepeat').value||'').toLowerCase();
   const rows = LAST_REPEAT.filter(r => !q || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q));
-  const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit(s)</th><th>Times Purchased Locally</th><th>Total Qty</th><th>Total Value</th></tr></thead>';
+  const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit(s)</th><th>Times Purchased Locally</th><th>Total Qty</th><th>Total EPR</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
-    `<tr class="flag-row"><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.units.join(', '))}</td><td class="num">${r.grnCount}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.value)}</td></tr>`
+    `<tr class="flag-row"><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.units.join(', '))}</td><td class="num">${r.grnCount}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.epr)}</td></tr>`
   ).join('') : `<tr><td colspan="6"><div class="empty-state">No item was purchased locally more than once in this filter.</div></td></tr>`;
   document.getElementById('tblRepeat').innerHTML = thead+'<tbody>'+body+'</tbody>';
 }
 document.getElementById('searchRepeat').addEventListener('input', drawRepeatTable);
+
+const REPEAT_TOP_N = 20;
+function renderRepeatChart(itemAgg, unitItemAgg){
+  killChart('chartRepeat');
+  const inner = document.getElementById('repeatChartInner');
+  const ctx = document.getElementById('chartRepeat').getContext('2d');
+
+  if(repeatMode === 'item'){
+    const rows = itemAgg.filter(r=>r.grnCount>1).sort((a,b)=>b.grnCount-a.grnCount).slice(0, REPEAT_TOP_N);
+    const labels = rows.map(r=> r.itemName.length>22 ? r.itemName.slice(0,20)+'…' : r.itemName);
+    const data = rows.map(r=>r.grnCount);
+    const eprByIndex = rows.map(r=>r.epr);
+    const width = Math.max((labels.length||1)*60, inner.parentElement.clientWidth);
+    inner.style.width = width+'px';
+    charts['chartRepeat'] = new Chart(ctx, {
+      type:'bar',
+      data:{ labels: labels.length?labels:['No repeat local purchases'], datasets:[{ data: data.length?data:[0], backgroundColor:'#FBBF24CC', borderColor:'#FBBF24', borderWidth:1, borderRadius:4, maxBarThickness:34 }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false},
+          tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+            callbacks:{ label: c => c.parsed.y+' time'+(c.parsed.y===1?'':'s')+' · EPR '+fmtINR(eprByIndex[c.dataIndex]) } } },
+        scales:{
+          x:{ ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
+          y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+        }
+      }
+    });
+  } else {
+    const repeatByUnitItem = unitItemAgg.filter(a=>a.grnCount>1);
+    const perUnit = {};
+    repeatByUnitItem.forEach(a=>{
+      if(!perUnit[a.unit]) perUnit[a.unit] = {items:0, epr:0};
+      perUnit[a.unit].items++; perUnit[a.unit].epr += a.epr;
+    });
+    const units = Object.keys(perUnit).sort((a,b)=>perUnit[b].items-perUnit[a].items);
+    const labels = units;
+    const data = units.map(u=>perUnit[u].items);
+    const eprByIndex = units.map(u=>perUnit[u].epr);
+    const width = Math.max((labels.length||1)*80, inner.parentElement.clientWidth);
+    inner.style.width = width+'px';
+    charts['chartRepeat'] = new Chart(ctx, {
+      type:'bar',
+      data:{ labels: labels.length?labels:['No repeat local purchases'], datasets:[{ data: data.length?data:[0], backgroundColor:'#FB7185CC', borderColor:'#FB7185', borderWidth:1, borderRadius:4, maxBarThickness:44 }] },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{display:false},
+          tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
+            callbacks:{ label: c => c.parsed.y+' item'+(c.parsed.y===1?'':'s')+' repeated · EPR '+fmtINR(eprByIndex[c.dataIndex]) } } },
+        scales:{
+          x:{ ticks:{font:{size:11}}, grid:{display:false} },
+          y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+        }
+      }
+    });
+  }
+}
 
 /* ---------- Local vs total procurement, by unit ---------- */
 function renderCompare(units, grnAggAll){
@@ -1164,8 +1482,8 @@ function renderCompare(units, grnAggAll){
   charts['chartCompare'] = new Chart(ctx, {
     type:'bar',
     data:{ labels: rows.map(r=>r.unit), datasets:[
-      { label:'Local Purchase Value', data: rows.map(r=>Math.round(r.local)), backgroundColor:'#FB7185CC', borderColor:'#FB7185', borderWidth:1, borderRadius:4, maxBarThickness:32 },
-      { label:'Total Procurement Value', data: rows.map(r=>Math.round(r.total)), backgroundColor:'#5B8DEFCC', borderColor:'#5B8DEF', borderWidth:1, borderRadius:4, maxBarThickness:32 }
+      { label:'Local Purchase Value (EPR)', data: rows.map(r=>Math.round(r.local)), backgroundColor:'#FB7185CC', borderColor:'#FB7185', borderWidth:1, borderRadius:4, maxBarThickness:32 },
+      { label:'Total Procurement Value (EPR)', data: rows.map(r=>Math.round(r.total)), backgroundColor:'#5B8DEFCC', borderColor:'#5B8DEF', borderWidth:1, borderRadius:4, maxBarThickness:32 }
     ]},
     options:{
       responsive:true, maintainAspectRatio:false,
@@ -1179,7 +1497,7 @@ function renderCompare(units, grnAggAll){
     }
   });
 
-  const thead = '<thead><tr><th>Unit</th><th>Local Purchase Value</th><th>Total Procurement Value</th><th>Local Share</th></tr></thead>';
+  const thead = '<thead><tr><th>Unit</th><th>Local Purchase Value (EPR)</th><th>Total Procurement Value (EPR)</th><th>Local Share</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
     `<tr><td>${escapeHtml(r.unit)}</td><td class="num">${fmtINR(r.local)}</td><td class="num">${fmtINR(r.total)}</td>`+
     `<td class="ratio-cell"><div class="ratio-bar-track"><div class="ratio-bar-fill" style="width:${Math.min(100,r.pct).toFixed(1)}%"></div></div><span class="ratio-text">${r.pct.toFixed(1)}%</span></td></tr>`

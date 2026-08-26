@@ -452,7 +452,7 @@ window.__PARAS_REGISTRY__ = {
       "id": "local-purchase",
       "name": "Local Purchase",
       "category": "procurement",
-      "description": "Local and emergency purchases outside the rate contract — by-unit spend, approval slabs, PO and consumption cross-checks, and repeat-purchase flags.",
+      "description": "Local and emergency purchases outside the rate contract — by-unit spend, approval slabs, PO cross-checks, expiry exposure and repeat-purchase flags.",
       "file": "dashboards/Local_Purchase_Dashboard.html",
       "icon": "handshake",
       "status": "live",
@@ -480,7 +480,7 @@ window.__PARAS_REGISTRY__ = {
             "PO No.",
             "Supplier Name",
             "Received Qty.",
-            "Total Value"
+            "EPR"
           ]
         },
         {
@@ -495,18 +495,6 @@ window.__PARAS_REGISTRY__ = {
             "PO Date",
             "Item Code",
             "Status"
-          ]
-        },
-        {
-          "label": "COGS",
-          "match": [
-            "\\bcogs\\b",
-            "consumption"
-          ],
-          "needs": [
-            "UNIT",
-            "Item Id",
-            "Qty"
           ]
         }
       ]

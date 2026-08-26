@@ -28,7 +28,10 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(ROOT, "auth.json")
+import paths
+# Written to the data folder, not the app folder: a password set here has
+# to survive extracting a new build.
+OUT = paths.auth_path()
 ITERATIONS = 250_000
 DEFAULT_ADMIN_KEY = "U118540720248"
 

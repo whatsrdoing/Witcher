@@ -38,14 +38,19 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(ROOT, "site.json")
 
 # Everything dropped into the Data Library (or pinned to a dashboard) lands
-# here as real files -- not in the browser's IndexedDB -- so it shows up in
-# this folder like any other file, survives a browser reset, and is easy to
-# find, back up or move by hand.
-# Overridable so selftest.py can exercise the real code against a throwaway
-# directory instead of the folder holding someone's actual registers.
-LIBRARY_DIR = os.path.join(os.environ.get("PARAS_DATA_DIR") or os.path.join(ROOT, "data"), "library")
-LIBRARY_BLOBS = os.path.join(LIBRARY_DIR, "blobs")
-LIBRARY_INDEX = os.path.join(LIBRARY_DIR, "index.json")
+# here as real files -- not in the browser's IndexedDB -- so it shows up as
+# ordinary files, survives a browser reset, and is easy to find and back up.
+#
+# paths.py puts that folder OUTSIDE the app folder, at a fixed place on this
+# machine, so extracting a new build to a new folder does not leave the data
+# behind. See paths.py for the resolution order (PARAS_DATA_DIR wins, which
+# is also how selftest.py runs against a throwaway directory).
+import paths
+
+LIBRARY_DIR = paths.library_dir()
+LIBRARY_BLOBS = paths.library_blobs()
+LIBRARY_INDEX = paths.library_index()
+AUTH_PATH = paths.auth_path()
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 COPY_CHUNK = 1024 * 1024
 
@@ -107,7 +112,7 @@ def library_write_index(files):
     os.replace(tmp, LIBRARY_INDEX)          # atomic on POSIX and Windows
 
 
-DB_PATH = os.path.join(os.path.dirname(LIBRARY_DIR), "library.db")
+DB_PATH = paths.db_path()
 _store = None
 _store_lock = threading.Lock()
 
@@ -161,9 +166,40 @@ def make_handler(prefix):
             if dtail is not None:
                 self._data_get(dtail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
                 return
+            # auth.json lives with the data now, not in the app folder, so the
+            # static handler would 404 it. The sign-in gate fetches it by that
+            # exact name, so it is served here under the name it asks for.
+            if path_only.rstrip("/").rsplit("/", 1)[-1] == "auth.json":
+                self._send_auth()
+                return
+            # Where is my data? Answerable from inside the app rather than
+            # only from this terminal window.
+            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__where":
+                self._json(200, {"dataDir": paths.data_dir(),
+                                 "library": LIBRARY_DIR,
+                                 "database": DB_PATH,
+                                 "inAppFolder": paths.fell_back()})
+                return
             if self._redirect():
                 return
             super().do_GET()
+
+        def _send_auth(self):
+            """auth.json, read from the data folder."""
+            try:
+                with open(AUTH_PATH, "rb") as fh:
+                    body = fh.read()
+            except OSError:
+                # No accounts file at all is a real state, not an error: the
+                # gate treats a missing config as "no sign-in configured".
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
 
         def do_HEAD(self):
             if self._redirect():
@@ -436,7 +472,7 @@ def make_handler(prefix):
                 self._json(400, {"error": "bad request"})
                 return
 
-            path = os.path.join(ROOT, "auth.json")
+            path = AUTH_PATH
             try:
                 with open(path, encoding="utf-8") as fh:
                     auth = json.load(fh)
@@ -685,6 +721,11 @@ def main(argv):
 
     os.makedirs(LIBRARY_BLOBS, exist_ok=True)
 
+    # Bring an older install's data across, if this is the first run since it
+    # moved out of the app folder. Has to happen before sync, which reads
+    # auth.json from the new location.
+    paths.migrate()
+
     try:
         sys.path.insert(0, ROOT)
         import sync
@@ -718,7 +759,13 @@ def main(argv):
     print("  %s" % url)
     if host == "127.0.0.1" and cfg["hostname"]:
         print("  (run setup_hostname.py as Administrator to use %s instead)" % cfg["hostname"])
-    print("  Local only. Press Ctrl+C to stop.\n")
+    print("  Local only. Press Ctrl+C to stop.")
+    # Printed every run, not just the first: "where is my data" should never
+    # need a search.
+    print("  Data: %s" % paths.data_dir())
+    if paths.fell_back():
+        print("  ^ inside the app folder - a new build extracted elsewhere will NOT see it.")
+    print("")
 
     if auto_open:
         threading.Timer(0.6, lambda: open_window(url, app_mode)).start()

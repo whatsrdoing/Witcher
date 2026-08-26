@@ -33,13 +33,64 @@ Binds to `127.0.0.1` only, so it is not reachable from the network, and no
 internet connection is used.
 
 **Or just double-click `index.html`** — this works too. The only difference:
-attached files land in `data/library/` next to this file when `serve.py` is
+attached files are written to the data folder (below) when `serve.py` is
 running; opened straight from disk there is no server to write to, so the
 app falls back to the browser's `IndexedDB` (or, if that is also restricted,
 attachments become temporary). The app detects this and says so in the
 footer. Layout, theme and mode still persist either way. A file already
 attached through `IndexedDB` before `serve.py` was first run is copied over
-to `data/library/` automatically the next time it starts, once.
+to the data folder automatically the next time it starts, once.
+
+---
+
+## Where your data lives
+
+**Outside this folder, on purpose:**
+
+```
+C:\ParasHealth\CommandCentre\
+  auth.json          accounts and passwords
+  library.db         the month-on-month database
+  library\
+    index.json       what each stored file is
+    blobs\          the files themselves
+```
+
+(On macOS and Linux: `~/ParasHealth/CommandCentre`.)
+
+The reason is upgrades. A new build arrives as a zip you extract to a new
+folder — anything kept *inside* the old folder would simply not be there any
+more. Keeping it at an address that never moves means upgrading is **extract
+and run**, with nothing to copy and nothing to remember.
+
+The path is printed every time `serve.py` starts, so you never have to go
+looking for it.
+
+**Backing up** is copying that one folder. Stop the server first — `library.db`
+is a live database, and copying it mid-write can produce a file that will not
+open.
+
+**To move it somewhere else** (a different drive, a shared location), set
+`PARAS_DATA_DIR` once and it wins over the default:
+
+```
+setx PARAS_DATA_DIR "D:\ParasData"
+```
+
+**Upgrading from a build that kept data inside the app folder:** nothing to
+do. The first run copies `data\` and `auth.json` across, tells you what it
+moved, and leaves the originals alone — delete them once you are satisfied.
+
+**A note on `auth.json`:** a copy ships in the zip, but it is only ever a
+starting point. It seeds the real one the first time and is ignored after
+that, which is what stops an upgrade resetting your accounts. To deliberately
+go back to the shipped one, delete `auth.json` from the data folder.
+
+Two things are *not* in the data folder, by design. Each dashboard's own
+remembered state (filters, selections) lives in the browser against the
+address `127.0.0.1`, so it survives upgrades on its own. Drop-in account
+photos live in `assets/img/avatars/`, since they ship with the build; photos
+set from the account menu go to the data folder like everything else.
 
 ---
 
@@ -349,7 +400,7 @@ it automatically on the next sync.
 
 | | LOCAL | SESSION |
 |---|---|---|
-| Attached files | kept in `data/library/` on this computer | memory only |
+| Attached files | kept in the data folder on this computer | memory only |
 | Layout, theme, filters | kept (localStorage) | this tab only (sessionStorage) |
 | Survives closing the app | yes | no |
 

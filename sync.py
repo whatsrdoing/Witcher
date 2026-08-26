@@ -18,7 +18,11 @@ import sys
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, "dashboards.json")
 OUT = os.path.join(ROOT, "dashboards.js")
-AUTH_SRC = os.path.join(ROOT, "auth.json")
+import paths
+# The accounts file lives with the data, outside the app folder, so it is not
+# reset every time a new build is extracted. auth.js stays here: it is a
+# generated mirror, rewritten from the real file on every run.
+AUTH_SRC = paths.auth_path()
 AUTH_OUT = os.path.join(ROOT, "auth.js")
 BRIDGE_SRC = os.path.join(ROOT, "assets", "js", "dashboard-bridge.js")
 BRIDGE_OPEN = "<!-- paras-command-centre-bridge -->"

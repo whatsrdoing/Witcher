@@ -275,6 +275,7 @@
       el.addEventListener('load', function () {
         myFrames[id].loaded = true;
         if (current === id) { $('#frameLoading').style.display = 'none'; refreshMatchBar(); }
+        tryAutoRun(id);
       });
       $('#frames').appendChild(el);
       f = myFrames[id] = { el: el, loaded: false, openedAt: Date.now() };
@@ -1790,10 +1791,12 @@
     });
   }
 
-  /* Which library files suit the dashboard that is open right now. */
-  function matchesForOpen() {
-    if (!current) return Promise.resolve(null);
-    var forDash = current;
+  /* Which library files suit a given dashboard. Shared by the match bar
+     (always scoped to whichever dashboard is on screen) and the auto-run
+     check below (scoped to whichever dashboard just opened, which is not
+     necessarily `current` by the time its async lookups resolve). */
+  function matchesFor(forDash) {
+    if (!forDash) return Promise.resolve(null);
     return frameInputs(forDash).then(function (slots) {
       if (!slots || !slots.length) return null;
       return libraryFiles().then(function (files) {
@@ -1821,6 +1824,8 @@
       });
     });
   }
+  /* Which library files suit the dashboard that is open right now. */
+  function matchesForOpen() { return matchesFor(current); }
 
   function refreshMatchBar() {
     var bar = $('#matchBar');
@@ -1846,29 +1851,87 @@
     });
   }
 
-  function fillAllFromLibrary() {
-    matchesForOpen().then(function (m) {
-      if (!m || !m.pairs.length) return toast('Nothing in the Data Library matches this dashboard yet.', 'warn');
+  /* Loads each {slot, file} pair's bytes and hands them to fillInput, one at
+     a time. Resolves to {done, failed, lastError} — never rejects — so both
+     the manual "Fill upload boxes" button and the silent auto-run check
+     below can read the outcome without a try/catch of their own. */
+  function fillPairs(pairs) {
+    return new Promise(function (resolve) {
       var done = 0, failed = 0, lastError = '';
       var next = function (i) {
-        if (i >= m.pairs.length) {
-          if (done) toast('Filled ' + done + ' upload box' + (done === 1 ? '' : 'es') +
-            (failed ? ' (' + failed + ' failed)' : '') +
-            ' — press the dashboard\'s own build button to run it.', failed ? 'warn' : 'ok', 6000);
-          else toast('Could not fill any upload box' + (lastError ? ' — ' + lastError : '') + '.', 'err', 8000);
-          return;
-        }
-        var p = m.pairs[i];
+        if (i >= pairs.length) return resolve({ done: done, failed: failed, lastError: lastError });
+        var p = pairs[i];
         w.Store.Files.blob(p.file.id).then(function (blob) {
-          if (!blob) { failed++; return next(i + 1); }
+          if (!blob) { failed++; return setTimeout(function () { next(i + 1); }, 50); }
           return fillInput(p.slot, blob, p.file.name, p.file.type)
             .then(function () { done++; })
             .catch(function (e) { failed++; lastError = e && e.message || String(e); })
             .then(function () { setTimeout(function () { next(i + 1); }, 50); });
         }).catch(function () { failed++; setTimeout(function () { next(i + 1); }, 50); });
       };
-      closeDrawer();
       next(0);
+    });
+  }
+
+  function fillAllFromLibrary() {
+    matchesForOpen().then(function (m) {
+      if (!m || !m.pairs.length) return toast('Nothing in the Data Library matches this dashboard yet.', 'warn');
+      closeDrawer();
+      fillPairs(m.pairs).then(function (r) {
+        if (r.done) toast('Filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') +
+          (r.failed ? ' (' + r.failed + ' failed)' : '') +
+          ' — press the dashboard\'s own build button to run it.', r.failed ? 'warn' : 'ok', 6000);
+        else toast('Could not fill any upload box' + (r.lastError ? ' — ' + r.lastError : '') + '.', 'err', 8000);
+      });
+    });
+  }
+
+  /* ---- auto-run on open --------------------------------------------------
+     If every required upload box has an unambiguous, non-oversized match in
+     the Data Library the moment a dashboard's iframe finishes loading, fill
+     them and run the dashboard's own build button automatically — no "Fill
+     upload boxes" click needed. Anything less than a full, clean match (a
+     required slot still empty, or blocked on a file too large to auto-fill)
+     is left exactly as before: the match bar stays up and the user fills it
+     by hand, since guessing at an incomplete run would be worse than asking. */
+  var BUILD_BTN_IDS = ['buildBtn', 'processBtn'];
+  function clickBuildButton(id) {
+    var doc = frameDoc(id);
+    if (!doc) return false;
+    for (var i = 0; i < BUILD_BTN_IDS.length; i++) {
+      var btn = doc.getElementById(BUILD_BTN_IDS[i]);
+      if (btn && !btn.disabled) { btn.click(); return true; }
+    }
+    // Fallback for a dashboard that names its own button something else:
+    // the first non-disabled button in its upload panel that isn't an
+    // obvious reset/clear/change-files action.
+    var panel = doc.querySelector('.upload-panel, .upload-bar, #uploadPanel');
+    if (panel) {
+      var candidates = panel.querySelectorAll('button:not([disabled])');
+      for (var j = 0; j < candidates.length; j++) {
+        var b = candidates[j];
+        if (!/reset|clear|change|different/i.test(b.id + ' ' + b.textContent)) { b.click(); return true; }
+      }
+    }
+    return false;
+  }
+  function tryAutoRun(id) {
+    matchesFor(id).then(function (m) {
+      if (!m || !m.pairs.length || m.blocked.length) return;
+      var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
+      if (m.pairs.length < required) return;
+      fillPairs(m.pairs).then(function (r) {
+        if (!r.done || r.failed) return;
+        setTimeout(function () {
+          var clicked = clickBuildButton(id);
+          if (current === id) refreshMatchBar();
+          var db = byId(id);
+          toast((clicked
+            ? '"' + (db ? db.name : id) + '" auto-filled and run from ' + r.done + ' Data Library file' + (r.done === 1 ? '' : 's') + '.'
+            : 'Auto-filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') + ' from the Data Library — press the dashboard\'s own build button to run it.'
+          ), 'ok', 5000);
+        }, 150);
+      });
     });
   }
 

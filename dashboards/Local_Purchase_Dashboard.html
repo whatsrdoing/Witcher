@@ -177,8 +177,15 @@ header{
 .chart-box h3{margin:0 0 10px;font-size:12.5px;color:#fff;font-weight:700;letter-spacing:.2px;}
 .chart-hint{margin:-4px 0 12px;font-size:11px;color:var(--text-dim);}
 .chart-box canvas{max-height:320px;}
-.scroll-chart-wrap{overflow-x:auto;border-radius:10px;padding-bottom:6px;}
+.scroll-chart-wrap{overflow-x:auto;border-radius:10px;padding-bottom:6px;cursor:grab;touch-action:pan-y;}
+.scroll-chart-wrap:active{cursor:grabbing;}
 .scroll-chart-inner{height:320px;}
+.chart-row-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media (max-width:900px){.chart-row-2{grid-template-columns:1fr;}}
+.chart-total-stat{font-size:12.5px;color:var(--text-muted);margin-bottom:10px;}
+.chart-total-stat b{color:#fff;font-size:15px;}
+.select-plain{background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:9px;padding:8px 12px;font-size:12.5px;font-weight:600;color:#fff;cursor:pointer;}
+.select-plain option{background:#0b0f16;}
 
 .table-wrap{overflow-x:auto;overflow-y:auto;max-height:480px;margin-top:14px;border:1px solid var(--glass-border-soft);border-radius:14px;}
 table{width:100%;border-collapse:collapse;font-size:12.5px;min-width:600px;}
@@ -293,7 +300,7 @@ footer b{color:var(--text-muted);}
         <h2>Local Purchases — By Unit</h2>
         <span class="section-tag">GRN Register</span>
       </div>
-      <p class="section-desc">How many local purchases were made in each unit. Local purchase = the GRN's vendor is <b>Cash Purchase</b>, or the GRN has <b>no PO No.</b>, or the vendor is <b>Local Purchase</b>. Each bar is split into its items — hover a segment for the item name and its EPR value. The largest items are shown individually; the rest are grouped as <b>Other Items</b>.</p>
+      <p class="section-desc">How many local purchases were made in each unit. Local purchase = the GRN's vendor is <b>Cash Purchase</b>, or the GRN has <b>no PO No.</b>, or the vendor is <b>Local Purchase</b>. Every item is shown individually — nothing is grouped away. Drag either chart left/right to see more; hover a segment for the unit, item, GRN date range and expiry date range.</p>
       <div class="action-row" style="margin-bottom:10px;">
         <div class="metric-toggle" id="unitMetricToggle">
           <button data-metric="count" class="active">GRN Made</button>
@@ -301,13 +308,17 @@ footer b{color:var(--text-muted);}
           <button data-metric="value">EPR Value</button>
         </div>
       </div>
-      <div class="chart-box">
-        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="unitChartInner"><canvas id="chartByUnit"></canvas></div></div>
-      </div>
-      <div class="chart-box">
-        <h3>Top Items Procured Locally</h3>
-        <p class="chart-hint">The highest-procured items across the selected units. Each bar is split by unit — hover a segment for the unit name and its EPR value.</p>
-        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="topItemsChartInner"><canvas id="chartTopItems"></canvas></div></div>
+      <div class="chart-row-2">
+        <div class="chart-box">
+          <h3>By Unit</h3>
+          <div class="chart-total-stat">Total Qty Procured: <b id="unitChartTotalQty">0</b></div>
+          <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="unitChartInner"><canvas id="chartByUnit"></canvas></div></div>
+        </div>
+        <div class="chart-box">
+          <h3>Top Items Procured Locally</h3>
+          <div class="chart-total-stat">Total Qty Procured: <b id="topItemsTotalQty">0</b></div>
+          <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="topItemsChartInner"><canvas id="chartTopItems"></canvas></div></div>
+        </div>
       </div>
     </div>
 
@@ -377,11 +388,15 @@ footer b{color:var(--text-muted);}
         <h2>Repeat Local Purchases</h2>
         <span class="section-tag">Same item, more than once</span>
       </div>
-      <p class="section-desc">Items that were purchased locally more than once — a recurring local-purchase pattern that usually belongs on a regular PO instead.</p>
-      <div class="action-row" style="margin-bottom:10px;">
+      <p class="section-desc">Items that were purchased locally more than once — a recurring local-purchase pattern that usually belongs on a regular PO instead. Pick a unit below to see, for that unit only, how many times each item — e.g. Ecosprin — was purchased locally.</p>
+      <div class="action-row" style="margin-bottom:10px; gap:18px;">
         <div class="metric-toggle" id="repeatModeToggle">
           <button data-mode="item" class="active">Item Wise</button>
           <button data-mode="unit" >Unit Wise</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;">Unit</span>
+          <select id="repeatUnitSelect" class="select-plain"></select>
         </div>
       </div>
       <div class="chart-box">
@@ -398,9 +413,6 @@ footer b{color:var(--text-muted);}
         <span class="section-tag">GRN Register · EPR value</span>
       </div>
       <p class="section-desc">Local purchase EPR value against the unit's total procurement EPR value (every GRN, local and non-local).</p>
-      <div class="chart-box">
-        <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="cmpChartInner"><canvas id="chartCompare"></canvas></div></div>
-      </div>
       <div class="table-wrap"><table id="tblCompare"></table></div>
     </div>
 
@@ -715,11 +727,16 @@ function unitColor(u){
   const idx = allUnits.indexOf(u);
   return PALETTE[(idx>=0?idx:0) % PALETTE.length];
 }
-function metricValue(rec){ return unitMetric==='value' ? rec.epr : unitMetric==='qty' ? rec.qty : rec.count; }
+function metricValue(rec){ return unitMetric==='value' ? rec.epr : unitMetric==='qty' ? rec.qty : rec.grnCount; }
 function metricLabelPart(val){
   if(unitMetric==='value') return fmtINR(val);
   if(unitMetric==='qty') return val+' qty';
   return val+' GRN'+(val===1?'':'s');
+}
+function fmtDateRange(minDt, maxDt){
+  if(!minDt) return '—';
+  if(!maxDt || +minDt===+maxDt) return fmtDateOnly(minDt);
+  return fmtDateOnly(minDt)+' – '+fmtDateOnly(maxDt);
 }
 
 function processGRN(rows){
@@ -735,10 +752,14 @@ function processGRN(rows){
     const itemName = String(get(r,['Item Name'])||'Unknown Item').trim();
     const itemCategory = String(get(r,['Item Category','Item Category Name'])||'').trim();
     const qty = cleanNum(get(r,['Received Qty.','Received Qty']));
-    const epr = cleanNum(get(r,['EPR']));
-    const mrp = cleanNum(get(r,['MRP']));
-    // EPR is the canonical monetary figure this dashboard uses everywhere -- KPIs, approval
-    // slabs, the by-unit and compare charts, the PO cross-check -- until asked to use something else.
+    // EPR and MRP in the GRN Register are PER-UNIT rates, not line totals (that's why a separate
+    // "Total Value" column exists at all) -- multiply by the received qty to get the line's real
+    // EPR value. That total is the canonical monetary figure this dashboard uses everywhere: KPIs,
+    // approval slabs, the by-unit/compare charts, the PO cross-check -- until asked to use something else.
+    const eprRate = cleanNum(get(r,['EPR']));
+    const mrpRate = cleanNum(get(r,['MRP']));
+    const epr = eprRate * qty;
+    const mrp = mrpRate * qty;
     const value = epr;
     const dateRaw = get(r,['GRN Date']);
     const dt = parseAnyDate(dateRaw);
@@ -901,6 +922,7 @@ function killChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id];
 let unitMetric = 'count';
 let itemSort = {key:'epr', dir:'desc'};
 let repeatMode = 'item';
+let repeatUnitFilter = 'ALL';
 
 function render(units){
   if(!RAW) return;
@@ -923,7 +945,8 @@ function render(units){
   renderItemTable(itemAgg);
   renderCrossCheckTable(crossCheck);
   renderPOChart(crossCheck);
-  renderRepeatTable(itemAgg);
+  buildRepeatUnitSelect(units);
+  renderRepeatTable(itemAgg, unitItemAgg);
   renderRepeatChart(itemAgg, unitItemAgg);
   renderCompare(units, RAW.grnAgg);
 
@@ -969,13 +992,16 @@ function buildUnitItemAgg(localLines){
   const map = new Map();
   for(const l of localLines){
     const key = l.unit+'||'+(l.itemCode||('NAME::'+l.itemName));
-    if(!map.has(key)) map.set(key, {unit:l.unit, itemCode:l.itemCode, itemName:l.itemName, grnSet:new Set(), epr:0, qty:0});
+    if(!map.has(key)) map.set(key, {unit:l.unit, itemCode:l.itemCode, itemName:l.itemName, grnSet:new Set(), epr:0, qty:0, minDt:null, maxDt:null, minExp:null, maxExp:null});
     const a = map.get(key);
     a.grnSet.add(l.grnNo); a.epr += l.epr; a.qty += l.qty;
+    if(l.dt){ if(!a.minDt || l.dt<a.minDt) a.minDt=l.dt; if(!a.maxDt || l.dt>a.maxDt) a.maxDt=l.dt; }
+    if(l.expiryDt){ if(!a.minExp || l.expiryDt<a.minExp) a.minExp=l.expiryDt; if(!a.maxExp || l.expiryDt>a.maxExp) a.maxExp=l.expiryDt; }
   }
   return Array.from(map.values()).map(a=>({
     unit:a.unit, itemCode:a.itemCode, itemName:a.itemName,
-    epr: Math.round(a.epr*100)/100, qty:a.qty, grnCount:a.grnSet.size
+    epr: Math.round(a.epr*100)/100, qty:a.qty, grnCount:a.grnSet.size,
+    minDt:a.minDt, maxDt:a.maxDt, minExp:a.minExp, maxExp:a.maxExp
   }));
 }
 // One row per (unit, GRN, item) local-purchase line — the actual purchase instances the PO cross-check runs against.
@@ -1042,8 +1068,7 @@ function renderKPIs(localGrnAgg, unitGrnAgg, itemAgg){
   ).join('');
 }
 
-/* ---------- By-unit chart: stacked by item, colored, EPR in the tooltip ---------- */
-const BY_UNIT_TOP_N = 12;
+/* ---------- By-unit chart: stacked by item (every item shown, none grouped away) ---------- */
 function renderUnitChart(units, unitItemAgg){
   const rows = unitItemAgg.filter(a=>units.includes(a.unit));
 
@@ -1054,21 +1079,14 @@ function renderUnitChart(units, unitItemAgg){
     itemTotals.set(k, (itemTotals.get(k)||0) + a.epr);
     if(!itemNameByKey[k]) itemNameByKey[k] = a.itemName;
   });
-  const topItems = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).slice(0, BY_UNIT_TOP_N).map(e=>e[0]);
-  const topSet = new Set(topItems);
-  const seriesKeys = [...topItems, '__other__'];
-  itemNameByKey['__other__'] = 'Other Items';
+  const seriesKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
 
-  // unit -> seriesKey -> {count, qty, epr}
+  // unit -> itemKey -> the (unit,item) row itself, so the tooltip can reach dates + EPR directly
   const byUnitKey = new Map();
   rows.forEach(a=>{
-    const rawKey = a.itemCode || ('NAME::'+a.itemName);
-    const k = topSet.has(rawKey) ? rawKey : '__other__';
+    const k = a.itemCode || ('NAME::'+a.itemName);
     if(!byUnitKey.has(a.unit)) byUnitKey.set(a.unit, new Map());
-    const m = byUnitKey.get(a.unit);
-    if(!m.has(k)) m.set(k, {count:0, qty:0, epr:0});
-    const rec = m.get(k);
-    rec.count += a.grnCount; rec.qty += a.qty; rec.epr += a.epr;
+    byUnitKey.get(a.unit).set(k, a);
   });
 
   const sortedUnits = units.slice().sort((a,b)=>{
@@ -1077,20 +1095,23 @@ function renderUnitChart(units, unitItemAgg){
     return tb-ta;
   });
 
+  document.getElementById('unitChartTotalQty').textContent = rows.reduce((s,a)=>s+a.qty,0).toLocaleString('en-IN');
+
+  const emptyRec = {epr:0, qty:0, grnCount:0, minDt:null, maxDt:null, minExp:null, maxExp:null};
   const datasets = seriesKeys.map((k,i)=>{
-    const color = k==='__other__' ? '#5C6773' : PALETTE[i % PALETTE.length];
-    const eprByIndex = [], data = [];
+    const color = PALETTE[i % PALETTE.length];
+    const data = [], meta = [];
     sortedUnits.forEach(u=>{
-      const rec = (byUnitKey.get(u)||new Map()).get(k) || {count:0, qty:0, epr:0};
+      const rec = (byUnitKey.get(u)||new Map()).get(k) || emptyRec;
       data.push(Math.round(metricValue(rec)));
-      eprByIndex.push(Math.round(rec.epr));
+      meta.push(rec);
     });
-    return { label: itemNameByKey[k], data, _eprByIndex: eprByIndex, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:52 };
+    return { label: itemNameByKey[k], data, _meta: meta, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:52 };
   });
 
   killChart('chartByUnit');
   const inner = document.getElementById('unitChartInner');
-  const width = Math.max(sortedUnits.length*90, inner.parentElement.clientWidth);
+  const width = Math.max(sortedUnits.length*140, inner.parentElement.clientWidth);
   inner.style.width = width+'px';
   const ctx = document.getElementById('chartByUnit').getContext('2d');
   charts['chartByUnit'] = new Chart(ctx, {
@@ -1099,13 +1120,22 @@ function renderUnitChart(units, unitItemAgg){
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
-        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        legend:{display:false},
         tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
-          callbacks:{ label: c => {
-            const ds = c.dataset;
-            const epr = ds._eprByIndex[c.dataIndex];
-            return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(epr);
-          } } }
+          callbacks:{
+            label: c => {
+              const ds = c.dataset, m = ds._meta[c.dataIndex];
+              return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(m.epr);
+            },
+            footer: items => {
+              if(!items.length) return [];
+              const c = items[0], ds = c.dataset, m = ds._meta[c.dataIndex];
+              return [
+                'Unit: '+sortedUnits[c.dataIndex]+' · Item: '+ds.label,
+                'GRN: '+fmtDateRange(m.minDt, m.maxDt)+' · Exp: '+fmtDateRange(m.minExp, m.maxExp)
+              ];
+            }
+          } }
       },
       scales:{
         x:{ stacked:true, ticks:{font:{size:11}}, grid:{display:false} },
@@ -1115,8 +1145,7 @@ function renderUnitChart(units, unitItemAgg){
   });
 }
 
-/* ---------- Top items procured, stacked by unit ---------- */
-const TOP_ITEMS_N = 15;
+/* ---------- Top items procured, stacked by unit -- every item, none capped ---------- */
 function renderTopItemsChart(units, unitItemAgg){
   const rows = unitItemAgg.filter(a=>units.includes(a.unit));
 
@@ -1124,39 +1153,40 @@ function renderTopItemsChart(units, unitItemAgg){
   const itemNameByKey = {};
   rows.forEach(a=>{
     const k = a.itemCode || ('NAME::'+a.itemName);
-    itemTotals.set(k, (itemTotals.get(k)||0) + metricValue({count:a.grnCount, qty:a.qty, epr:a.epr}));
+    itemTotals.set(k, (itemTotals.get(k)||0) + metricValue(a));
     if(!itemNameByKey[k]) itemNameByKey[k] = a.itemName;
   });
-  const topKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).slice(0, TOP_ITEMS_N).map(e=>e[0]);
-  const topSet = new Set(topKeys);
-  const labels = topKeys.map(k=>{
+  const itemKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const labels = itemKeys.map(k=>{
     const name = itemNameByKey[k] || k;
     return name.length>22 ? name.slice(0,20)+'…' : name;
   });
 
-  // item key -> unit -> {count, qty, epr}
+  // item key -> unit -> the (unit,item) row itself
   const byItemUnit = new Map();
   rows.forEach(a=>{
     const k = a.itemCode || ('NAME::'+a.itemName);
-    if(!topSet.has(k)) return;
     if(!byItemUnit.has(k)) byItemUnit.set(k, new Map());
-    byItemUnit.get(k).set(a.unit, {count:a.grnCount, qty:a.qty, epr:a.epr});
+    byItemUnit.get(k).set(a.unit, a);
   });
 
+  document.getElementById('topItemsTotalQty').textContent = rows.reduce((s,a)=>s+a.qty,0).toLocaleString('en-IN');
+
+  const emptyRec = {epr:0, qty:0, grnCount:0, minDt:null, maxDt:null, minExp:null, maxExp:null};
   const datasets = units.map(u=>{
     const color = unitColor(u);
-    const eprByIndex = [], data = [];
-    topKeys.forEach(k=>{
-      const rec = (byItemUnit.get(k)||new Map()).get(u) || {count:0, qty:0, epr:0};
+    const data = [], meta = [];
+    itemKeys.forEach(k=>{
+      const rec = (byItemUnit.get(k)||new Map()).get(u) || emptyRec;
       data.push(Math.round(metricValue(rec)));
-      eprByIndex.push(Math.round(rec.epr));
+      meta.push(rec);
     });
-    return { label: u, data, _eprByIndex: eprByIndex, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:44 };
+    return { label: u, data, _meta: meta, backgroundColor: color+'CC', borderColor: color, borderWidth:1, maxBarThickness:44 };
   });
 
   killChart('chartTopItems');
   const inner = document.getElementById('topItemsChartInner');
-  const width = Math.max((labels.length||1)*80, inner.parentElement.clientWidth);
+  const width = Math.max((labels.length||1)*90, inner.parentElement.clientWidth);
   inner.style.width = width+'px';
   const ctx = document.getElementById('chartTopItems').getContext('2d');
   charts['chartTopItems'] = new Chart(ctx, {
@@ -1167,11 +1197,21 @@ function renderTopItemsChart(units, unitItemAgg){
       plugins:{
         legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
         tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
-          callbacks:{ label: c => {
-            const ds = c.dataset;
-            const epr = ds._eprByIndex[c.dataIndex];
-            return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(epr);
-          } } }
+          callbacks:{
+            label: c => {
+              const ds = c.dataset, m = ds._meta[c.dataIndex];
+              return ds.label+': '+metricLabelPart(c.parsed.y)+' · EPR '+fmtINR(m.epr);
+            },
+            footer: items => {
+              if(!items.length) return [];
+              const c = items[0], ds = c.dataset, m = ds._meta[c.dataIndex];
+              const itemName = itemNameByKey[itemKeys[c.dataIndex]] || '';
+              return [
+                'Item: '+itemName+' · Unit: '+ds.label,
+                'GRN: '+fmtDateRange(m.minDt, m.maxDt)+' · Exp: '+fmtDateRange(m.minExp, m.maxExp)
+              ];
+            }
+          } }
       },
       scales:{
         x:{ stacked:true, ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
@@ -1392,18 +1432,39 @@ function renderPOChart(crossCheck){
 }
 
 /* ---------- Repeat local purchases ---------- */
-let LAST_REPEAT = [];
-function renderRepeatTable(itemAgg){
-  LAST_REPEAT = itemAgg.filter(r=>r.grnCount>1).sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
+let LAST_REPEAT_ITEM_AGG = [];
+let LAST_REPEAT_UNIT_ITEM_AGG = [];
+function buildRepeatUnitSelect(units){
+  const sel = document.getElementById('repeatUnitSelect');
+  if(!units.includes(repeatUnitFilter)) repeatUnitFilter = 'ALL';
+  sel.innerHTML = '<option value="ALL">All Units</option>' +
+    units.map(u=>`<option value="${escapeHtml(u)}"${u===repeatUnitFilter?' selected':''}>${escapeHtml(u)}</option>`).join('');
+  sel.onchange = () => { repeatUnitFilter = sel.value; drawRepeatTable(); };
+}
+function renderRepeatTable(itemAgg, unitItemAgg){
+  LAST_REPEAT_ITEM_AGG = itemAgg;
+  LAST_REPEAT_UNIT_ITEM_AGG = unitItemAgg;
   drawRepeatTable();
+}
+// "All Units" reads the item-level aggregate (a repeat can span units); picking one unit switches
+// to the unit-scoped aggregate, so "is Ecosprin there, how many times in DBG" reads DBG-only counts.
+function computeRepeatRows(){
+  if(repeatUnitFilter === 'ALL'){
+    return LAST_REPEAT_ITEM_AGG.filter(r=>r.grnCount>1)
+      .map(r=>({itemCode:r.itemCode, itemName:r.itemName, unitsLabel:r.units.join(', '), grnCount:r.grnCount, qty:r.qty, epr:r.epr}))
+      .sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
+  }
+  return LAST_REPEAT_UNIT_ITEM_AGG.filter(a=>a.unit===repeatUnitFilter && a.grnCount>1)
+    .map(a=>({itemCode:a.itemCode, itemName:a.itemName, unitsLabel:a.unit, grnCount:a.grnCount, qty:a.qty, epr:a.epr}))
+    .sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
 }
 function drawRepeatTable(){
   const q = (document.getElementById('searchRepeat').value||'').toLowerCase();
-  const rows = LAST_REPEAT.filter(r => !q || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q));
+  const rows = computeRepeatRows().filter(r => !q || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q));
   const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit(s)</th><th>Times Purchased Locally</th><th>Total Qty</th><th>Total EPR</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
-    `<tr class="flag-row"><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.units.join(', '))}</td><td class="num">${r.grnCount}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.epr)}</td></tr>`
-  ).join('') : `<tr><td colspan="6"><div class="empty-state">No item was purchased locally more than once in this filter.</div></td></tr>`;
+    `<tr class="flag-row"><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.unitsLabel)}</td><td class="num">${r.grnCount}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.epr)}</td></tr>`
+  ).join('') : `<tr><td colspan="6"><div class="empty-state">No item was purchased locally more than once ${repeatUnitFilter==='ALL'?'in this filter':'in '+escapeHtml(repeatUnitFilter)}.</div></td></tr>`;
   document.getElementById('tblRepeat').innerHTML = thead+'<tbody>'+body+'</tbody>';
 }
 document.getElementById('searchRepeat').addEventListener('input', drawRepeatTable);
@@ -1474,29 +1535,6 @@ function renderCompare(units, grnAggAll){
     return {unit:u, total, local, pct: total ? local/total*100 : 0};
   }).sort((a,b)=>b.total-a.total);
 
-  killChart('chartCompare');
-  const inner = document.getElementById('cmpChartInner');
-  const width = Math.max(rows.length*90, inner.parentElement.clientWidth);
-  inner.style.width = width+'px';
-  const ctx = document.getElementById('chartCompare').getContext('2d');
-  charts['chartCompare'] = new Chart(ctx, {
-    type:'bar',
-    data:{ labels: rows.map(r=>r.unit), datasets:[
-      { label:'Local Purchase Value (EPR)', data: rows.map(r=>Math.round(r.local)), backgroundColor:'#FB7185CC', borderColor:'#FB7185', borderWidth:1, borderRadius:4, maxBarThickness:32 },
-      { label:'Total Procurement Value (EPR)', data: rows.map(r=>Math.round(r.total)), backgroundColor:'#5B8DEFCC', borderColor:'#5B8DEF', borderWidth:1, borderRadius:4, maxBarThickness:32 }
-    ]},
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{display:true, labels:{color:'#D6DEE5', font:{size:11}}},
-        tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
-          callbacks:{ label: c => c.dataset.label+': '+fmtINR(c.parsed.y) } } },
-      scales:{
-        x:{ ticks:{font:{size:11}}, grid:{display:false} },
-        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>fmt(v)} }
-      }
-    }
-  });
-
   const thead = '<thead><tr><th>Unit</th><th>Local Purchase Value (EPR)</th><th>Total Procurement Value (EPR)</th><th>Local Share</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
     `<tr><td>${escapeHtml(r.unit)}</td><td class="num">${fmtINR(r.local)}</td><td class="num">${fmtINR(r.total)}</td>`+
@@ -1517,6 +1555,24 @@ function renderSearchableTable(tableId, searchId, headers, rowsHtml, rowsSearchT
   document.getElementById(searchId).oninput = draw;
   draw();
 }
+
+/* ---------- drag-to-scroll ("swipe") for every wide chart ---------- */
+function makeSwipable(el){
+  let dragging = false, startX = 0, startScroll = 0;
+  el.addEventListener('pointerdown', e=>{
+    dragging = true; startX = e.clientX; startScroll = el.scrollLeft;
+    try{ el.setPointerCapture(e.pointerId); }catch(err){}
+  });
+  el.addEventListener('pointermove', e=>{
+    if(!dragging) return;
+    el.scrollLeft = startScroll - (e.clientX - startX);
+  });
+  const stop = () => { dragging = false; };
+  el.addEventListener('pointerup', stop);
+  el.addEventListener('pointercancel', stop);
+  el.addEventListener('pointerleave', stop);
+}
+document.querySelectorAll('.scroll-chart-wrap').forEach(makeSwipable);
 </script>
 <!-- paras-command-centre-bridge -->
 <script>

@@ -563,6 +563,20 @@ window.__PARAS_REGISTRY__ = {
         "Ispackage",
         "Total EPR",
         "Total MRP"
+      ],
+      "parts": [
+        {
+          "id": "dept",
+          "name": "Department Consumption"
+        },
+        {
+          "id": "ip",
+          "name": "IP Pharmacy"
+        },
+        {
+          "id": "op",
+          "name": "OP Pharmacy"
+        }
       ]
     },
     {

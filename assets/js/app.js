@@ -598,35 +598,79 @@
   /* One drop box per kind of register. Dropping straight onto the right box
      is what decides where a file is filed, so there is no way to attach a
      file and then discover it went somewhere else. Clicking a box shows just
-     that section's files. */
+     that section's files; clicking it again shows everything.
+
+     A register that arrives split across several files for one month -- COGS
+     as department consumption, IP pharmacy and OP pharmacy -- gets a box per
+     piece. They all file into the same COGS data; the part only decides
+     which piece a re-upload replaces. */
+  function partsOf(dsId) {
+    var d = sectionById(dsId);
+    return (d && d.parts && d.parts.length) ? d.parts : null;
+  }
+  function partName(dsId, partId) {
+    var ps = partsOf(dsId) || [];
+    for (var i = 0; i < ps.length; i++) if (ps[i].id === partId) return ps[i].name;
+    return '';
+  }
+
   function renderSectionPicker() {
     var host = $('#sectionGrid');
     if (!host) return;
     var list = (REG && REG.datasets) || [];
     if (!list.length) { host.style.display = 'none'; return; }
     host.style.display = 'grid';
-    host.innerHTML =
-      '<button class="sec-box' + (section === '' ? ' on' : '') + '" data-sec="">' +
-        '<span class="sec-name">Data Library</span>' +
-        '<span class="sec-sub">files only — not filed</span>' +
-      '</button>' +
-      list.map(function (d) {
-        var st = storedFor(d.id);
+
+    var html = [];
+    list.forEach(function (d) {
+      var st = storedFor(d.id);
+      var parts = (d.parts && d.parts.length) ? d.parts : null;
+
+      if (!parts) {
         var sub = st && st.periods.length
           ? st.periods.length + (st.periods.length === 1 ? ' month · ' : ' months · ') + st.rows.toLocaleString() + ' rows'
           : 'nothing stored yet';
-        return '<button class="sec-box' + (section === d.id ? ' on' : '') + '" data-sec="' + esc(d.id) + '"' +
+        html.push('<button class="sec-box' + (section === d.id && !sectionPart ? ' on' : '') +
+          '" data-sec="' + esc(d.id) + '" data-part=""' +
           ' title="' + esc(d.hint || d.name) + '">' +
           '<span class="sec-name">' + esc(d.name) + '</span>' +
           '<span class="sec-sub">' + esc(sub) + '</span>' +
-          '</button>';
-      }).join('');
+          '</button>');
+        return;
+      }
+
+      parts.forEach(function (pt) {
+        // How much of this part is stored, across every month.
+        var months = 0, rows = 0;
+        ((st && st.periods) || []).forEach(function (per) {
+          (per.parts || []).forEach(function (pp) {
+            if (pp.part === pt.id) { months++; rows += pp.rows || 0; }
+          });
+        });
+        var psub = months
+          ? months + (months === 1 ? ' month · ' : ' months · ') + rows.toLocaleString() + ' rows'
+          : 'nothing stored yet';
+        html.push('<button class="sec-box part' + (section === d.id && sectionPart === pt.id ? ' on' : '') +
+          '" data-sec="' + esc(d.id) + '" data-part="' + esc(pt.id) + '"' +
+          ' title="' + esc(d.name + ' — ' + pt.name) + '">' +
+          '<span class="sec-name">' + esc(pt.name) + '</span>' +
+          '<span class="sec-sub"><em>' + esc(d.name) + '</em> · ' + esc(psub) + '</span>' +
+          '</button>');
+      });
+    });
+    host.innerHTML = html.join('');
     wireSectionDrops();
   }
 
   function wireSectionDrops() {
     $$('#sectionGrid .sec-box').forEach(function (box) {
-      box.addEventListener('click', function () { chooseSection(box.dataset.sec); });
+      box.addEventListener('click', function () {
+        // Clicking the box already selected clears it, which is how you get
+        // back to seeing every file now that there is no catch-all box.
+        var same = box.dataset.sec === section && (box.dataset.part || '') === sectionPart;
+        if (same) chooseSection('', '');
+        else chooseSection(box.dataset.sec, box.dataset.part || '');
+      });
       ['dragenter', 'dragover'].forEach(function (n) {
         box.addEventListener(n, function (e) {
           if (!hasFiles(e)) return;
@@ -641,14 +685,15 @@
         if (!hasFiles(e)) return;
         e.preventDefault(); e.stopPropagation();
         box.classList.remove('hot');
-        chooseSection(box.dataset.sec);
+        chooseSection(box.dataset.sec, box.dataset.part || '');
         addFiles(drawerScope(), e.dataTransfer.files);
       });
     });
   }
 
-  function chooseSection(id) {
+  function chooseSection(id, part) {
     section = id || '';
+    sectionPart = section ? (part || '') : '';
     invalidateFiles();
     renderDrawerHead(); renderSectionMonths(); renderFiles();
   }
@@ -663,15 +708,18 @@
     });
     var lib = drawerTab === 'library';
     var sec = lib && section ? sectionById(section) : null;
+    var pn = sec && sectionPart ? partName(section, sectionPart) : '';
     $('#sectionGrid').style.display = lib ? 'grid' : 'none';
-    $('#drawerTitle').textContent = !lib ? 'Pinned files' : (sec ? sec.name : 'Data Library');
+    $('#drawerTitle').textContent = !lib ? 'Pinned files'
+      : (sec ? (pn ? sec.name + ' — ' + pn : sec.name) : 'All files');
     $('#drawerFor').textContent = !lib
       ? 'Only on ' + (db ? db.name : 'this dashboard')
-      : (sec ? (sec.hint || 'Filed by month into the database') : 'Shared by every dashboard');
+      : (sec ? (pn ? 'One of the ' + sec.name + ' files for a month' : (sec.hint || 'Filed by month into the database'))
+             : 'Everything attached so far — choose a section above to file a new file');
     $('#dropHint').textContent = !lib
       ? 'SOPs and notes that belong to this dashboard only'
-      : (sec ? 'Name it with the month, e.g. "2026-07 ' + sec.name + '.csv"'
-             : 'Registers, GRN, transfers — dropped once, used everywhere');
+      : (sec ? 'Name it with the month, e.g. "2026-07 ' + (pn || sec.name) + '.csv"'
+             : 'Choose a section above first, so it can be filed into the database');
     $('#drawerTip').style.display = 'none';
     if (lib && drawerFor) {
       frameInputs(drawerFor).then(function (slots) {
@@ -685,11 +733,12 @@
      into one are kept apart from the others, and their contents are filed
      into that section's own table in the database, month by month, so July
      and August of the same register stack up instead of overwriting. */
-  var section = '';                 // '' = the shared library, otherwise a dataset id
+  var section = '';                 // '' = show everything, otherwise a dataset id
+  var sectionPart = '';             // which piece of a split register (COGS) is selected
   function sectionScope(id) { return 'ds:' + id; }
   function drawerScope() {
     if (drawerTab !== 'library') return drawerFor;
-    return section ? sectionScope(section) : w.Library.ID;
+    return section ? sectionScope(section) : ALL_FILES;
   }
   function sectionById(id) {
     var list = (REG && REG.datasets) || [];
@@ -782,9 +831,15 @@
   var fileCache = { scope: null, rows: null };
   function invalidateFiles() { fileCache.scope = null; fileCache.rows = null; }
 
+  var ALL_FILES = '\u0000all';    // not a real scope; means "do not filter"
+
   function loadFiles(scope) {
     if (fileCache.scope === scope && fileCache.rows) return Promise.resolve(fileCache.rows);
-    return w.Store.Files.list(scope).then(function (rows) {
+    // No section chosen: show everything in the library, including anything
+    // filed before the sections existed. Without this, removing the catch-all
+    // box would have left those files with nowhere to be seen.
+    var got = scope === ALL_FILES ? libraryFiles() : w.Store.Files.list(scope);
+    return got.then(function (rows) {
       rows = rows.slice().sort(function (a, b) { return b.addedAt - a.addedAt; });
       fileCache.scope = scope; fileCache.rows = rows;
       return rows;
@@ -991,8 +1046,32 @@
       box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>';
       return;
     }
-    box.innerHTML = '<span class="sm-head">' + d.rows.toLocaleString() + ' rows stored</span>' +
-      d.periods.map(function (p) {
+    // With a part selected, report that part alone: "3 months" ought to mean
+    // three months of IP pharmacy, not three months of COGS as a whole.
+    var pills = [], total = 0;
+    d.periods.forEach(function (p) {
+      if (sectionPart) {
+        var mine = (p.parts || []).filter(function (pp) { return pp.part === sectionPart; })[0];
+        if (!mine) return;
+        total += mine.rows;
+        pills.push({ period: p.period, rows: mine.rows, source: mine.source });
+      } else {
+        total += p.rows;
+        var made = (p.parts || []).filter(function (pp) { return pp.part; });
+        pills.push({ period: p.period, rows: p.rows,
+                     source: made.length > 1
+                       ? made.length + ' files: ' + made.map(function (pp) {
+                           return partName(section, pp.part) || pp.part;
+                         }).join(', ')
+                       : p.source });
+      }
+    });
+    if (!pills.length) {
+      box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>';
+      return;
+    }
+    box.innerHTML = '<span class="sm-head">' + total.toLocaleString() + ' rows stored</span>' +
+      pills.map(function (p) {
         return '<span class="sm-pill" title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows">' +
           esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b></span>';
       }).join('');
@@ -1120,6 +1199,7 @@
       return '<option value="' + y + '"' + (y === gy ? ' selected' : '') + '>' + y + '</option>';
     }).join('');
 
+    renderImportPart();
     $('#importFile').textContent = fileMeta.name;
     $('#importGuess').textContent = g
       ? 'Month and year read from the file name. Change them if that is not right.'
@@ -1164,6 +1244,31 @@
       return;
     }
     checkDup();
+  }
+
+  /* Which piece of a split register this import is. Only meaningful for a
+     dataset that declares parts; everything else files as the unnamed part,
+     which is how it has always behaved. */
+  function importPart() {
+    var ds = $('#importSection').value;
+    var ps = partsOf(ds);
+    if (!ps) return '';
+    var chosen = $('#importPart') && $('#importPart').value;
+    return chosen || (ds === section ? sectionPart : '') || ps[0].id;
+  }
+
+  /* Show the part chooser only when the chosen section actually has parts. */
+  function renderImportPart() {
+    var ds = $('#importSection').value;
+    var ps = partsOf(ds);
+    var wrap = $('#importPartWrap');
+    if (!ps) { wrap.style.display = 'none'; $('#importPart').innerHTML = ''; return; }
+    var want = (ds === section && sectionPart) ? sectionPart : ps[0].id;
+    $('#importPart').innerHTML = ps.map(function (pt) {
+      return '<option value="' + esc(pt.id) + '"' + (pt.id === want ? ' selected' : '') + '>' +
+        esc(pt.name) + '</option>';
+    }).join('');
+    wrap.style.display = 'block';
   }
 
   function importPeriod() {
@@ -1236,13 +1341,15 @@
       var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
       req = fetch('__data/import?dataset=' + encodeURIComponent(ds) +
                   '&period=' + encodeURIComponent(per) +
+                  '&part=' + encodeURIComponent(importPart()) +
                   '&source=' + encodeURIComponent(label),
                   { method: 'POST',
                     headers: { 'Content-Type': 'text/csv; charset=utf-8' },
                     body: new Blob([csv], { type: 'text/csv' }) });
     } else {
       req = fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
-                  '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per),
+                  '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per) +
+                  '&part=' + encodeURIComponent(importPart()),
                   { method: 'POST' });
     }
     req
@@ -1253,8 +1360,10 @@
         closeImport();
         return loadDbSummary().then(function () {
           renderSectionMonths();
+          var pnm = res.j.part ? partName(ds, res.j.part) : '';
           toast(res.j.rows.toLocaleString() + ' rows added to ' +
-            (sectionById(ds) || {}).name + ' for ' + per + '.', 'ok', 6000);
+            (sectionById(ds) || {}).name + (pnm ? ' — ' + pnm : '') +
+            ' for ' + per + '.', 'ok', 6000);
         });
       })
       .catch(function (e) {
@@ -1267,6 +1376,12 @@
   function addFiles(dashId, fileList) {
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
+    if (dashId === ALL_FILES) {
+      // The catch-all box is gone on purpose; quietly recreating it here by
+      // filing the drop as "unfiled" is exactly what was confusing before.
+      toast('Choose a section above first — that is what decides where the file is filed.', 'warn', 7000);
+      return;
+    }
     var db = dashId === w.Library.ID ? null : byId(dashId);
     // Name the section it actually went into. Saying "the Data Library" for a
     // file dropped into GRN Register reads like it was filed somewhere else.
@@ -1831,7 +1946,7 @@
     if (dr) dr.addEventListener('sheet:dismiss', function () { closeDrawer(); });
 
     /* drawer */
-    $('#importSection').addEventListener('change', checkDup);
+    $('#importSection').addEventListener('change', function () { renderImportPart(); checkDup(); });
     $('#importMonth').addEventListener('change', checkDup);
     $('#importYear').addEventListener('change', checkDup);
     $('#importCancel').addEventListener('click', closeImport);

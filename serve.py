@@ -309,6 +309,9 @@ def make_handler(prefix):
             file_id = (qs.get("fileId") or [""])[0]
             dataset = (qs.get("dataset") or [""])[0]
             period = (qs.get("period") or [""])[0]
+            # A register split across several files for one month names which
+            # piece this is, so the others are not replaced by it.
+            part = (qs.get("part") or [""])[0][:60]
 
             if file_id:
                 if not SAFE_ID.match(file_id):
@@ -320,7 +323,7 @@ def make_handler(prefix):
                     return
                 rec = next((f for f in library_read_index() if f.get("id") == file_id), None)
                 source = (rec or {}).get("name") or file_id
-                self._import_from(blob, dataset, period, source)
+                self._import_from(blob, dataset, period, source, part)
                 return
 
             # Body upload: CSV converted from a spreadsheet by the browser.
@@ -350,7 +353,7 @@ def make_handler(prefix):
                     # would quietly file half a month.
                     self._json(400, {"error": "upload was cut short (%d of %d bytes)" % (written, n)})
                     return
-                self._import_from(tmp, dataset, period, source)
+                self._import_from(tmp, dataset, period, source, part)
             finally:
                 if os.path.exists(tmp):
                     try:
@@ -358,10 +361,11 @@ def make_handler(prefix):
                     except OSError:
                         pass
 
-        def _import_from(self, path, dataset, period, source):
+        def _import_from(self, path, dataset, period, source, part=""):
             try:
-                out = store().import_csv(path, dataset, period, source=source)
-                print("  imported %s %s: %s rows from %s" % (dataset, period, out["rows"], source))
+                out = store().import_csv(path, dataset, period, source=source, part=part)
+                print("  imported %s %s%s: %s rows from %s"
+                      % (dataset, period, (" [" + part + "]") if part else "", out["rows"], source))
                 self._json(200, out)
             except Exception as exc:                      # noqa: BLE001
                 self._json(400, {"error": str(exc)})
@@ -370,7 +374,8 @@ def make_handler(prefix):
             try:
                 dataset = tail[0]
                 period = tail[1] if len(tail) > 1 else None
-                store().drop(dataset, period)
+                part = tail[2] if len(tail) > 2 else None
+                store().drop(dataset, period, part)
                 self._json(200, {"ok": True})
             except Exception as exc:                      # noqa: BLE001
                 self._json(400, {"error": str(exc)})

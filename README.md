@@ -371,6 +371,29 @@ year prompt in turn, rather than only the first one being offered.
 Anything that cannot go into the database — a PDF, an image — still attaches
 as a file, and says so rather than appearing to have worked.
 
+**A register that comes in several files.** COGS arrives as three exports for
+the same month — Department Consumption, IP Pharmacy and OP Pharmacy — so it
+has a drop box each. All three file into the same COGS data and add up into
+one month; the part only decides which piece a re-upload replaces. Drop a
+corrected IP Pharmacy file and the other two stay exactly as they were.
+
+To split another register the same way, give it a `parts` list in
+`dashboards.json`:
+
+```json
+{ "id": "cogs", "name": "COGS",
+  "parts": [
+    { "id": "dept", "name": "Department Consumption" },
+    { "id": "ip",   "name": "IP Pharmacy" },
+    { "id": "op",   "name": "OP Pharmacy" }
+  ] }
+```
+
+**Choosing a section is what files a file.** There is no unfiled drop box:
+dropping with no section chosen is refused rather than quietly leaving the
+file out of the database. Click a chosen box again to clear it and see every
+attached file at once.
+
 | File | Goes to |
 |---|---|
 | Purchase Register | Procurement Operations, Non-Formulary |

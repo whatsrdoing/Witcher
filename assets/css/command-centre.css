@@ -966,6 +966,9 @@ a{color:var(--brand-soft); text-decoration:none;}
 }
 .sec-box:hover{background:var(--glass-2); border-color:var(--glass-3);}
 .sec-box:active{transform:scale(.985); transition-duration:.09s;}
+/* A box for one piece of a split register. The parent register's name sits
+   under the part name, so three COGS boxes in a row still read as COGS. */
+.sec-box.part .sec-sub em{font-style:normal; font-weight:700; color:var(--brand-soft); letter-spacing:.02em;}
 .sec-box.on{
   border-style:solid; border-color:var(--brand-bright); background:var(--glass-2);
   box-shadow:0 0 0 2px color-mix(in srgb, var(--brand-bright) 22%, transparent);

@@ -527,6 +527,16 @@
         <select id="importSection"></select>
       </div>
 
+      <!-- Only for a register that arrives split across several files for one
+           month. Re-uploading replaces just the piece named here. -->
+      <div id="importPartWrap" style="display:none">
+        <label class="gate-label" for="importPart">Which part</label>
+        <div class="gate-field">
+          <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h7v12H4zM13 6h7v5h-7zM13 13h7v5h-7z"/></svg>
+          <select id="importPart"></select>
+        </div>
+      </div>
+
       <label class="gate-label">Which month is this data for?</label>
       <div class="gate-2col">
         <div class="gate-col">

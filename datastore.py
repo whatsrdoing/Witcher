@@ -24,7 +24,7 @@ import time
 # rather than trusted.
 SAFE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
 BATCH = 20000                       # rows per executemany; keeps memory flat
-META = ("_period", "_source", "_rowno")
+META = ("_period", "_source", "_rowno", "_part")
 
 # Columns worth an index: the ones a single record is looked up by, which in
 # practice means identifiers -- a column *ending* in code/no/id, not merely
@@ -59,10 +59,42 @@ class DataStore:
         self.con.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer
         self.con.execute("PRAGMA synchronous=NORMAL")
         self.con.execute("""CREATE TABLE IF NOT EXISTS _imports (
-                dataset TEXT, period TEXT, source TEXT, rows INTEGER,
+                dataset TEXT, period TEXT, part TEXT DEFAULT '', source TEXT, rows INTEGER,
                 columns INTEGER, imported_at INTEGER,
-                PRIMARY KEY (dataset, period))""")
+                PRIMARY KEY (dataset, period, part))""")
         self.con.commit()
+        self._migrate_parts()
+
+    def _migrate_parts(self):
+        """Bring a store written before parts existed up to date.
+
+        Some registers arrive split across several files for the same month --
+        COGS comes as department consumption, IP pharmacy and OP pharmacy --
+        and each has to be able to land, and be replaced, without disturbing
+        the others. That needs a part alongside the period.
+
+        Existing rows belong to the single unnamed part, so they become ''.
+        SQLite cannot alter a primary key, so _imports is rebuilt; the data
+        tables only need a column added, which is cheap and non-destructive.
+        """
+        cols = [r[1] for r in self.con.execute("PRAGMA table_info(_imports)")]
+        if "part" in cols:
+            return
+        self.con.execute("BEGIN")
+        try:
+            self.con.execute("""CREATE TABLE _imports_new (
+                    dataset TEXT, period TEXT, part TEXT DEFAULT '', source TEXT, rows INTEGER,
+                    columns INTEGER, imported_at INTEGER,
+                    PRIMARY KEY (dataset, period, part))""")
+            self.con.execute("""INSERT INTO _imports_new
+                    (dataset, period, part, source, rows, columns, imported_at)
+                    SELECT dataset, period, '', source, rows, columns, imported_at FROM _imports""")
+            self.con.execute("DROP TABLE _imports")
+            self.con.execute("ALTER TABLE _imports_new RENAME TO _imports")
+            self.con.commit()
+        except Exception:
+            self.con.rollback()
+            raise
 
     def close(self):
         self.con.close()
@@ -88,11 +120,18 @@ class DataStore:
         have = self._existing_columns(table)
         if not have:
             cols = ", ".join('"%s" TEXT' % c for c in columns)
-            self.con.execute('CREATE TABLE %s (_period TEXT, _source TEXT, _rowno INTEGER, %s)'
-                             % (table, cols))
+            self.con.execute("CREATE TABLE %s (_period TEXT, _source TEXT, _rowno INTEGER, "
+                             "_part TEXT DEFAULT '', %s)" % (table, cols))
             self.con.execute('CREATE INDEX "ix_%s_period" ON %s(_period)' % (table, table))
             self.con.commit()
             return columns, []
+        if "_part" not in have:
+            # A table written before parts existed. Everything in it belongs
+            # to the single unnamed part, which is what the default gives it.
+            self.con.execute("ALTER TABLE %s ADD COLUMN _part TEXT DEFAULT ''" % table)
+            self.con.execute("UPDATE %s SET _part='' WHERE _part IS NULL" % table)
+            self.con.commit()
+            have = self._existing_columns(table)
         added = [c for c in columns if c not in have]
         for c in added:
             self.con.execute('ALTER TABLE %s ADD COLUMN "%s" TEXT' % (table, c))
@@ -101,19 +140,26 @@ class DataStore:
         return columns, added
 
     # ---- import ---------------------------------------------------------
-    def import_csv(self, path, dataset, period, source=None, progress=None):
-        """Load one CSV as one dataset+period. Re-importing replaces it.
+    def import_csv(self, path, dataset, period, source=None, progress=None, part=""):
+        """Load one CSV as one dataset+period+part. Re-importing replaces it.
 
         Replacing rather than appending is deliberate: uploading July twice
         should leave one July, not two. Everything happens in a single
         transaction, so a failure half way leaves the previous import intact
         instead of a half-loaded month.
+
+        A register that arrives split across several files for the same month
+        -- COGS as department consumption, IP pharmacy and OP pharmacy --
+        names each one as a part. Replacement is then scoped to that part, so
+        re-uploading IP pharmacy leaves the other two where they are. A
+        register that arrives whole simply uses the unnamed part.
         """
         if not str(period or "").strip():
             raise DataStoreError("a period is required (e.g. 2026-07)")
         table = self._table(dataset)
         source = source or os.path.basename(path)
         period = str(period).strip()
+        part = str(part or "").strip()
 
         with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
             reader = csv.reader(fh)
@@ -136,8 +182,8 @@ class DataStore:
 
             self._ensure_table(table, cols)
             ncols = len(cols)
-            placeholders = ",".join("?" * (3 + ncols))
-            sql = 'INSERT INTO %s (_period,_source,_rowno,%s) VALUES (%s)' % (
+            placeholders = ",".join("?" * (4 + ncols))
+            sql = 'INSERT INTO %s (_period,_source,_rowno,_part,%s) VALUES (%s)' % (
                 table, ",".join('"%s"' % c for c in cols), placeholders)
 
             t0 = time.time()
@@ -149,7 +195,11 @@ class DataStore:
             self._drop_indexes(table)
             try:
                 self.con.execute("BEGIN")
-                self.con.execute("DELETE FROM %s WHERE _period=?" % table, (period,))
+                # COALESCE so rows written before parts existed (NULL) are
+                # treated as the unnamed part rather than surviving forever.
+                self.con.execute(
+                    "DELETE FROM %s WHERE _period=? AND COALESCE(_part,'')=?" % table,
+                    (period, part))
                 batch = []
                 for row in reader:
                     n += 1
@@ -157,7 +207,7 @@ class DataStore:
                         row = row + [""] * (ncols - len(row))
                     elif len(row) > ncols:
                         row = row[:ncols]          # trailing junk, not our business
-                    batch.append((period, source, n, *row))
+                    batch.append((period, source, n, part, *row))
                     if len(batch) >= BATCH:
                         self.con.executemany(sql, batch)
                         batch = []
@@ -166,8 +216,8 @@ class DataStore:
                 if batch:
                     self.con.executemany(sql, batch)
                 self.con.execute(
-                    "INSERT OR REPLACE INTO _imports VALUES (?,?,?,?,?,?)",
-                    (dataset, period, source, n, ncols, int(time.time() * 1000)))
+                    "INSERT OR REPLACE INTO _imports VALUES (?,?,?,?,?,?,?)",
+                    (dataset, period, part, source, n, ncols, int(time.time() * 1000)))
                 self.con.commit()
             except Exception:
                 self.con.rollback()
@@ -176,7 +226,7 @@ class DataStore:
                 # Rebuilt even if the load failed, so a bad import never
                 # leaves the store slow to search.
                 self._build_indexes(table, cols)
-        return {"dataset": dataset, "period": period, "source": source,
+        return {"dataset": dataset, "period": period, "part": part, "source": source,
                 "rows": n, "columns": ncols, "seconds": round(time.time() - t0, 1)}
 
     def _drop_indexes(self, table):
@@ -210,12 +260,28 @@ class DataStore:
 
     # ---- reading --------------------------------------------------------
     def datasets(self):
+        """What is in the store, grouped by dataset then period.
+
+        A period can be made of several parts, so each period reports its
+        parts as well as its total -- otherwise a COGS month built from three
+        files would look like three separate months.
+        """
         out = {}
-        for ds, per, src, rows, ncols, at in self.con.execute(
-                "SELECT dataset,period,source,rows,columns,imported_at FROM _imports ORDER BY dataset,period"):
+        for ds, per, part, src, rows, ncols, at in self.con.execute(
+                "SELECT dataset,period,part,source,rows,columns,imported_at "
+                "FROM _imports ORDER BY dataset,period,part"):
             d = out.setdefault(ds, {"dataset": ds, "periods": [], "rows": 0})
-            d["periods"].append({"period": per, "source": src, "rows": rows,
-                                 "columns": ncols, "importedAt": at})
+            slot = next((p for p in d["periods"] if p["period"] == per), None)
+            if slot is None:
+                slot = {"period": per, "source": src, "rows": 0, "columns": ncols,
+                        "importedAt": at, "parts": []}
+                d["periods"].append(slot)
+            slot["parts"].append({"part": part or "", "source": src, "rows": rows,
+                                  "columns": ncols, "importedAt": at})
+            slot["rows"] += rows
+            if at > slot["importedAt"]:
+                slot["importedAt"] = at
+                slot["source"] = src
             d["rows"] += rows
         return list(out.values())
 
@@ -272,9 +338,15 @@ class DataStore:
             n += 1
         return n
 
-    def drop(self, dataset, period=None):
+    def drop(self, dataset, period=None, part=None):
         table = self._table(dataset)
-        if period:
+        if period and part is not None:
+            # One part of one month, leaving the rest of that month alone.
+            self.con.execute("DELETE FROM %s WHERE _period=? AND COALESCE(_part,'')=?" % table,
+                             (period, part))
+            self.con.execute("DELETE FROM _imports WHERE dataset=? AND period=? AND part=?",
+                             (dataset, period, part))
+        elif period:
             self.con.execute("DELETE FROM %s WHERE _period=?" % table, (period,))
             self.con.execute("DELETE FROM _imports WHERE dataset=? AND period=?", (dataset, period))
         else:

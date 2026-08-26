@@ -110,7 +110,16 @@
         hint: String(x.hint || ''),
         // Columns a file of this kind really has, so one dropped into the
         // wrong section can be spotted from its header row.
-        needs: Array.isArray(x.needs) ? x.needs : []
+        needs: Array.isArray(x.needs) ? x.needs : [],
+        // A register that arrives split across several files for one month
+        // (COGS: department consumption, IP pharmacy, OP pharmacy). Each part
+        // gets its own drop box and is replaced independently.
+        parts: (Array.isArray(x.parts) ? x.parts : [])
+          .map(function (pt, k) {
+            return { id: String(pt.id || ('part' + (k + 1))),
+                     name: String(pt.name || pt.id || ('Part ' + (k + 1))) };
+          })
+          .filter(function (pt) { return pt.id; })
       };
     });
 

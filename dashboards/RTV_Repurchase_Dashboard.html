@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><!-- paras-command-centre-session-guard -->
+<script>
+/* Makes a dashboard's own localStorage-based "remember my data" behave the
+ * same way the Command Centre's SESSION / LOCAL switch already behaves for
+ * the shell itself: SESSION starts every dashboard fresh, like a private
+ * window, and keeps whatever it saves only until this tab closes; LOCAL
+ * keeps what the dashboard saved, same as today.
+ *
+ * Must run before anything else on the page, because some dashboards read
+ * localStorage synchronously while parsing the body (auto-restoring a
+ * previous upload) -- by the time a script at the bottom of the page ran,
+ * that read would already have happened. Runs before the dashboard's own
+ * markup or scripts, and never touches how the dashboard's code is written.
+ *
+ * Dashboards share the same browser origin as the Command Centre shell, so
+ * this read of 'paras.cc.mode' sees the shell's real, current mode with no
+ * cross-window messaging needed. Session mode is backed by sessionStorage --
+ * the same "gone when this tab closes" store the shell itself already uses
+ * for its own Session-mode data -- so a reload mid-session still sees what
+ * was just saved, only a fresh tab starts clean.
+ */
+(function (w) {
+  'use strict';
+  try {
+    if (w.localStorage.getItem('paras.cc.mode') !== 'session') return;
+    Object.defineProperty(w, 'localStorage', {
+      value: w.sessionStorage, configurable: true, enumerable: true,
+    });
+  } catch (e) { /* storage unavailable or non-configurable -- leave real localStorage alone */ }
+})(window);
+</script>
+<!-- /paras-command-centre-session-guard -->
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTV & Repurchase Dashboard</title>
+<script src="../assets/vendor/papaparse-5.4.1.min.js"></script>
+<script src="../assets/vendor/chart.umd-4.5.1.js"></script>
+<style>
+:root{
+  --navy:#1a3a68; --navy2:#24487e; --accent:#2c5aa1; --accent2:#5b8fd6;
+  --amber:#e0912f; --red:#d9534f; --green:#3f9c5d; --bg:#eef2f8; --card:#ffffff;
+  --text:#16263f; --muted:#5f6c7d; --border:rgba(255,255,255,.6);
+  --shadow: 0 8px 30px rgba(26,58,104,.10), 0 2px 8px rgba(26,58,104,.06);
+  --glass-bg: rgba(255,255,255,.58);
+  --glass-bg-strong: rgba(255,255,255,.74);
+  --glass-border: rgba(255,255,255,.65);
+  --glass-blur: blur(18px) saturate(160%);
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Arial,sans-serif;
+  color:var(--text);
+  background:
+    radial-gradient(900px 500px at 8% -8%, rgba(91,143,214,.35), transparent 60%),
+    radial-gradient(800px 480px at 108% 8%, rgba(44,90,161,.22), transparent 55%),
+    radial-gradient(700px 520px at 50% 110%, rgba(117,125,135,.18), transparent 55%),
+    linear-gradient(160deg, #eef2f8 0%, #e6ecf5 45%, #eef1f6 100%);
+  background-attachment:fixed;
+  min-height:100vh;
+}
+.wrap{max-width:1360px;margin:0 auto;padding:24px 28px 60px;}
+.glass{
+  background:var(--glass-bg);
+  -webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
+  box-shadow:var(--shadow);
+  position:relative;
+}
+.glass::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(135deg, rgba(255,255,255,.55) 0%, rgba(255,255,255,0) 30%, rgba(255,255,255,0) 70%, rgba(255,255,255,.12) 100%);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
+  .glass{ background:rgba(255,255,255,.92); }
+}
+
+/* Header */
+.topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:22px;padding:14px 20px;border-radius:18px;}
+.brand-lockup{display:flex;align-items:center;gap:16px;}
+.brand-logo{height:44px;width:auto;display:block;filter:drop-shadow(0 2px 6px rgba(26,58,104,.15));}
+.brand-divider{width:1px;align-self:stretch;background:linear-gradient(rgba(26,58,104,0), rgba(26,58,104,.25), rgba(26,58,104,0));}
+.brand{display:flex;flex-direction:column;gap:3px;}
+.brand h1{margin:0;font-size:21px;font-weight:700;color:var(--navy);letter-spacing:-.01em;}
+.brand span{font-size:12.5px;color:var(--muted);}
+.brand .credit{font-size:11.5px;color:var(--accent);font-weight:600;letter-spacing:.02em;display:inline-flex;align-items:center;gap:6px;}
+.brand .credit::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent2);display:inline-block;}
+.toggle-group{display:flex;background:rgba(255,255,255,.35);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.55);border-radius:12px;padding:4px;gap:4px;}
+.toggle-btn{border:none;background:transparent;padding:10px 20px;border-radius:9px;font-size:14px;font-weight:600;color:var(--navy2);cursor:pointer;transition:.18s;}
+.toggle-btn.active{background:linear-gradient(135deg, var(--accent), var(--navy));color:#fff;box-shadow:0 4px 14px rgba(44,90,161,.35);}
+.toggle-btn:not(.active):hover{background:rgba(255,255,255,.6);}
+.change-files-btn{border:1px solid var(--glass-border);background:var(--glass-bg);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:var(--navy2);padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;}
+.change-files-btn:hover{background:rgba(255,255,255,.8);}
+
+/* Upload screen */
+.upload-screen{display:flex;align-items:center;justify-content:center;min-height:70vh;}
+.upload-card{border-radius:20px;padding:36px 40px;max-width:760px;width:100%;}
+.upload-card h2{margin:0 0 6px;color:var(--navy);font-size:20px;}
+.upload-card p.desc{color:var(--muted);font-size:13px;margin:0 0 26px;}
+.drop-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px;}
+.dropzone{border:2px dashed rgba(44,90,161,.28);border-radius:14px;padding:26px 18px;text-align:center;cursor:pointer;transition:.15s;background:rgba(255,255,255,.35);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);}
+.dropzone:hover, .dropzone.dragover{border-color:var(--accent);background:rgba(240,246,253,.65);}
+.dropzone.filled{border-style:solid;border-color:var(--green);background:rgba(242,250,244,.65);}
+.dropzone .icon{font-size:30px;margin-bottom:8px;}
+.dropzone .title{font-weight:700;color:var(--navy);font-size:14px;margin-bottom:4px;}
+.dropzone .hint{font-size:12px;color:var(--muted);}
+.dropzone .filename{font-size:12px;color:var(--green);font-weight:600;margin-top:8px;word-break:break-all;}
+.dropzone input{display:none;}
+.upload-actions{display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;}
+.primary-btn{background:linear-gradient(135deg, var(--accent), var(--navy));color:#fff;border:none;padding:11px 22px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(44,90,161,.3);}
+.primary-btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none;}
+.primary-btn:not(:disabled):hover{filter:brightness(1.08);}
+.status-msg{font-size:12.5px;color:var(--muted);}
+.status-msg.error{color:var(--red);font-weight:600;}
+.status-msg.ok{color:var(--green);font-weight:600;}
+.col-note{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5;}
+
+/* KPI */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:20px;}
+.kpi-card{border-radius:14px;padding:16px 18px;}
+.kpi-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+.kpi-value{font-size:26px;font-weight:700;color:var(--navy);margin-top:6px;}
+.kpi-sub{font-size:12px;color:var(--muted);margin-top:4px;}
+
+/* Chart row */
+.chart-row{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:20px;}
+.chart-card{border-radius:14px;padding:16px 18px;}
+.chart-card h3{margin:0 0 10px;font-size:14px;color:var(--navy);font-weight:700;}
+.chart-card .canvas-box{position:relative;height:260px;}
+
+/* Filters */
+.filter-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;border-radius:14px;padding:12px 16px;margin-bottom:18px;position:relative;z-index:5;}
+.filter-field{display:flex;flex-direction:column;gap:4px;}
+.filter-field label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;}
+.filter-bar select, .filter-bar input[type=text]{border:1px solid rgba(44,90,161,.18);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text);background:rgba(255,255,255,.7);}
+.filter-bar input[type=text]{min-width:220px;}
+.filter-bar .spacer{flex:1;}
+.reset-btn{background:rgba(255,255,255,.5);border:1px solid rgba(44,90,161,.18);color:var(--navy2);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;align-self:flex-end;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);}
+.reset-btn:hover{background:rgba(255,255,255,.85);}
+
+/* Multi-select dropdown */
+.multiselect{position:relative;}
+.ms-btn{border:1px solid rgba(44,90,161,.18);border-radius:8px;padding:7px 10px;font-size:13px;color:var(--text);background:rgba(255,255,255,.7);cursor:pointer;min-width:170px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.ms-btn:hover{border-color:var(--accent);}
+.ms-btn .arrow{font-size:10px;color:var(--muted);}
+.ms-panel{display:none;position:absolute;top:calc(100% + 4px);left:0;background:rgba(255,255,255,.88);-webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%);border:1px solid var(--glass-border);border-radius:12px;box-shadow:0 12px 32px rgba(26,58,104,.18);min-width:230px;max-width:320px;z-index:50;padding:8px;}
+.ms-panel.open{display:block;}
+.ms-search{width:100%;border:1px solid rgba(44,90,161,.18);border-radius:7px;padding:6px 9px;font-size:12.5px;margin-bottom:6px;background:rgba(255,255,255,.8);}
+.ms-actions{display:flex;gap:8px;padding:2px 4px 8px;border-bottom:1px solid rgba(44,90,161,.12);margin-bottom:6px;}
+.ms-actions button{background:rgba(238,242,247,.9);border:none;border-radius:6px;padding:4px 10px;font-size:11.5px;font-weight:600;color:var(--navy2);cursor:pointer;}
+.ms-actions button:hover{background:#e2e8f0;}
+.ms-options{max-height:220px;overflow-y:auto;}
+.ms-option{display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;font-size:13px;cursor:pointer;}
+.ms-option:hover{background:rgba(240,245,250,.9);}
+.ms-option input{margin:0;}
+.ms-empty{font-size:12px;color:var(--muted);padding:8px;text-align:center;}
+
+/* Bucket pills for repurchase */
+.bucket-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
+.bucket-card{border-radius:14px;padding:14px 16px;cursor:pointer;transition:.15s;}
+.bucket-card:hover{transform:translateY(-2px);}
+.bucket-card.active{outline:2px solid var(--navy);}
+.bucket-card .n{font-size:22px;font-weight:700;}
+.bucket-card .l{font-size:12px;color:var(--muted);font-weight:600;margin-top:2px;}
+.bucket-b10{border-left:4px solid var(--green);}
+.bucket-b20{border-left:4px solid var(--accent);}
+.bucket-b30{border-left:4px solid var(--amber);}
+.bucket-not{border-left:4px solid var(--red);}
+
+/* Table -- kept mostly opaque for legibility & scroll performance on large datasets */
+.table-card{border-radius:14px;padding:0;overflow:hidden;}
+.table-card .table-head{padding:14px 18px;border-bottom:1px solid rgba(44,90,161,.12);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;background:rgba(255,255,255,.3);}
+.table-card .table-head h3{margin:0;font-size:14px;color:var(--navy);}
+.table-scroll{overflow-x:auto;max-height:520px;overflow-y:auto;background:rgba(255,255,255,.82);}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+thead th{position:sticky;top:0;background:linear-gradient(135deg, var(--navy2), var(--navy));color:#fff;text-align:left;padding:10px 12px;font-weight:600;white-space:nowrap;cursor:pointer;user-select:none;}
+thead th:hover{filter:brightness(1.12);}
+thead th.group-return{background:linear-gradient(135deg,#1c4a72,#173a5e);}
+thead th.group-repurchase{background:linear-gradient(135deg,#25578a,#1c4a72);}
+thead th.col-remarks{cursor:default;}
+tbody td{padding:9px 12px;border-bottom:1px solid #eef1f6;white-space:nowrap;}
+tbody td.remarks-cell{white-space:normal;max-width:220px;color:var(--muted);font-style:italic;}
+tbody tr:hover{background:#f0f5fa;}
+tbody td.col-pair-a{background:#f7fafd;}
+tbody td.col-pair-b{background:#fbf8f2;}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;}
+.badge-yes{background:#e5f5ea;color:var(--green);}
+.badge-no{background:#fdecea;color:var(--red);}
+.badge-b10{background:#e5f5ea;color:var(--green);}
+.badge-b20{background:#e6f0fb;color:var(--accent);}
+.badge-b30{background:#fdf1e0;color:var(--amber);}
+.badge-not{background:#fdecea;color:var(--red);}
+.num{text-align:right;font-variant-numeric:tabular-nums;}
+
+/* Pagination */
+.pagination{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid rgba(44,90,161,.12);background:rgba(255,255,255,.35);flex-wrap:wrap;}
+.pagination .pg-info{font-size:12px;color:var(--muted);}
+.pagination .spacer{flex:1;}
+.pg-btn{background:rgba(255,255,255,.7);border:1px solid rgba(44,90,161,.18);color:var(--navy2);padding:6px 12px;border-radius:7px;font-size:12.5px;font-weight:600;cursor:pointer;}
+.pg-btn:hover:not(:disabled){background:#fff;}
+.pg-btn:disabled{opacity:.4;cursor:not-allowed;}
+.pg-size select{border:1px solid rgba(44,90,161,.18);border-radius:7px;padding:5px 8px;font-size:12.5px;background:rgba(255,255,255,.75);}
+
+.col-unit{display:none;}
+body.show-units .col-unit{display:table-cell;}
+.footer-note{margin-top:16px;font-size:12px;color:var(--muted);text-align:center;}
+.view{display:none;}
+.view.active{display:block;}
+.hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar glass">
+    <div class="brand-lockup">
+      <img class="brand-logo" src="data:image/png;base64,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" alt="Paras Health logo">
+      <div class="brand-divider"></div>
+      <div class="brand">
+        <h1>Returns & Repurchase Intelligence</h1>
+        <span>Consignment Stores &middot; RTV and GRN linked analysis</span>
+        <span class="credit">Ritik Nagar &middot; Supply Chain Management</span>
+      </div>
+    </div>
+    <div class="toggle-group hidden" id="toggleGroup">
+      <button class="toggle-btn active" id="btnRTV" onclick="showView('rtv')">RTV Dashboard</button>
+      <button class="toggle-btn" id="btnRP" onclick="showView('repurchase')">Repurchase Analysis</button>
+    </div>
+    <button class="change-files-btn hidden" id="changeFilesBtn" onclick="showUploadScreen()">Change Files</button>
+  </div>
+
+  <!-- ============ UPLOAD SCREEN ============ -->
+  <div class="upload-screen" id="uploadScreen">
+    <div class="upload-card glass">
+      <h2>Upload Your Reports</h2>
+      <p class="desc">Upload the RTV (Return to Vendor) report and the GRN (Goods Receipt Note) report to build the dashboards. Files stay in your browser — nothing is uploaded to a server.</p>
+
+      <div class="drop-grid">
+        <div class="dropzone" id="dzRTV" onclick="document.getElementById('fileRTV').click()">
+          <div class="icon">📤</div>
+          <div class="title">RTV Report (CSV)</div>
+          <div class="hint">Click or drag your RTV .csv file here</div>
+          <div class="filename" id="rtvFileName"></div>
+          <input type="file" id="fileRTV" accept=".csv,text/csv">
+        </div>
+        <div class="dropzone" id="dzGRN" onclick="document.getElementById('fileGRN').click()">
+          <div class="icon">📤</div>
+          <div class="title">GRN Report (CSV)</div>
+          <div class="hint">Click or drag your GRN .csv file here</div>
+          <div class="filename" id="grnFileName"></div>
+          <input type="file" id="fileGRN" accept=".csv,text/csv">
+        </div>
+      </div>
+
+      <div class="upload-actions">
+        <button class="primary-btn" id="buildBtn" disabled onclick="buildDashboards()">Build Dashboards</button>
+        <span class="status-msg" id="statusMsg"></span>
+      </div>
+      <div class="col-note">Expected RTV columns include: Return Date, Return No, Supplier Name, Store, Item Id, Item Code, Item Name, Item SubCategory, Return Qty., Total Value, GRN No., Reason For Return. &nbsp;|&nbsp; Expected GRN columns include: GRN Date, GRN No., Item Id, Item Code, Received Qty., Total Value.</div>
+    </div>
+  </div>
+
+  <!-- ============ RTV DASHBOARD VIEW ============ -->
+  <div class="view" id="view-rtv">
+
+    <div class="filter-bar glass" id="rtvFilterBar">
+      <div class="filter-field hidden" id="rtvUnitField">
+        <label>Unit (multi-select)</label>
+        <div class="multiselect" id="msRtvUnit">
+          <button type="button" class="ms-btn" onclick="toggleMS('msRtvUnit')"><span id="msRtvUnitLabel">All Units</span><span class="arrow">▾</span></button>
+          <div class="ms-panel" id="msRtvUnitPanel"></div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>Store (multi-select)</label>
+        <div class="multiselect" id="msRtvStore">
+          <button type="button" class="ms-btn" onclick="toggleMS('msRtvStore')"><span id="msRtvStoreLabel">All Stores</span><span class="arrow">▾</span></button>
+          <div class="ms-panel" id="msRtvStorePanel"></div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>Supplier</label>
+        <select id="rtvSupplier"><option value="">All</option></select>
+      </div>
+      <div class="filter-field">
+        <label>Category</label>
+        <select id="rtvCategory"><option value="">All</option></select>
+      </div>
+      <div class="spacer"></div>
+      <div class="filter-field">
+        <label>Search Item Code / Name</label>
+        <input type="text" id="rtvSearch" placeholder="e.g. PMEDMES01453 or mesh">
+      </div>
+      <button class="reset-btn" onclick="resetRTVFilters()">Reset</button>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card glass"><div class="kpi-label">Total Returns</div><div class="kpi-value" id="kRtvCount">0</div><div class="kpi-sub">Return line items</div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Total Return Value</div><div class="kpi-value" id="kRtvValue">₹0</div><div class="kpi-sub" id="kRtvValueSub"></div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Total Return Qty</div><div class="kpi-value" id="kRtvQty">0</div><div class="kpi-sub">Units returned</div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Unique Suppliers</div><div class="kpi-value" id="kRtvSuppliers">0</div><div class="kpi-sub" id="kRtvStores"></div></div>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-card glass">
+        <h3>Return Value by Supplier</h3>
+        <div class="canvas-box"><canvas id="chartRtvSupplier"></canvas></div>
+      </div>
+      <div class="chart-card glass">
+        <h3>Return Value by Category</h3>
+        <div class="canvas-box"><canvas id="chartRtvCategory"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-card glass">
+        <h3>Returns Over Time</h3>
+        <div class="canvas-box"><canvas id="chartRtvTrend"></canvas></div>
+      </div>
+      <div class="chart-card glass">
+        <h3>Return Value by Store</h3>
+        <div class="canvas-box"><canvas id="chartRtvStore"></canvas></div>
+      </div>
+    </div>
+
+    <div class="table-card glass">
+      <div class="table-head"><h3>Return-to-Vendor Detail</h3><span id="rtvTableCount" style="font-size:12px;color:var(--muted);"></span></div>
+      <div class="table-scroll">
+        <table id="rtvTable">
+          <thead><tr>
+            <th data-key="returnDateOnly">Return Date</th>
+            <th data-key="returnNo">Return No</th>
+            <th data-key="unit" class="col-unit">Unit</th>
+            <th data-key="itemCode">Item Code</th>
+            <th data-key="itemName">Item Name</th>
+            <th data-key="itemCategory">Category</th>
+            <th data-key="itemSubCategory">Sub Category</th>
+            <th data-key="supplier">Supplier</th>
+            <th data-key="store">Store</th>
+            <th data-key="returnQty" class="num">Qty</th>
+            <th data-key="totalValue" class="num">Value (₹)</th>
+            <th data-key="grnNo">Orig. GRN No</th>
+            <th data-key="doneBy">Done By</th>
+            <th data-key="reasonForReturn" class="col-remarks">Remarks</th>
+          </tr></thead>
+          <tbody id="rtvTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <div class="pg-size">
+          <label style="font-size:11px;color:var(--muted);font-weight:600;margin-right:6px;">Rows per page</label>
+          <select id="rtvPageSize">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <span class="pg-info" id="rtvPageInfo"></span>
+        <div class="spacer"></div>
+        <button class="pg-btn" id="rtvPrevBtn" onclick="rtvChangePage(-1)">&larr; Prev</button>
+        <button class="pg-btn" id="rtvNextBtn" onclick="rtvChangePage(1)">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ REPURCHASE ANALYSIS VIEW ============ -->
+  <div class="view" id="view-repurchase">
+
+    <div class="filter-bar glass" id="rpFilterBar">
+      <div class="filter-field">
+        <label>Match by</label>
+        <select id="rpMatchKey">
+          <option value="itemId">Item ID</option>
+          <option value="itemCode">Item Code</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label>Window</label>
+        <select id="rpWindow">
+          <option value="all">All windows</option>
+          <option value="10">Within 10 days</option>
+          <option value="20">Within 20 days</option>
+          <option value="30">Within 30 days</option>
+          <option value="not">Not repurchased</option>
+        </select>
+      </div>
+      <div class="filter-field hidden" id="rpUnitField">
+        <label>Unit (multi-select)</label>
+        <div class="multiselect" id="msRpUnit">
+          <button type="button" class="ms-btn" onclick="toggleMS('msRpUnit')"><span id="msRpUnitLabel">All Units</span><span class="arrow">▾</span></button>
+          <div class="ms-panel" id="msRpUnitPanel"></div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>Store (multi-select)</label>
+        <div class="multiselect" id="msRpStore">
+          <button type="button" class="ms-btn" onclick="toggleMS('msRpStore')"><span id="msRpStoreLabel">All Stores</span><span class="arrow">▾</span></button>
+          <div class="ms-panel" id="msRpStorePanel"></div>
+        </div>
+      </div>
+      <div class="filter-field">
+        <label>Sub Category (multi-select)</label>
+        <div class="multiselect" id="msRpSubCat">
+          <button type="button" class="ms-btn" onclick="toggleMS('msRpSubCat')"><span id="msRpSubCatLabel">All Sub Categories</span><span class="arrow">▾</span></button>
+          <div class="ms-panel" id="msRpSubCatPanel"></div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="filter-field">
+        <label>Search Item Code / Name</label>
+        <input type="text" id="rpSearch" placeholder="e.g. PMEDMES01453 or mesh">
+      </div>
+      <button class="reset-btn" onclick="resetRPFilters()">Reset</button>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card glass"><div class="kpi-label">RTV Items Tracked</div><div class="kpi-value" id="kRpTotal">0</div><div class="kpi-sub" id="kRpMatchKeyLabel">Matched on Item ID</div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Repurchased</div><div class="kpi-value" id="kRpRepurchased">0</div><div class="kpi-sub" id="kRpRepurchasedPct"></div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Avg. Days to Repurchase</div><div class="kpi-value" id="kRpAvgDays">–</div><div class="kpi-sub">Of repurchased items</div></div>
+      <div class="kpi-card glass"><div class="kpi-label">Repurchase Value</div><div class="kpi-value" id="kRpValue">₹0</div><div class="kpi-sub">Value bought back</div></div>
+    </div>
+
+    <div class="bucket-row" id="bucketRow">
+      <div class="bucket-card glass bucket-b10" data-bucket="10"><div class="n" id="bN10">0</div><div class="l">Within 10 Days</div></div>
+      <div class="bucket-card glass bucket-b20" data-bucket="20"><div class="n" id="bN20">0</div><div class="l">Within 20 Days</div></div>
+      <div class="bucket-card glass bucket-b30" data-bucket="30"><div class="n" id="bN30">0</div><div class="l">Within 30 Days</div></div>
+      <div class="bucket-card glass bucket-not" data-bucket="not"><div class="n" id="bNnot">0</div><div class="l">Not Repurchased</div></div>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-card glass">
+        <h3>Repurchase Timing Distribution</h3>
+        <div class="canvas-box"><canvas id="chartRpBucket"></canvas></div>
+      </div>
+      <div class="chart-card glass">
+        <h3>Repurchased vs Not (Value ₹)</h3>
+        <div class="canvas-box"><canvas id="chartRpValue"></canvas></div>
+      </div>
+    </div>
+
+    <div class="table-card glass">
+      <div class="table-head"><h3>RTV &rarr; Repurchase Detail <span style="font-weight:400;color:var(--muted);">(matching columns paired side by side)</span></h3><span id="rpTableCount" style="font-size:12px;color:var(--muted);"></span></div>
+      <div class="table-scroll">
+        <table id="rpTable">
+          <thead><tr>
+            <th data-key="returnDate">Return Date</th>
+            <th data-key="unit" class="col-unit">Unit</th>
+            <th data-key="store">Store</th>
+            <th data-key="itemCode">Item Code</th>
+            <th data-key="itemName">Item Name</th>
+            <th data-key="itemSubCategory">Sub Category</th>
+            <th data-key="supplier" class="group-return">Return Vendor</th>
+            <th data-key="repurchaseSupplier" class="group-repurchase">Repurchase Vendor</th>
+            <th data-key="returnQty" class="num group-return">Return Qty</th>
+            <th data-key="repurchaseQty" class="num group-repurchase">Repurchase Qty</th>
+            <th data-key="returnValue" class="num group-return">Return Value (₹)</th>
+            <th data-key="repurchaseValue" class="num group-repurchase">Repurchase Value (₹)</th>
+            <th data-key="repurchased">Repurchased?</th>
+            <th data-key="daysToRepurchase" class="num">Days Taken</th>
+            <th data-key="bucket">Window</th>
+            <th data-key="repurchaseDate">Repurchase Date</th>
+            <th data-key="repurchaseGRNNo">Repurchase GRN No</th>
+            <th data-key="reasonForReturn" class="col-remarks">Remarks</th>
+          </tr></thead>
+          <tbody id="rpTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <div class="pg-size">
+          <label style="font-size:11px;color:var(--muted);font-weight:600;margin-right:6px;">Rows per page</label>
+          <select id="rpPageSize">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <span class="pg-info" id="rpPageInfo"></span>
+        <div class="spacer"></div>
+        <button class="pg-btn" id="rpPrevBtn" onclick="rpChangePage(-1)">&larr; Prev</button>
+        <button class="pg-btn" id="rpNextBtn" onclick="rpChangePage(1)">Next &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note hidden" id="footerNote">Data window: <span id="dataRange"></span>. Items returned near the end of this window may not show a repurchase yet simply because not enough time has passed in the available data.</div>
+</div>
+
+<script>
+// ================= STATE =================
+let rtvFile = null, grnFile = null;
+let rtvRawRows = null, grnRawRows = null;
+let RTV_DATA = [];
+let RP_DATA_RAW = [];
+let rtvCharts = {};
+
+// Performance caches for large datasets: GRN rows are parsed & grouped once per upload,
+// and repurchase matching results are cached per match-key so filter changes don't recompute them.
+let GRN_GROUPS = null; // { itemId: Map<id, sortedGrnArray>, itemCode: Map<code, sortedGrnArray>, dataMinDate, dataMaxDate }
+let RP_CACHE = {};     // { itemId: {records,...}, itemCode: {records,...} }
+
+// Pagination state
+let rtvPage = 1, rtvPageSize = 100;
+let rpPage = 1, rpPageSize = 100;
+
+// Debounce helper (keeps typing responsive on large datasets)
+function debounce(fn, wait){
+  let t;
+  return (...args)=>{ clearTimeout(t); t = setTimeout(()=>fn(...args), wait); };
+}
+
+// Multi-select state: key -> Set of selected values (empty Set = "All")
+const msState = {
+  msRtvStore: new Set(),
+  msRtvUnit: new Set(),
+  msRpStore: new Set(),
+  msRpSubCat: new Set(),
+  msRpUnit: new Set(),
+};
+
+const COLORS = ['#2f7dd1','#4fb0c6','#e0912f','#3f9c5d','#d9534f','#8a6fbf','#c9a13b','#5a7ba6'];
+function fmtINR(v){
+  if(v===null||v===undefined||isNaN(v)) return '–';
+  return '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits:0});
+}
+function fmtNum(v){ return v===null||v===undefined||isNaN(v) ? '–' : Number(v).toLocaleString('en-IN'); }
+function esc(s){ return (s===null||s===undefined||s==='') ? '' : String(s); }
+
+// ================= FILE HANDLING =================
+function setupDropzone(dzId, inputId, isRTV){
+  const dz = document.getElementById(dzId);
+  const input = document.getElementById(inputId);
+  input.addEventListener('change', e=>{
+    if(e.target.files.length) handleFile(e.target.files[0], isRTV);
+  });
+  dz.addEventListener('dragover', e=>{ e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', ()=> dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e=>{
+    e.preventDefault(); dz.classList.remove('dragover');
+    if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0], isRTV);
+  });
+}
+function handleFile(file, isRTV){
+  if(isRTV){
+    rtvFile = file;
+    document.getElementById('rtvFileName').textContent = file.name;
+    document.getElementById('dzRTV').classList.add('filled');
+  } else {
+    grnFile = file;
+    document.getElementById('grnFileName').textContent = file.name;
+    document.getElementById('dzGRN').classList.add('filled');
+  }
+  updateBuildBtn();
+}
+function updateBuildBtn(){
+  document.getElementById('buildBtn').disabled = !(rtvFile && grnFile);
+}
+setupDropzone('dzRTV','fileRTV', true);
+setupDropzone('dzGRN','fileGRN', false);
+
+function setStatus(msg, cls){
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.className = 'status-msg' + (cls ? ' '+cls : '');
+}
+
+function showUploadScreen(){
+  document.getElementById('uploadScreen').classList.remove('hidden');
+  document.getElementById('view-rtv').classList.remove('active');
+  document.getElementById('view-repurchase').classList.remove('active');
+  document.getElementById('toggleGroup').classList.add('hidden');
+  document.getElementById('changeFilesBtn').classList.add('hidden');
+  document.getElementById('footerNote').classList.add('hidden');
+}
+
+function parseCSV(file){
+  return new Promise((resolve, reject)=>{
+    Papa.parse(file, {
+      header:true,
+      skipEmptyLines:true,
+      dynamicTyping:false,
+      complete: res => resolve(res.data),
+      error: err => reject(err)
+    });
+  });
+}
+
+// ---- parsing helpers ----
+const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseReturnDate(str){
+  if(!str) return null;
+  const m = String(str).trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})/);
+  if(!m) return null;
+  const [_, d, mo, y, h, mi] = m;
+  return new Date(Number(y), Number(mo)-1, Number(d), Number(h), Number(mi));
+}
+function parseGRNDate(str){
+  if(!str) return null;
+  const m = String(str).trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
+  if(!m) return null;
+  const [_, d, mon, y] = m;
+  const mi = MONTHS[mon.toLowerCase()];
+  if(mi===undefined) return null;
+  let year = Number(y);
+  if(year < 100) year += 2000;
+  return new Date(year, mi, Number(d));
+}
+function cleanNum(x){
+  if(x===null||x===undefined||x==='') return 0;
+  if(typeof x==='number') return x;
+  const s = String(x).replace(/,/g,'').trim();
+  const v = parseFloat(s);
+  return isNaN(v) ? 0 : v;
+}
+function daysBetween(d1, d2){
+  return Math.round((d2 - d1) / (1000*60*60*24));
+}
+function fmtDateOnly(d){
+  if(!d) return '';
+  const dd = String(d.getDate()).padStart(2,'0');
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${dd}-${months[d.getMonth()]}-${d.getFullYear()}`;
+}
+function fmtDateTime(d){
+  if(!d) return '';
+  const hh = String(d.getHours()).padStart(2,'0');
+  const mi = String(d.getMinutes()).padStart(2,'0');
+  return `${fmtDateOnly(d)} ${hh}:${mi}`;
+}
+function cleanRemark(v){
+  if(v===null||v===undefined) return '';
+  const s = String(v).trim();
+  if(s==='' || s.toLowerCase()==='nan') return '';
+  return s;
+}
+
+// ---- column getter with fallback (tolerant of minor header variations) ----
+function get(row, keys){
+  for(const k of keys){
+    if(row[k]!==undefined) return row[k];
+    const foundKey = Object.keys(row).find(rk => rk.trim().toLowerCase() === k.trim().toLowerCase());
+    if(foundKey) return row[foundKey];
+  }
+  return undefined;
+}
+
+async function buildDashboards(){
+  setStatus('Reading files…');
+  document.getElementById('buildBtn').disabled = true;
+  try{
+    const [rtvRows, grnRows] = await Promise.all([parseCSV(rtvFile), parseCSV(grnFile)]);
+    rtvRawRows = rtvRows.filter(r => Object.values(r).some(v => v!==null && v!=='' && v!==undefined));
+    grnRawRows = grnRows.filter(r => Object.values(r).some(v => v!==null && v!=='' && v!==undefined));
+
+    if(rtvRawRows.length===0) throw new Error('RTV file has no data rows.');
+    if(grnRawRows.length===0) throw new Error('GRN file has no data rows.');
+
+    const sampleRTV = rtvRawRows[0];
+    const sampleGRN = grnRawRows[0];
+    if(get(sampleRTV, ['Item Id']) === undefined) throw new Error('Could not find "Item Id" column in the RTV file.');
+    if(get(sampleGRN, ['Item Id']) === undefined) throw new Error('Could not find "Item Id" column in the GRN file.');
+
+    processData();
+    setStatus('Dashboards built successfully.', 'ok');
+    document.getElementById('uploadScreen').classList.add('hidden');
+    document.getElementById('toggleGroup').classList.remove('hidden');
+    document.getElementById('changeFilesBtn').classList.remove('hidden');
+    document.getElementById('footerNote').classList.remove('hidden');
+    showView('rtv');
+  }catch(err){
+    console.error(err);
+    setStatus('Error: ' + err.message, 'error');
+  }finally{
+    updateBuildBtn();
+  }
+}
+
+// Parse & group all GRN rows once (by Item Id and by Item Code), each group's rows sorted by date.
+// This turns repurchase matching from O(RTV rows x GRN rows) into O(RTV rows + GRN rows).
+function buildGrnGroups(){
+  const byId = new Map();
+  const byCode = new Map();
+  let dataMinDate = null, dataMaxDate = null;
+
+  for(const r of grnRawRows){
+    const grnDt = parseGRNDate(get(r,['GRN Date']));
+    if(grnDt === null) continue;
+    const rec = {
+      grnNo: get(r,['GRN No.']) || '',
+      grnDt: grnDt,
+      supplier: get(r,['Supplier Name']) || '',
+      itemId: Number(get(r,['Item Id'])) || 0,
+      itemCode: get(r,['Item Code']) || '',
+      receivedQty: Number(get(r,['Received Qty.'])) || 0,
+      totalValue: cleanNum(get(r,['Total Value'])),
+    };
+    if(!dataMinDate || grnDt < dataMinDate) dataMinDate = grnDt;
+    if(!dataMaxDate || grnDt > dataMaxDate) dataMaxDate = grnDt;
+
+    if(!byId.has(rec.itemId)) byId.set(rec.itemId, []);
+    byId.get(rec.itemId).push(rec);
+    if(rec.itemCode){
+      if(!byCode.has(rec.itemCode)) byCode.set(rec.itemCode, []);
+      byCode.get(rec.itemCode).push(rec);
+    }
+  }
+  // sort each item's GRN history by date ascending once, up front
+  for(const arr of byId.values()) arr.sort((a,b)=>a.grnDt-b.grnDt);
+  for(const arr of byCode.values()) arr.sort((a,b)=>a.grnDt-b.grnDt);
+
+  GRN_GROUPS = { byId, byCode, dataMinDate, dataMaxDate };
+}
+
+// Find the first GRN entry after a given return date within an already-sorted array (binary search)
+function firstAfter(sortedArr, afterDt){
+  let lo=0, hi=sortedArr.length; // first index where grnDt > afterDt
+  while(lo<hi){
+    const mid=(lo+hi)>>1;
+    if(sortedArr[mid].grnDt > afterDt) hi=mid; else lo=mid+1;
+  }
+  return lo < sortedArr.length ? sortedArr[lo] : null;
+}
+
+function buildRepurchaseRecords(matchKey){
+  if(RP_CACHE[matchKey]) return RP_CACHE[matchKey];
+  if(!GRN_GROUPS) buildGrnGroups();
+
+  const groups = matchKey==='itemCode' ? GRN_GROUPS.byCode : GRN_GROUPS.byId;
+  const dataMaxDate = GRN_GROUPS.dataMaxDate;
+
+  const records = RTV_DATA.map(r=>{
+    const key = matchKey==='itemCode' ? r.itemCode : r.itemId;
+    const itemHistory = groups.get(key);
+    const first = itemHistory ? firstAfter(itemHistory, r.returnDt) : null;
+
+    const daysElapsedInData = dataMaxDate ? daysBetween(r.returnDt, dataMaxDate) : null;
+
+    let repurchased=false, days=null, bucket='', repGRN=null, repDate=null, repQty=null, repValue=null, repSupplier=null;
+    if(first){
+      days = daysBetween(r.returnDt, first.grnDt);
+      bucket = days<=10 ? 'Within 10 Days' : days<=20 ? 'Within 20 Days' : days<=30 ? 'Within 30 Days' : 'After 30 Days';
+      repurchased = true;
+      repGRN = first.grnNo; repDate = fmtDateOnly(first.grnDt);
+      repQty = first.receivedQty; repValue = first.totalValue; repSupplier = first.supplier;
+    } else {
+      bucket = (daysElapsedInData!==null && daysElapsedInData>=30) ? 'Not Repurchased (30+ days elapsed)' : `Not Yet (${daysElapsedInData}d of data elapsed)`;
+    }
+
+    return {
+      returnNo: r.returnNo,
+      returnDate: r.returnDate,
+      unit: r.unit,
+      itemId: r.itemId,
+      itemCode: r.itemCode,
+      itemName: r.itemName,
+      itemCategory: r.itemCategory,
+      itemSubCategory: r.itemSubCategory,
+      supplier: r.supplier,
+      store: r.store,
+      returnQty: r.returnQty,
+      returnValue: r.totalValue,
+      reasonForReturn: r.reasonForReturn,
+      repurchased,
+      daysToRepurchase: days,
+      bucket,
+      within10: repurchased && days<=10,
+      within20: repurchased && days<=20,
+      within30: repurchased && days<=30,
+      repurchaseGRNNo: repGRN,
+      repurchaseDate: repDate,
+      repurchaseQty: repQty,
+      repurchaseValue: repValue,
+      repurchaseSupplier: repSupplier,
+      totalRepurchaseMatches: first ? 1 : 0,
+      daysElapsedInData,
+    };
+  });
+
+  const result = {records, dataMinDate: GRN_GROUPS.dataMinDate, dataMaxDate: GRN_GROUPS.dataMaxDate};
+  RP_CACHE[matchKey] = result;
+  return result;
+}
+
+function processData(){
+  const rtvParsed = rtvRawRows.map(r=>{
+    const retDt = parseReturnDate(get(r,['Return Date']));
+    return {
+      returnNo: get(r,['Return No']) || '',
+      unit: get(r,['UNIT']) || '',
+      returnDt: retDt,
+      returnDate: retDt ? fmtDateTime(retDt) : (get(r,['Return Date'])||''),
+      returnDateOnly: retDt ? fmtDateOnly(retDt) : '',
+      supplierCode: get(r,['Supplier code','Supplier Code']) || '',
+      supplier: get(r,['Supplier Name']) || '',
+      store: get(r,['Store']) || '',
+      returnType: get(r,['Return Type']) || '',
+      status: get(r,['Status']) || '',
+      itemId: Number(get(r,['Item Id'])) || 0,
+      itemCategory: get(r,['Item Category']) || '',
+      itemSubCategory: get(r,['Item SubCategory']) || '',
+      itemCode: get(r,['Item Code']) || '',
+      itemName: get(r,['Item Name']) || '',
+      batchNo: get(r,['Batch No']) || '',
+      expiryDate: get(r,['Expiry Date']) || '',
+      returnQty: Number(get(r,['Return Qty.'])) || 0,
+      uom: get(r,['UOM']) || '',
+      unitCost: cleanNum(get(r,['Unit Cost'])),
+      gstPct: Number(get(r,['GST %'])) || 0,
+      taxableAmt: cleanNum(get(r,['Taxable Amt.'])),
+      totalValue: cleanNum(get(r,['Total Value'])),
+      grnNo: get(r,['GRN No.']) || '',
+      doneBy: get(r,['Done By']) || '',
+      reasonForReturn: cleanRemark(get(r,['Reason For Return'])),
+    };
+  }).filter(r => r.returnDt !== null);
+
+  RTV_DATA = rtvParsed;
+
+  // Reset performance caches whenever new files are processed
+  GRN_GROUPS = null;
+  RP_CACHE = {};
+  rtvPage = 1; rpPage = 1;
+
+  const matchKey = document.getElementById('rpMatchKey').value || 'itemId';
+  const built = buildRepurchaseRecords(matchKey);
+  RP_DATA_RAW = built.records;
+
+  if(built.dataMinDate && built.dataMaxDate){
+    document.getElementById('dataRange').textContent = fmtDateOnly(built.dataMinDate) + ' to ' + fmtDateOnly(built.dataMaxDate);
+  }
+
+  populateRTVFilters();
+  populateRPFilters();
+  renderRTV();
+  renderRP();
+}
+
+// ================= MULTI-SELECT COMPONENT =================
+function buildMultiSelect(key, values, labelSingular, labelPlural){
+  const panel = document.getElementById(key + 'Panel');
+  const searchHtml = values.length > 8
+    ? `<input type="text" class="ms-search" placeholder="Search ${labelPlural.toLowerCase()}…" oninput="msFilterOptions('${key}', this.value)">`
+    : '';
+  const actionsHtml = `<div class="ms-actions">
+      <button type="button" onclick="msSelectAll('${key}')">Select All</button>
+      <button type="button" onclick="msClear('${key}')">Clear</button>
+    </div>`;
+  let optionsHtml = '';
+  if(values.length===0){
+    optionsHtml = '<div class="ms-empty">No values available</div>';
+  } else {
+    optionsHtml = '<div class="ms-options">' + values.map(v=>{
+      const checked = msState[key].has(v) ? 'checked' : '';
+      const id = key + '_' + btoa(unescape(encodeURIComponent(v))).replace(/[^a-zA-Z0-9]/g,'');
+      return `<label class="ms-option" for="${id}" data-val="${v.replace(/"/g,'&quot;').toLowerCase()}">
+          <input type="checkbox" id="${id}" value="${v.replace(/"/g,'&quot;')}" ${checked} onchange="msToggle('${key}', this.value, this.checked)">
+          <span>${v}</span>
+        </label>`;
+    }).join('') + '</div>';
+  }
+  panel.innerHTML = searchHtml + actionsHtml + optionsHtml;
+  updateMSLabel(key, labelSingular, labelPlural);
+}
+function msFilterOptions(key, query){
+  const q = query.trim().toLowerCase();
+  const panel = document.getElementById(key + 'Panel');
+  panel.querySelectorAll('.ms-option').forEach(opt=>{
+    opt.style.display = opt.dataset.val.includes(q) ? '' : 'none';
+  });
+}
+function updateMSLabel(key, labelSingular, labelPlural){
+  const labelEl = document.getElementById(key + 'Label');
+  if(!labelEl) return;
+  const n = msState[key].size;
+  if(n===0) labelEl.textContent = 'All ' + labelPlural;
+  else if(n===1) labelEl.textContent = [...msState[key]][0];
+  else labelEl.textContent = n + ' ' + labelPlural + ' selected';
+}
+function toggleMS(key){
+  document.querySelectorAll('.ms-panel.open').forEach(p=>{ if(p.id !== key+'Panel') p.classList.remove('open'); });
+  document.getElementById(key + 'Panel').classList.toggle('open');
+}
+document.addEventListener('click', (e)=>{
+  document.querySelectorAll('.multiselect').forEach(ms=>{
+    if(!ms.contains(e.target)) ms.querySelector('.ms-panel').classList.remove('open');
+  });
+});
+function msToggle(key, value, checked){
+  if(checked) msState[key].add(value); else msState[key].delete(value);
+  const cfg = MS_CONFIG[key];
+  updateMSLabel(key, cfg.singular, cfg.plural);
+  cfg.onChange();
+}
+function msSelectAll(key){
+  const cfg = MS_CONFIG[key];
+  cfg.values().forEach(v=>msState[key].add(v));
+  buildMultiSelect(key, cfg.values(), cfg.singular, cfg.plural);
+  cfg.onChange();
+}
+function msClear(key){
+  msState[key].clear();
+  const cfg = MS_CONFIG[key];
+  buildMultiSelect(key, cfg.values(), cfg.singular, cfg.plural);
+  cfg.onChange();
+}
+
+const MS_CONFIG = {
+  msRtvStore: { values: ()=>uniqueVals(RTV_DATA,'store'), singular:'Store', plural:'Stores', onChange: ()=>{ rtvPage=1; renderRTV(); } },
+  msRtvUnit: { values: ()=>uniqueVals(RTV_DATA,'unit'), singular:'Unit', plural:'Units', onChange: ()=>{ rtvPage=1; renderRTV(); } },
+  msRpStore: { values: ()=>uniqueVals(RTV_DATA,'store'), singular:'Store', plural:'Stores', onChange: ()=>{ rpPage=1; renderRP(); } },
+  msRpSubCat: { values: ()=>uniqueVals(RTV_DATA,'itemSubCategory'), singular:'Sub Category', plural:'Sub Categories', onChange: ()=>{ rpPage=1; renderRP(); } },
+  msRpUnit: { values: ()=>uniqueVals(RTV_DATA,'unit'), singular:'Unit', plural:'Units', onChange: ()=>{ rpPage=1; renderRP(); } },
+};
+
+// ================= VIEW SWITCH =================
+function showView(v){
+  document.getElementById('view-rtv').classList.toggle('active', v==='rtv');
+  document.getElementById('view-repurchase').classList.toggle('active', v==='repurchase');
+  document.getElementById('btnRTV').classList.toggle('active', v==='rtv');
+  document.getElementById('btnRP').classList.toggle('active', v==='repurchase');
+}
+
+// ================= RTV DASHBOARD =================
+let rtvSort = {key:'returnDateOnly', dir:1};
+function uniqueVals(arr, key){ return [...new Set(arr.map(r=>r[key]).filter(Boolean))].sort(); }
+
+function populateRTVFilters(){
+  buildMultiSelect('msRtvStore', uniqueVals(RTV_DATA,'store'), 'Store', 'Stores');
+  buildMultiSelect('msRtvUnit', uniqueVals(RTV_DATA,'unit'), 'Unit', 'Units');
+  ['rtvSupplier','rtvCategory'].forEach(id=>{
+    document.getElementById(id).innerHTML = '<option value="">All</option>';
+  });
+  const sel = (id, vals) => { const el=document.getElementById(id); vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;el.appendChild(o);}); };
+  sel('rtvSupplier', uniqueVals(RTV_DATA,'supplier'));
+  sel('rtvCategory', uniqueVals(RTV_DATA,'itemCategory'));
+  updateUnitVisibility();
+}
+
+// Show the Unit filter + Unit table column only when the data actually spans more than one unit
+function updateUnitVisibility(){
+  const unitCount = uniqueVals(RTV_DATA,'unit').length;
+  const showUnits = unitCount > 2; // only show the Unit filter/column when there are more than 2 units in the data
+  document.getElementById('rtvUnitField').classList.toggle('hidden', !showUnits);
+  document.getElementById('rpUnitField').classList.toggle('hidden', !showUnits);
+  document.body.classList.toggle('show-units', showUnits);
+}
+
+function filteredRTV(){
+  const supplier = document.getElementById('rtvSupplier').value;
+  const cat = document.getElementById('rtvCategory').value;
+  const q = document.getElementById('rtvSearch').value.trim().toLowerCase();
+  const storeSet = msState.msRtvStore;
+  const unitSet = msState.msRtvUnit;
+  return RTV_DATA.filter(r=>{
+    if(unitSet.size>0 && !unitSet.has(r.unit)) return false;
+    if(storeSet.size>0 && !storeSet.has(r.store)) return false;
+    if(supplier && r.supplier!==supplier) return false;
+    if(cat && r.itemCategory!==cat) return false;
+    if(q && !(String(r.itemId).includes(q) || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+// Cap a {label: value} map to the top N entries by value, folding the rest into "Other (n)".
+// Keeps charts fast and legible when a dataset has hundreds of suppliers/stores/categories.
+function capTopN(labelsObj, n){
+  const entries = Object.entries(labelsObj).sort((a,b)=>b[1]-a[1]);
+  if(entries.length<=n) return {labels:entries.map(e=>e[0]), values:entries.map(e=>e[1])};
+  const top = entries.slice(0,n);
+  const rest = entries.slice(n);
+  const otherSum = rest.reduce((s,e)=>s+e[1],0);
+  return {labels:[...top.map(e=>e[0]), `Other (${rest.length})`], values:[...top.map(e=>e[1]), otherSum]};
+}
+
+function renderRTV(){
+  const data = filteredRTV();
+  document.getElementById('kRtvCount').textContent = fmtNum(data.length);
+  const totalValue = data.reduce((s,r)=>s+r.totalValue,0);
+  document.getElementById('kRtvValue').textContent = fmtINR(totalValue);
+  const totalQty = data.reduce((s,r)=>s+r.returnQty,0);
+  document.getElementById('kRtvQty').textContent = fmtNum(totalQty);
+  document.getElementById('kRtvSuppliers').textContent = fmtNum(uniqueVals(data,'supplier').length);
+  document.getElementById('kRtvStores').textContent = uniqueVals(data,'store').length + ' store(s)';
+  document.getElementById('kRtvValueSub').textContent = data.length ? 'Avg ' + fmtINR(totalValue/data.length) + ' / return' : '';
+
+  const bySupplier = {};
+  data.forEach(r=>{ bySupplier[r.supplier]=(bySupplier[r.supplier]||0)+r.totalValue; });
+  const supCapped = capTopN(bySupplier, 15);
+  drawBar('chartRtvSupplier', supCapped.labels, supCapped.values, true, 'currency');
+
+  const byCat = {};
+  data.forEach(r=>{ byCat[r.itemCategory]=(byCat[r.itemCategory]||0)+r.totalValue; });
+  const catCapped = capTopN(byCat, 10);
+  drawDoughnut('chartRtvCategory', catCapped.labels, catCapped.values);
+
+  const byDate = {};
+  data.forEach(r=>{ byDate[r.returnDateOnly]=(byDate[r.returnDateOnly]||0)+r.totalValue; });
+  const dateLabels = Object.keys(byDate).sort((a,b)=> new Date(a) - new Date(b));
+  drawLine('chartRtvTrend', dateLabels, dateLabels.map(d=>byDate[d]));
+
+  const byStore = {};
+  data.forEach(r=>{ byStore[r.store]=(byStore[r.store]||0)+r.totalValue; });
+  const storeCapped = capTopN(byStore, 15);
+  drawBar('chartRtvStore', storeCapped.labels, storeCapped.values, false, 'currency');
+
+  let rows = [...data];
+  rows.sort((a,b)=>{
+    let x=a[rtvSort.key], y=b[rtvSort.key];
+    if(typeof x==='string') x=x.toLowerCase();
+    if(typeof y==='string') y=y.toLowerCase();
+    if(rtvSort.key==='returnDateOnly'){ x=a.returnDt; y=b.returnDt; }
+    return x>y ? rtvSort.dir : x<y ? -rtvSort.dir : 0;
+  });
+  document.getElementById('rtvTableCount').textContent = rows.length + ' row(s)';
+
+  // Pagination -- only the current page is ever written to the DOM, so the table stays fast even with huge files
+  const totalPages = Math.max(1, Math.ceil(rows.length / rtvPageSize));
+  if(rtvPage > totalPages) rtvPage = totalPages;
+  const startIdx = (rtvPage-1) * rtvPageSize;
+  const pageRows = rows.slice(startIdx, startIdx + rtvPageSize);
+
+  document.getElementById('rtvPageInfo').textContent = rows.length
+    ? `Showing ${startIdx+1}–${Math.min(startIdx+rtvPageSize, rows.length)} of ${fmtNum(rows.length)}`
+    : 'No rows';
+  document.getElementById('rtvPrevBtn').disabled = rtvPage<=1;
+  document.getElementById('rtvNextBtn').disabled = rtvPage>=totalPages;
+
+  const tbody = document.getElementById('rtvTableBody');
+  tbody.innerHTML = pageRows.length ? pageRows.map(r=>`<tr>
+    <td>${r.returnDateOnly}</td><td>${r.returnNo}</td><td class="col-unit">${esc(r.unit)}</td><td>${r.itemCode}</td>
+    <td>${r.itemName}</td><td>${r.itemCategory}</td><td>${esc(r.itemSubCategory)}</td><td>${r.supplier}</td><td>${r.store}</td>
+    <td class="num">${fmtNum(r.returnQty)}</td><td class="num">${fmtINR(r.totalValue)}</td>
+    <td>${r.grnNo}</td><td>${r.doneBy}</td>
+    <td class="remarks-cell">${r.reasonForReturn || '–'}</td>
+  </tr>`).join('') : `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--muted);">No matching rows.</td></tr>`;
+}
+
+function rtvChangePage(delta){
+  rtvPage += delta;
+  renderRTV();
+}
+
+function resetRTVFilters(){
+  msState.msRtvStore.clear();
+  msState.msRtvUnit.clear();
+  buildMultiSelect('msRtvStore', uniqueVals(RTV_DATA,'store'), 'Store', 'Stores');
+  buildMultiSelect('msRtvUnit', uniqueVals(RTV_DATA,'unit'), 'Unit', 'Units');
+  document.getElementById('rtvSupplier').value='';
+  document.getElementById('rtvCategory').value='';
+  document.getElementById('rtvSearch').value='';
+  rtvPage = 1;
+  renderRTV();
+}
+function rtvRenderFromPage1(){ rtvPage = 1; renderRTV(); }
+['rtvSupplier','rtvCategory'].forEach(id=>document.getElementById(id).addEventListener('change', rtvRenderFromPage1));
+document.getElementById('rtvSearch').addEventListener('input', debounce(rtvRenderFromPage1, 200));
+document.getElementById('rtvPageSize').addEventListener('change', e=>{ rtvPageSize = Number(e.target.value); rtvPage = 1; renderRTV(); });
+document.querySelectorAll('#rtvTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    rtvSort.dir = (rtvSort.key===key) ? -rtvSort.dir : 1;
+    rtvSort.key = key;
+    rtvPage = 1;
+    renderRTV();
+  });
+});
+
+// ================= REPURCHASE ANALYSIS =================
+let rpBucketFilter = null;
+let rpSort = {key:'returnDate', dir:1};
+
+function bucketOf(rec){
+  if(!rec.repurchased) return 'not';
+  if(rec.within10) return '10';
+  if(rec.within20) return '20';
+  return '30';
+}
+
+function populateRPFilters(){
+  buildMultiSelect('msRpStore', uniqueVals(RTV_DATA,'store'), 'Store', 'Stores');
+  buildMultiSelect('msRpSubCat', uniqueVals(RTV_DATA,'itemSubCategory'), 'Sub Category', 'Sub Categories');
+  buildMultiSelect('msRpUnit', uniqueVals(RTV_DATA,'unit'), 'Unit', 'Units');
+}
+
+function filteredRP(){
+  const win = document.getElementById('rpWindow').value;
+  const q = document.getElementById('rpSearch').value.trim().toLowerCase();
+  const storeSet = msState.msRpStore;
+  const subCatSet = msState.msRpSubCat;
+  const unitSet = msState.msRpUnit;
+  return RP_DATA_RAW.filter(r=>{
+    if(q && !(String(r.itemId).includes(q) || r.itemCode.toLowerCase().includes(q) || r.itemName.toLowerCase().includes(q))) return false;
+    if(unitSet.size>0 && !unitSet.has(r.unit)) return false;
+    if(storeSet.size>0 && !storeSet.has(r.store)) return false;
+    if(subCatSet.size>0 && !subCatSet.has(r.itemSubCategory)) return false;
+    const b = bucketOf(r);
+    if(rpBucketFilter && b!==rpBucketFilter) return false;
+    if(win!=='all'){
+      if(win==='not' && r.repurchased) return false;
+      if(win!=='not' && (!r.repurchased || r.daysToRepurchase>Number(win))) return false;
+    }
+    return true;
+  });
+}
+
+function renderRP(){
+  const matchKey = document.getElementById('rpMatchKey').value;
+  document.getElementById('kRpMatchKeyLabel').textContent = 'Matched on ' + (matchKey==='itemId' ? 'Item ID' : 'Item Code');
+
+  const built = buildRepurchaseRecords(matchKey);
+  RP_DATA_RAW = built.records;
+
+  const data = filteredRP();
+  document.getElementById('kRpTotal').textContent = fmtNum(data.length);
+  const rep = data.filter(r=>r.repurchased);
+  document.getElementById('kRpRepurchased').textContent = fmtNum(rep.length);
+  document.getElementById('kRpRepurchasedPct').textContent = data.length ? (100*rep.length/data.length).toFixed(0)+'% of tracked returns' : '';
+  const avgDays = rep.length ? (rep.reduce((s,r)=>s+r.daysToRepurchase,0)/rep.length) : null;
+  document.getElementById('kRpAvgDays').textContent = avgDays===null ? '–' : avgDays.toFixed(1)+' days';
+  const repValue = rep.reduce((s,r)=>s+(r.repurchaseValue||0),0);
+  document.getElementById('kRpValue').textContent = fmtINR(repValue);
+
+  const n10 = data.filter(r=>bucketOf(r)==='10').length;
+  const n20 = data.filter(r=>bucketOf(r)==='20').length;
+  const n30 = data.filter(r=>bucketOf(r)==='30').length;
+  const nnot = data.filter(r=>bucketOf(r)==='not').length;
+  document.getElementById('bN10').textContent = n10;
+  document.getElementById('bN20').textContent = n20;
+  document.getElementById('bN30').textContent = n30;
+  document.getElementById('bNnot').textContent = nnot;
+  document.querySelectorAll('.bucket-card').forEach(c=>c.classList.toggle('active', c.dataset.bucket===rpBucketFilter));
+
+  drawBar('chartRpBucket', ['Within 10 Days','Within 20 Days','Within 30 Days','Not Repurchased'], [n10,n20,n30,nnot], false, 'number',
+    ['#3f9c5d','#2f7dd1','#e0912f','#d9534f']);
+
+  const notRepVal = data.filter(r=>!r.repurchased).reduce((s,r)=>s+r.returnValue,0);
+  drawDoughnut('chartRpValue', ['Repurchased Value','Not Repurchased (Return Value)'], [repValue, notRepVal], ['#3f9c5d','#d9534f']);
+
+  let rows = [...data];
+  rows.sort((a,b)=>{
+    let x=a[rpSort.key], y=b[rpSort.key];
+    if(x===null||x===undefined) x = rpSort.dir===1 ? Infinity : -Infinity;
+    if(y===null||y===undefined) y = rpSort.dir===1 ? Infinity : -Infinity;
+    if(typeof x==='string') x=x.toLowerCase();
+    if(typeof y==='string') y=y.toLowerCase();
+    return x>y ? rpSort.dir : x<y ? -rpSort.dir : 0;
+  });
+  document.getElementById('rpTableCount').textContent = rows.length + ' row(s)';
+
+  // Pagination -- only the current page is ever written to the DOM
+  const totalPages = Math.max(1, Math.ceil(rows.length / rpPageSize));
+  if(rpPage > totalPages) rpPage = totalPages;
+  const startIdx = (rpPage-1) * rpPageSize;
+  const pageRows = rows.slice(startIdx, startIdx + rpPageSize);
+
+  document.getElementById('rpPageInfo').textContent = rows.length
+    ? `Showing ${startIdx+1}–${Math.min(startIdx+rpPageSize, rows.length)} of ${fmtNum(rows.length)}`
+    : 'No rows';
+  document.getElementById('rpPrevBtn').disabled = rpPage<=1;
+  document.getElementById('rpNextBtn').disabled = rpPage>=totalPages;
+
+  const tbody = document.getElementById('rpTableBody');
+  tbody.innerHTML = pageRows.length ? pageRows.map(r=>{
+    const b = bucketOf(r);
+    const badgeClass = b==='10'?'badge-b10':b==='20'?'badge-b20':b==='30'?'badge-b30':'badge-not';
+    return `<tr>
+    <td>${r.returnDate}</td><td class="col-unit">${esc(r.unit)}</td><td>${r.store}</td><td>${r.itemCode}</td><td>${r.itemName}</td><td>${esc(r.itemSubCategory)}</td>
+    <td class="col-pair-a">${r.supplier}</td><td class="col-pair-b">${r.repurchaseSupplier||'–'}</td>
+    <td class="num col-pair-a">${fmtNum(r.returnQty)}</td><td class="num col-pair-b">${fmtNum(r.repurchaseQty)}</td>
+    <td class="num col-pair-a">${fmtINR(r.returnValue)}</td><td class="num col-pair-b">${fmtINR(r.repurchaseValue)}</td>
+    <td>${r.repurchased ? '<span class="badge badge-yes">YES</span>' : '<span class="badge badge-no">NO</span>'}</td>
+    <td class="num">${r.daysToRepurchase===null?'–':r.daysToRepurchase}</td>
+    <td><span class="badge ${badgeClass}">${r.bucket}</span></td>
+    <td>${r.repurchaseDate||'–'}</td><td>${r.repurchaseGRNNo||'–'}</td>
+    <td class="remarks-cell">${r.reasonForReturn || '–'}</td>
+  </tr>`;
+  }).join('') : `<tr><td colspan="17" style="text-align:center;padding:30px;color:var(--muted);">No matching rows.</td></tr>`;
+}
+
+function rpChangePage(delta){
+  rpPage += delta;
+  renderRP();
+}
+
+function resetRPFilters(){
+  document.getElementById('rpWindow').value='all';
+  document.getElementById('rpSearch').value='';
+  msState.msRpStore.clear();
+  msState.msRpSubCat.clear();
+  msState.msRpUnit.clear();
+  buildMultiSelect('msRpStore', uniqueVals(RTV_DATA,'store'), 'Store', 'Stores');
+  buildMultiSelect('msRpSubCat', uniqueVals(RTV_DATA,'itemSubCategory'), 'Sub Category', 'Sub Categories');
+  buildMultiSelect('msRpUnit', uniqueVals(RTV_DATA,'unit'), 'Unit', 'Units');
+  rpBucketFilter = null;
+  rpPage = 1;
+  renderRP();
+}
+function rpRenderFromPage1(){ rpPage = 1; renderRP(); }
+document.getElementById('rpMatchKey').addEventListener('change', rpRenderFromPage1);
+document.getElementById('rpWindow').addEventListener('change', rpRenderFromPage1);
+document.getElementById('rpSearch').addEventListener('input', debounce(rpRenderFromPage1, 200));
+document.getElementById('rpPageSize').addEventListener('change', e=>{ rpPageSize = Number(e.target.value); rpPage = 1; renderRP(); });
+document.querySelectorAll('.bucket-card').forEach(c=>{
+  c.addEventListener('click', ()=>{
+    rpBucketFilter = (rpBucketFilter === c.dataset.bucket) ? null : c.dataset.bucket;
+    rpPage = 1;
+    renderRP();
+  });
+});
+document.querySelectorAll('#rpTable thead th').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const key = th.dataset.key;
+    rpSort.dir = (rpSort.key===key) ? -rpSort.dir : 1;
+    rpSort.key = key;
+    rpPage = 1;
+    renderRP();
+  });
+});
+
+// ================= CHART HELPERS =================
+function destroyChart(id){ if(rtvCharts[id]){ rtvCharts[id].destroy(); delete rtvCharts[id]; } }
+function drawBar(id, labels, values, horizontal, format, colors){
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  rtvCharts[id] = new Chart(ctx, {
+    type:'bar',
+    data:{labels, datasets:[{data:values, backgroundColor: colors || COLORS, borderRadius:5}]},
+    options:{
+      responsive:true, maintainAspectRatio:false, indexAxis: horizontal?'y':'x',
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=> format==='currency' ? fmtINR(c.parsed[horizontal?'x':'y']) : fmtNum(c.parsed[horizontal?'x':'y'])}}},
+      scales:{
+        x:{ ticks: horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {} , grid:{display:horizontal}},
+        y:{ ticks: !horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {}, grid:{display:!horizontal} }
+      }
+    }
+  });
+}
+function drawLine(id, labels, values){
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  rtvCharts[id] = new Chart(ctx, {
+    type:'line',
+    data:{labels, datasets:[{data:values, borderColor:'#2f7dd1', backgroundColor:'#2f7dd120', fill:true, tension:.3, pointRadius:4}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>fmtINR(c.parsed.y)}}},
+      scales:{y:{ticks:{callback:v=>fmtINR(v)}}}}
+  });
+}
+function drawDoughnut(id, labels, values, colors){
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  rtvCharts[id] = new Chart(ctx, {
+    type:'doughnut',
+    data:{labels, datasets:[{data:values, backgroundColor: colors || COLORS, borderColor:'#fff', borderWidth:2}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:12,font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fmtINR(c.parsed)}}}}
+  });
+}
+</script>
+<!-- paras-command-centre-bridge -->
+<script>
+/* Paras Command Centre — dashboard bridge.
+ *
+ * Injected into each dashboard by sync.py. It adds nothing you can see and
+ * changes nothing the dashboard does in ordinary use: it only listens for the
+ * Command Centre handing over a file, and puts it in the dashboard's own
+ * upload box exactly as if you had picked it yourself.
+ *
+ * This exists because a page opened straight from disk (file://) is sealed off
+ * from every other page, so the Command Centre cannot reach in — but the two
+ * can still exchange messages. Remove the injected block and the dashboard
+ * carries on working; only the one-click fill stops.
+ *
+ * It also stops one specific bad outcome: picking an oversized file straight
+ * into this dashboard's own upload box, past what its own parser can hold in
+ * memory, crashes the browser tab. That is refused here, before the file ever
+ * reaches the dashboard's own code, in favour of the Command Centre's Data
+ * Library — which streams a file this size instead of loading it whole.
+ */
+(function (w, d) {
+  'use strict';
+  if (w.__parasBridge) return;
+  w.__parasBridge = 1;
+
+  // Mirrors assets/js/library.js's BIG_FILE. Duplicated because this file is
+  // injected standalone into a different page and has no import of its own.
+  var TOO_BIG = 40 * 1024 * 1024;
+
+  function warnTooBig(file) {
+    var mb = Math.round(file.size / 1048576);
+    try {
+      w.alert(
+        '"' + file.name + '" is ' + mb + ' MB.\n\n' +
+        'That is too large for this page to open directly \u2014 a file this size ' +
+        'can crash the browser tab partway through.\n\n' +
+        'Use the Data Library in the Paras Command Centre instead: add the file ' +
+        'there, press Condense, then Fill upload boxes. The condensed file keeps ' +
+        'every total exactly the same, just as far fewer rows, and opens here safely.'
+      );
+    } catch (e) {}
+  }
+
+  /* Runs before the dashboard's own listeners: capture-phase, on the
+     document, is reached on the way down the tree before the target (and its
+     bubble-phase handlers) sees the event at all. stopImmediatePropagation
+     here means the dashboard's own upload code never runs for this file. A
+     file the Command Centre hands over through postMessage (always well
+     under the limit, since it comes from the Data Library already condensed
+     if it needed to be) is untouched. */
+  d.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || t.tagName !== 'INPUT' || t.type !== 'file' || !t.files || !t.files.length) return;
+    var f = t.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    try { t.value = ''; } catch (e2) {}
+    warnTooBig(f);
+  }, true);
+
+  d.addEventListener('drop', function (ev) {
+    var dt = ev.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    var f = dt.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    warnTooBig(f);
+  }, true);
+
+  function label(inp, i) {
+    var t = '';
+    try {
+      if (inp.labels && inp.labels.length) t = inp.labels[0].textContent;
+      if (!t && inp.closest) { var l = inp.closest('label'); if (l) t = l.textContent; }
+      var box = inp.parentElement;
+      for (var k = 0; k < 3 && box && !t; k++) {
+        var q = box.querySelector('label, h3, h4, b, strong, .label');
+        if (q && q.textContent.trim()) t = q.textContent;
+        box = box.parentElement;
+      }
+      if (!t) t = inp.getAttribute('aria-label') || inp.getAttribute('title') || inp.name || inp.id || '';
+    } catch (e) {}
+    return String(t).replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  function inputs() {
+    return Array.prototype.slice.call(d.querySelectorAll('input[type=file]'));
+  }
+
+  function reply(src, id, body) {
+    try { src.postMessage(Object.assign({ __paras: 1, id: id }, body), '*'); } catch (e) {}
+  }
+
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || !m.action) return;
+    // Only the page that embedded this one may drive it.
+    if (w.parent === w || ev.source !== w.parent) return;
+
+    if (m.action === 'probe') {
+      reply(ev.source, m.id, {
+        ok: true,
+        inputs: inputs().map(function (inp, i) {
+          return { index: i, label: label(inp, i), accept: inp.getAttribute('accept') || '' };
+        })
+      });
+      return;
+    }
+
+    if (m.action === 'fill') {
+      var list = inputs(), inp = list[m.index];
+      if (!inp) return reply(ev.source, m.id, { ok: false, error: 'no such upload box' });
+      try {
+        var file = (m.blob instanceof File) ? m.blob
+          : new File([m.blob], m.name || 'file', { type: m.type || (m.blob && m.blob.type) || '' });
+        var dt = new DataTransfer();
+        dt.items.add(file);
+        inp.files = dt.files;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        reply(ev.source, m.id, { ok: true });
+      } catch (e) {
+        reply(ev.source, m.id, { ok: false, error: String(e && e.message || e) });
+      }
+    }
+  }, false);
+})(window, document);
+</script>
+<!-- /paras-command-centre-bridge -->
+</body>
+</html>

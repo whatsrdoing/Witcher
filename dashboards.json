@@ -398,6 +398,54 @@
       ]
     },
     {
+      "id": "rtv-repurchase",
+      "name": "RTV & Repurchase",
+      "category": "vendor",
+      "description": "Returns to vendor matched against later GRNs — what went back, what was bought again, and the spend that round trip cost.",
+      "file": "dashboards/RTV_Repurchase_Dashboard.html",
+      "icon": "handshake",
+      "status": "live",
+      "order": 1,
+      "tags": [
+        "RTV",
+        "return to vendor",
+        "GRN",
+        "repurchase"
+      ],
+      "inputs": [
+        {
+          "label": "RTV Report",
+          "match": [
+            "\\brtv\\b",
+            "return\\s*to\\s*vendor",
+            "\\breturn\\s*register\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Return No",
+            "Return Date",
+            "Item Code",
+            "Return Qty.",
+            "Supplier Name"
+          ]
+        },
+        {
+          "label": "GRN Register",
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "GRN No.",
+            "GRN Date",
+            "Item Code",
+            "Received Qty.",
+            "Total Value",
+            "Supplier Name"
+          ]
+        }
+      ]
+    },
+    {
       "id": "local-purchase",
       "name": "Local Purchase",
       "category": "procurement",
@@ -523,6 +571,18 @@
         "Item Code",
         "Received Qty.",
         "GRN No."
+      ]
+    },
+    {
+      "id": "rtv-register",
+      "name": "RTV / Return to Vendor",
+      "hint": "Returns raised back to suppliers",
+      "needs": [
+        "UNIT",
+        "Return No",
+        "Return Date",
+        "Item Code",
+        "Return Qty."
       ]
     },
     {

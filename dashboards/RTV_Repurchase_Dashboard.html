@@ -37,6 +37,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>RTV & Repurchase Dashboard</title>
 <script src="../assets/vendor/papaparse-5.4.1.min.js"></script>
+<script src="../assets/vendor/xlsx-0.18.5.full.min.js"></script>
 <script src="../assets/vendor/chart.umd-4.5.1.js"></script>
 <style>
 :root{
@@ -237,22 +238,22 @@ body.show-units .col-unit{display:table-cell;}
   <div class="upload-screen" id="uploadScreen">
     <div class="upload-card glass">
       <h2>Upload Your Reports</h2>
-      <p class="desc">Upload the RTV (Return to Vendor) report and the GRN (Goods Receipt Note) report to build the dashboards. Files stay in your browser — nothing is uploaded to a server.</p>
+      <p class="desc">Upload the RTV (Return to Vendor) report and the GRN Register (Goods Receipt Note) to build the dashboards. CSV and Excel files both work. Files stay in your browser — nothing is uploaded to a server.</p>
 
       <div class="drop-grid">
         <div class="dropzone" id="dzRTV" onclick="document.getElementById('fileRTV').click()">
           <div class="icon">📤</div>
-          <div class="title">RTV Report (CSV)</div>
-          <div class="hint">Click or drag your RTV .csv file here</div>
+          <div class="title">RTV Report</div>
+          <div class="hint">Click or drag your RTV file — CSV or Excel</div>
           <div class="filename" id="rtvFileName"></div>
-          <input type="file" id="fileRTV" accept=".csv,text/csv">
+          <input type="file" id="fileRTV" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
         </div>
         <div class="dropzone" id="dzGRN" onclick="document.getElementById('fileGRN').click()">
           <div class="icon">📤</div>
-          <div class="title">GRN Report (CSV)</div>
-          <div class="hint">Click or drag your GRN .csv file here</div>
+          <div class="title">GRN Register</div>
+          <div class="hint">Click or drag your GRN Register file — CSV or Excel</div>
           <div class="filename" id="grnFileName"></div>
-          <input type="file" id="fileGRN" accept=".csv,text/csv">
+          <input type="file" id="fileGRN" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
         </div>
       </div>
 
@@ -578,7 +579,17 @@ function showUploadScreen(){
   document.getElementById('footerNote').classList.add('hidden');
 }
 
+const SHEET_RE = /\.(xlsx|xlsm|xlsb|xls|ods)$/i;
+
+/* Reads a CSV or an Excel workbook into the same array-of-objects shape.
+
+   Excel is not a nicety here: these registers are exported as .xlsx as often
+   as .csv, and handing one to the CSV parser produced a stream error with
+   nothing useful in it. A workbook is converted to CSV text first so both
+   routes end at the same parser, which keeps every downstream assumption
+   about quoting and blank cells identical. */
 function parseCSV(file){
+  if (SHEET_RE.test(file.name || '')) return parseWorkbook(file);
   return new Promise((resolve, reject)=>{
     Papa.parse(file, {
       header:true,
@@ -590,26 +601,76 @@ function parseCSV(file){
   });
 }
 
+function parseWorkbook(file){
+  return file.arrayBuffer().then(buf=>{
+    const wb = XLSX.read(new Uint8Array(buf), { type:'array', cellDates:true, dense:true });
+    // The first sheet with anything in it. A register export is one sheet;
+    // a stray empty "Sheet1" in front of it should not win.
+    const name = (wb.SheetNames||[]).find(n=>{
+      const ws = wb.Sheets[n];
+      return ws && (ws['!ref'] || (ws.length||0) > 0);
+    }) || (wb.SheetNames||[])[0];
+    if(!name) throw new Error('that workbook has no sheets');
+    // dateNF matters: a date cell must come out as text the parsers below
+    // recognise, not as an Excel serial number.
+    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { dateNF:'dd-mmm-yyyy', blankrows:false });
+    const res = Papa.parse(csv, { header:true, skipEmptyLines:true, dynamicTyping:false });
+    return res.data;
+  });
+}
+
 // ---- parsing helpers ----
 const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
-function parseReturnDate(str){
-  if(!str) return null;
-  const m = String(str).trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})\s+(\d{1,2}):(\d{2})/);
-  if(!m) return null;
-  const [_, d, mo, y, h, mi] = m;
-  return new Date(Number(y), Number(mo)-1, Number(d), Number(h), Number(mi));
+/* Dates arrive in more than one shape. The RTV export writes
+   "01-07-2026 10:30" and the GRN one writes "15-Jul-2026", but the same
+   registers exported from Excel come through formatted by whatever the cell
+   was set to. Accepting the handful of forms these actually take costs
+   nothing and is the difference between a working import and a silent zero.
+
+   Day always comes first in the all-numeric forms -- 01-07-2026 is 1 July,
+   never 7 January -- which is what the registers use and what the stricter
+   version of this function assumed. */
+function parseAnyDate(v){
+  if(v === null || v === undefined || v === '') return null;
+  if(v instanceof Date) return isNaN(v) ? null : v;
+
+  const s = String(v).trim();
+  if(!s) return null;
+
+  // 1-2 digit day, month name, 2-4 digit year: 15-Jul-2026, 15 Jul 26
+  let m = s.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3,9})[-\/ ](\d{2,4})(?:[ ,]+(\d{1,2}):(\d{2}))?/);
+  if(m){
+    const mi = MONTHS[m[2].slice(0,3).toLowerCase()];
+    if(mi !== undefined){
+      let y = Number(m[3]); if(y < 100) y += 2000;
+      return new Date(y, mi, Number(m[1]), Number(m[4]||0), Number(m[5]||0));
+    }
+  }
+  // ISO first, so 2026-07-15 is never read as a day-first date
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2}))?/);
+  if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), Number(m[4]||0), Number(m[5]||0));
+
+  // all numeric, day first: 01-07-2026 10:30, 01/07/2026
+  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})(?:[ ,]+(\d{1,2}):(\d{2}))?/);
+  if(m){
+    let y = Number(m[3]); if(y < 100) y += 2000;
+    return new Date(y, Number(m[2])-1, Number(m[1]), Number(m[4]||0), Number(m[5]||0));
+  }
+
+  // an Excel serial that escaped formatting (days since 1899-12-30)
+  if(/^\d+(\.\d+)?$/.test(s)){
+    const n = Number(s);
+    if(n > 20000 && n < 80000){
+      const ms = Math.round((n - 25569) * 86400000);
+      const d = new Date(ms);
+      return isNaN(d) ? null : new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(),
+                                        d.getUTCHours(), d.getUTCMinutes());
+    }
+  }
+  return null;
 }
-function parseGRNDate(str){
-  if(!str) return null;
-  const m = String(str).trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{2,4})$/);
-  if(!m) return null;
-  const [_, d, mon, y] = m;
-  const mi = MONTHS[mon.toLowerCase()];
-  if(mi===undefined) return null;
-  let year = Number(y);
-  if(year < 100) year += 2000;
-  return new Date(year, mi, Number(d));
-}
+function parseReturnDate(str){ return parseAnyDate(str); }
+function parseGRNDate(str){ return parseAnyDate(str); }
 function cleanNum(x){
   if(x===null||x===undefined||x==='') return 0;
   if(typeof x==='number') return x;
@@ -663,7 +724,7 @@ async function buildDashboards(){
     const sampleRTV = rtvRawRows[0];
     const sampleGRN = grnRawRows[0];
     if(get(sampleRTV, ['Item Id']) === undefined) throw new Error('Could not find "Item Id" column in the RTV file.');
-    if(get(sampleGRN, ['Item Id']) === undefined) throw new Error('Could not find "Item Id" column in the GRN file.');
+    if(get(sampleGRN, ['Item Id']) === undefined) throw new Error('Could not find "Item Id" column in the GRN Register file.');
 
     processData();
     setStatus('Dashboards built successfully.', 'ok');

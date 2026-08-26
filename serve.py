@@ -156,6 +156,43 @@ def make_handler(prefix):
         """Serves the folder under a friendly path so the address bar reads like
         an internal site rather than a Downloads folder."""
 
+        # Python's stock error page is a black screen reading "Nothing matches
+        # the given URI", which tells someone who mistyped an address nothing
+        # about what to do next. This one names the address that does work and
+        # links to it, so a wrong turn is a dead end you can walk back from.
+        error_message_format = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>Not this address</title><style>'
+            'body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;'
+            'background:radial-gradient(120%% 90%% at 50%% -10%%,#24365C,#182541 42%%,#121C31);'
+            'color:#EFF4FA;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
+            'text-align:center;padding:28px}'
+            '.card{max-width:520px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.13);'
+            'border-radius:22px;padding:34px 30px;box-shadow:0 28px 80px rgba(3,8,20,.7)}'
+            'h1{margin:0 0 10px;font-size:20px;font-weight:800;letter-spacing:-.01em}'
+            'p{margin:0 0 8px;color:#AEBCCE;font-size:13.5px}'
+            'code{background:rgba(255,255,255,.09);padding:2px 7px;border-radius:6px;font-size:12.5px;'
+            'word-break:break-all}'
+            'a.go{display:inline-block;margin-top:20px;padding:12px 20px;border-radius:11px;color:#fff;'
+            'font-weight:700;font-size:14px;text-decoration:none;'
+            'background:linear-gradient(135deg,#4E86E0,#2F5CA2);box-shadow:0 6px 20px rgba(47,92,162,.45)}'
+            '</style></head><body><div class="card">'
+            '<h1>There is nothing at this address</h1>'
+            '<p>The Command Centre is running, but <code>%(explain)s</code> is not part of it.</p>'
+            '<p>This usually means a typed or bookmarked address that has changed.</p>'
+            '<a class="go" href="' + prefix + '">Open the Command Centre</a>'
+            '</div></body></html>'
+        )
+        error_content_type = "text/html;charset=utf-8"
+
+        def send_error(self, code, message=None, explain=None):
+            # The stock explain text is boilerplate about URIs; the address
+            # actually asked for is the useful thing to show.
+            if explain is None:
+                explain = self.path
+            return http.server.SimpleHTTPRequestHandler.send_error(self, code, message, explain)
+
         def do_GET(self):
             path_only = self.path.split("?")[0]
             tail = library_route(path_only)

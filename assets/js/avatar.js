@@ -55,8 +55,41 @@
     }).catch(function () { return null; });
   }
 
-  /* ---- the drop-in file -------------------------------------------------- */
-  function staticUrl(login) {
+  /* ---- the drop-in file ---------------------------------------------------
+     Asking for <slug>.png, .jpg, .jpeg and .webp in turn meant four 404s
+     every time an avatar was painted, for the common case of no drop-in file
+     at all -- noise in the browser console and in the server window, where it
+     buries anything that actually matters.
+
+     The folder listing answers the same question in one request that
+     succeeds. It is read once and shared by every lookup. Where there is no
+     listing to read (file://, or a server with indexes turned off) it falls
+     back to probing, and either way the answer is remembered so a repaint
+     costs nothing. */
+  var dirPromise = null;
+
+  function dirIndex() {
+    if (dirPromise) return dirPromise;
+    dirPromise = fetch(STATIC_DIR, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) return null;
+      var t = r.headers.get('content-type') || '';
+      if (t.indexOf('text/html') !== 0) return null;
+      return r.text();
+    }).then(function (html) {
+      if (!html) return null;
+      var names = {}, re = /href="([^"?#]+)"/gi, m;
+      while ((m = re.exec(html))) {
+        var n = m[1].replace(/^.*\//, '');
+        try { n = decodeURIComponent(n); } catch (e) {}
+        if (n) names[n.toLowerCase()] = n;
+      }
+      return names;
+    }).catch(function () { return null; });
+    return dirPromise;
+  }
+
+  /* One request per extension, only when there is no listing to read. */
+  function probeExts(login) {
     var base = STATIC_DIR + slug(login) + '.';
     var i = 0;
     return (function next() {
@@ -73,6 +106,18 @@
     })();
   }
 
+  function staticUrl(login) {
+    var s = slug(login);
+    return dirIndex().then(function (names) {
+      if (!names) return probeExts(login);
+      for (var i = 0; i < EXTS.length; i++) {
+        var want = (s + '.' + EXTS[i]).toLowerCase();
+        if (names[want]) return STATIC_DIR + names[want];
+      }
+      return null;   // the folder was readable and the file is simply not in it
+    });
+  }
+
   function release(s) {
     var c = cache[s];
     if (c && c.owned && c.url) { try { URL.revokeObjectURL(c.url); } catch (e) {} }
@@ -82,7 +127,7 @@
   /* Resolve to a URL for this login's picture, or null if there isn't one. */
   function get(login) {
     var s = slug(login);
-    if (cache[s]) return Promise.resolve(cache[s].url);
+    if (cache[s]) return Promise.resolve(cache[s].url);   // may be a cached "none"
     if (pending[s]) return pending[s];
     pending[s] = storedRec(login).then(function (rec) {
       if (!rec) return null;
@@ -94,9 +139,11 @@
       return staticUrl(login).then(function (u) { return u ? { url: u, owned: false } : null; });
     }).then(function (hit) {
       delete pending[s];
-      if (!hit) return null;
-      cache[s] = hit;
-      return hit.url;
+      // A miss is cached as well as a hit. Without this, every repaint of an
+      // account with no picture went back to the network for an answer that
+      // had not changed.
+      cache[s] = hit || { url: null, owned: false };
+      return cache[s].url;
     }).catch(function () { delete pending[s]; return null; });
     return pending[s];
   }

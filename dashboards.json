@@ -449,18 +449,64 @@
       "id": "local-purchase",
       "name": "Local Purchase",
       "category": "procurement",
-      "description": "Local and emergency purchases outside the rate contract — spend, approvals and vendor spread.",
-      "file": "",
+      "description": "Local and emergency purchases outside the rate contract — by-unit spend, approval slabs, PO and consumption cross-checks, and repeat-purchase flags.",
+      "file": "dashboards/Local_Purchase_Dashboard.html",
       "icon": "handshake",
-      "status": "planned",
+      "status": "live",
       "order": 3,
       "tags": [
         "local",
         "emergency",
         "LP",
-        "vendor"
+        "vendor",
+        "GRN",
+        "approval"
       ],
-      "inputs": []
+      "inputs": [
+        {
+          "label": "GRN Register",
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "GRN No.",
+            "GRN Date",
+            "Item Code",
+            "Item Name",
+            "PO No.",
+            "Supplier Name",
+            "Received Qty.",
+            "Total Value"
+          ]
+        },
+        {
+          "label": "Purchase Register",
+          "match": [
+            "purchase\\s*register",
+            "\\bpr\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "PO No",
+            "PO Date",
+            "Item Code",
+            "Status"
+          ]
+        },
+        {
+          "label": "COGS",
+          "match": [
+            "\\bcogs\\b",
+            "consumption"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Id",
+            "Qty"
+          ]
+        }
+      ]
     },
     {
       "id": "scm-audit",

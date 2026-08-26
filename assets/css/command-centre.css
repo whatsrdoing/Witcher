@@ -877,6 +877,45 @@ a{color:var(--brand-soft); text-decoration:none;}
 .reset-lede b{color:var(--brand-soft);}
 #gateReset .gate-row a{cursor:pointer;}
 
+/* ---------- Two-step sign-in: "who" card -----------------------------------
+   Shown once the typed username matches a real account: a face and a name
+   for what is about to be unlocked, before the password that proves it. */
+.gate-who{
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  gap:3px; margin:0 0 20px; padding:4px 0 2px;
+  animation:gateIn .32s var(--ease) both;
+}
+.gate-who .avatar{margin-bottom:8px; box-shadow:0 6px 22px rgba(3,8,20,.42);}
+.gate-who b{
+  font-size:16px; font-weight:700; color:var(--ink); letter-spacing:-.005em;
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.gate-who span{font-size:12.5px; color:var(--ink-3);}
+
+/* ---------- Sign-up photo picker -------------------------------------------
+   Same avatar chip the rest of the app uses, just bigger -- the account
+   created here is the same account whose picture shows up top-right later. */
+.signup-photo{display:flex; align-items:center; gap:13px; margin:0 0 18px;}
+.signup-photo-btn{position:relative; flex:0 0 auto; border-radius:50%;}
+.avatar.xl{width:60px; height:60px; font-size:19px; border-width:1.5px;}
+.signup-photo-badge{
+  position:absolute; right:-2px; bottom:-2px; width:22px; height:22px; border-radius:50%;
+  background:var(--brand-bright); color:#fff; display:flex; align-items:center; justify-content:center;
+  border:2px solid var(--bg-2); pointer-events:none;
+}
+.signup-photo-badge svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.signup-photo-text{display:flex; flex-direction:column; gap:2px;}
+.signup-photo-text b{font-size:13px; font-weight:700; color:var(--ink);}
+.signup-photo-text span{font-size:11.5px; color:var(--ink-3);}
+
+/* ---------- Admin-key confirm popup ---------------------------------------- */
+.gate-submit.ghost{
+  background:var(--glass-2); box-shadow:none; color:var(--ink); border:1px solid var(--wire);
+}
+.gate-submit.ghost:hover{filter:none; background:var(--glass-3);}
+.modal .gate-modal-acts{justify-content:stretch; gap:10px;}
+.gate-modal-acts .gate-submit{width:auto; flex:1;}
+
 /* ---------- Condensing an oversized export ------------------------------ */
 .cond-cols{
   max-height:44vh; overflow:auto; margin:4px 0 14px; padding:8px;

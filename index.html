@@ -36,6 +36,15 @@
 
       <div id="gateSignIn">
       <form id="gateForm" novalidate>
+        <!-- Sits above the username on purpose: once the typed name matches a
+             real account, the face and the greeting are the first thing you
+             see, and the field you just typed into is right underneath it. -->
+        <div class="gate-who" id="gateWho" style="display:none">
+          <span class="avatar xl" id="gateWhoAvatar" aria-hidden="true"></span>
+          <b id="gateWhoWelcome">Welcome</b>
+          <span id="gateWhoCaption">How's your day going?</span>
+        </div>
+
         <label class="gate-label" for="gateEmail">Username</label>
         <div class="gate-field">
           <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
@@ -43,14 +52,16 @@
                  spellcheck="false" autocapitalize="off" placeholder="••••••••••••" required>
         </div>
 
-        <label class="gate-label" for="gatePass">Security password</label>
-        <div class="gate-field">
-          <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-          <input id="gatePass" name="password" type="password" autocomplete="current-password"
-                 placeholder="••••••••••••" required>
-          <button type="button" class="gate-reveal" id="gateReveal" aria-pressed="false" title="Show password" aria-label="Show password">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>
-          </button>
+        <div id="gatePassWrap" style="display:none">
+          <label class="gate-label" for="gatePass">Security password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="gatePass" name="password" type="password" autocomplete="current-password"
+                   placeholder="••••••••••••" required>
+            <button type="button" class="gate-reveal" id="gateReveal" aria-pressed="false" title="Show password" aria-label="Show password">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>
+            </button>
+          </div>
         </div>
 
         <p class="gate-hint" id="gateHint" style="display:none"></p>
@@ -62,8 +73,9 @@
         <div class="gate-msg" id="gateMsg" style="display:none"></div>
 
         <button class="gate-submit" id="gateSubmit" type="submit">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 19.5 6.5v5.2c0 4.4-3 8.3-7.5 9.5-4.5-1.2-7.5-5.1-7.5-9.5V6.5z"/><path d="m9.2 12.1 2.1 2.1 4.2-4.4"/></svg>
-          <span>Verify access credentials</span>
+          <svg id="gateSubmitIcoNext" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+          <svg id="gateSubmitIcoLock" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M12 3.5 19.5 6.5v5.2c0 4.4-3 8.3-7.5 9.5-4.5-1.2-7.5-5.1-7.5-9.5V6.5z"/><path d="m9.2 12.1 2.1 2.1 4.2-4.4"/></svg>
+          <span id="gateSubmitLabel">Continue</span>
         </button>
       </form>
       </div>
@@ -112,8 +124,23 @@
 
       <div id="gateSignup" style="display:none">
         <form id="signupForm" novalidate>
-          <p class="reset-lede">Register a new account. The admin key is asked
-            for at the end — anyone without it cannot create an account here.</p>
+          <p class="reset-lede">Register a new account. You'll be asked for the
+            admin key when you create it — anyone without it cannot create an
+            account here.</p>
+
+          <div class="signup-photo">
+            <button type="button" class="signup-photo-btn" id="signupPhotoBtn" title="Add a profile photo">
+              <span class="avatar xl" id="signupPhotoPreview" aria-hidden="true"></span>
+              <span class="signup-photo-badge" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4z"/><circle cx="12" cy="12.6" r="3.4"/></svg>
+              </span>
+            </button>
+            <div class="signup-photo-text">
+              <b>Profile photo</b>
+              <span id="signupPhotoLabel">Optional — shown next to your name once signed in</span>
+            </div>
+            <input type="file" id="signupPhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
+          </div>
 
           <div class="gate-2col">
             <div class="gate-col">
@@ -184,7 +211,12 @@
               <label class="gate-label" for="signupPhone">Phone number</label>
               <div class="gate-field">
                 <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
-                <input id="signupPhone" type="tel" autocomplete="tel" placeholder="10-digit number" required>
+                <!-- No maxlength: it counts raw characters, so pasting
+                     "93557-51137" would be cut to 10 characters and then lose
+                     digits to the separator strip. The input handler clamps to
+                     10 actual digits instead. -->
+                <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
+                       placeholder="10-digit number" required>
               </div>
             </div>
           </div>
@@ -219,12 +251,6 @@
             </div>
           </div>
 
-          <label class="gate-label" for="signupKey">Admin key</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
-            <input id="signupKey" type="password" autocomplete="off" spellcheck="false" placeholder="Needed to finish creating the account" required>
-          </div>
-
           <div class="gate-msg" id="signupMsg" style="display:none"></div>
 
           <button class="gate-submit" id="signupSubmit" type="submit">
@@ -241,6 +267,31 @@
     <p class="gate-foot">
       Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
     </p>
+  </div>
+
+  <!-- Asked for once, at the moment the account is actually created --
+       not sitting filled in on the sign-up screen the whole time someone is
+       typing their designation and phone number. -->
+  <div class="modal-scrim" id="signupKeyScrim">
+    <div class="modal" id="signupKeyModal" style="width:min(380px,100%)">
+      <form id="signupKeyForm" novalidate>
+        <h3>Admin key required</h3>
+        <p>Enter the admin key to finish creating this account.</p>
+        <label class="gate-label" for="signupKeyModalInput">Admin key</label>
+        <div class="gate-field">
+          <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
+          <input id="signupKeyModalInput" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
+        </div>
+        <div class="gate-msg" id="signupKeyModalMsg" style="display:none"></div>
+        <div class="acts gate-modal-acts">
+          <button class="gate-submit ghost" id="signupKeyCancel" type="button">Cancel</button>
+          <button class="gate-submit" id="signupKeyConfirm" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.8"/><circle cx="12" cy="12" r="8.5"/></svg>
+            <span>Create account</span>
+          </button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 

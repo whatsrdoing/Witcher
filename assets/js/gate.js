@@ -19,6 +19,9 @@
   var OVERRIDE_KEY = 'paras.cc.authOverride.v1';  // file:// fallback: a reset password
   var WHOAMI_KEY = 'paras.cc.whoami.v1';          // which account unlocked this tab, for a reload
   var cfg = null, busy = false, onUnlock = null, currentProfile = null;
+  var signInStep = 'user';    // 'user' | 'pass' -- which half of the two-step sign-in shows
+  var signupPhotoFile = null; // chosen on the sign-up screen, applied once the account exists
+  var pendingSignup = null;   // validated sign-up fields, waiting on the admin-key popup
 
   var $ = function (s) { return d.querySelector(s); };
 
@@ -125,20 +128,62 @@
     }
   }
 
-  function submit(e) {
+  /* ---- two-step sign-in ---------------------------------------------------
+     Username first, password only once that username is known to exist.
+     findAccount() matches case-sensitively -- "admin/ritik" and
+     "Admin/Ritik" are different logins, only the exact configured spelling
+     is accepted -- so this reveals no more than typing the wrong case
+     already would have. Once the account is confirmed to exist, naming the
+     password (not the username) as wrong on a failed attempt is accurate,
+     not a leak: step one already said the account is real. */
+  function resetSignInStep() {
+    signInStep = 'user';
+    $('#gateWho').style.display = 'none';
+    $('#gatePassWrap').style.display = 'none';
+    $('#gatePass').value = '';
+    $('#gateSubmitLabel').textContent = 'Continue';
+    $('#gateSubmitIcoNext').style.display = '';
+    $('#gateSubmitIcoLock').style.display = 'none';
+  }
+
+  function enterPassStep(acc) {
+    signInStep = 'pass';
+    say('');
+    $('#gateWhoWelcome').textContent = 'Welcome, ' + (acc.name || acc.login);
+    $('#gateWho').style.display = 'flex';
+    if (w.Avatar) w.Avatar.paint($('#gateWhoAvatar'), acc);
+    $('#gatePassWrap').style.display = 'block';
+    $('#gateSubmitLabel').textContent = 'Verify access credentials';
+    $('#gateSubmitIcoNext').style.display = 'none';
+    $('#gateSubmitIcoLock').style.display = '';
+    setTimeout(function () { $('#gatePass').focus(); }, 60);
+  }
+
+  function gateContinue(e) {
     if (e) e.preventDefault();
     if (busy || lockoutRemaining() > 0) return;
+    if (signInStep === 'pass') { verifyPassword(); return; }
 
     var login = ($('#gateEmail').value || '').trim();
+    if (!login) { say('Enter your username.', 'err'); shake(); return; }
+    var acc = findAccount(login);
+    if (!acc) {
+      say('No account named "' + login + '". Please sign up first.', 'err');
+      shake();
+      return;
+    }
+    enterPassStep(acc);
+  }
+
+  function verifyPassword() {
+    var login = ($('#gateEmail').value || '').trim();
     var pass = $('#gatePass').value || '';
-    if (!login || !pass) { say('Enter your username and password.', 'err'); shake(); return; }
+    if (!pass) { say('Enter your password.', 'err'); shake(); return; }
 
     busy = true;
     $('#gateSubmit').classList.add('working');
     say('Verifying…', '');
 
-    // Matched case-sensitively — "admin/ritik" and "Admin/Ritik" are
-    // different logins, only the exact configured spelling is accepted.
     var acc = findAccount(login);
     var salt = acc ? acc.salt : (cfg.adminKeySalt || '00');   // dummy salt when unknown, so timing does not out the login
     var iters = (acc && acc.iterations) || cfg.iterations || 250000;
@@ -158,8 +203,6 @@
         return;
       }
 
-      // One message whether the username or the password was wrong: naming
-      // which half failed tells an attacker which accounts exist.
       var f = fails();
       f.n = (f.n || 0) + 1;
       var max = cfg.maxAttempts || 5;
@@ -171,7 +214,7 @@
         tickLockout();
       } else {
         setFails(f);
-        say('Wrong email or password. ' + (max - f.n) + ' attempt' + (max - f.n === 1 ? '' : 's') + ' left.', 'err');
+        say('Wrong password. ' + (max - f.n) + ' attempt' + (max - f.n === 1 ? '' : 's') + ' left.', 'err');
         shake();
         $('#gatePass').select();
       }
@@ -193,8 +236,26 @@
     say('');
   }
 
+  /* A neutral, human line under the name. Fixed per calendar day rather than
+     random per render, so it does not flicker into something different every
+     time the username field is edited. */
+  var CAPTIONS = [
+    "How's your day going?",
+    'Good to see you again.',
+    'Hope the day is treating you well.',
+    "Let's get to it.",
+    'Ready when you are.'
+  ];
+  function captionForToday() {
+    var d0 = new Date();
+    var day = Math.floor(Date.UTC(d0.getFullYear(), d0.getMonth(), d0.getDate()) / 86400000);
+    return CAPTIONS[((day % CAPTIONS.length) + CAPTIONS.length) % CAPTIONS.length];
+  }
+
   function showSignIn() {
     showScreen('gateSignIn');
+    resetSignInStep();
+    $('#gateWhoCaption').textContent = captionForToday();
     setTimeout(function () { $('#gateEmail').focus(); }, 60);
   }
 
@@ -275,9 +336,43 @@
     showScreen('gateSignup');
     $('#signupMsg').style.display = 'none';
     ['signupUser', 'signupName', 'signupDesignation', 'signupDepartment', 'signupCategory',
-     'signupPhone', 'signupEmail', 'signupParasId', 'signupPass', 'signupPass2', 'signupKey']
+     'signupPhone', 'signupEmail', 'signupParasId', 'signupPass', 'signupPass2']
       .forEach(function (id) { $('#' + id).value = ''; });
+    signupPhotoFile = null;
+    pendingSignup = null;
+    clearSignupPhotoPreview();
     setTimeout(function () { $('#signupUser').focus(); }, 60);
+  }
+
+  /* ---- sign-up photo ------------------------------------------------------
+     Held in memory while the form is filled in and only written once the
+     account actually exists -- there is no account to attach it to before
+     that, and a half-finished sign-up should leave nothing behind. */
+  var signupPhotoUrl = null;
+  function clearSignupPhotoPreview() {
+    if (signupPhotoUrl) { try { URL.revokeObjectURL(signupPhotoUrl); } catch (e) {} signupPhotoUrl = null; }
+    var el = $('#signupPhotoPreview');
+    if (!el) return;
+    el.style.backgroundImage = '';
+    el.classList.remove('has-photo');
+    el.textContent = '';
+    var lab = $('#signupPhotoLabel');
+    if (lab) lab.textContent = 'Optional — shown next to your name once signed in';
+  }
+  function previewSignupPhoto(file) {
+    if (signupPhotoUrl) { try { URL.revokeObjectURL(signupPhotoUrl); } catch (e) {} }
+    signupPhotoUrl = URL.createObjectURL(file);
+    var el = $('#signupPhotoPreview');
+    el.style.backgroundImage = 'url("' + signupPhotoUrl + '")';
+    el.classList.add('has-photo');
+    el.textContent = '';
+    $('#signupPhotoLabel').textContent = 'Photo selected — tap to change';
+  }
+  function signupInitialsPreview() {
+    var el = $('#signupPhotoPreview');
+    if (!el || signupPhotoFile) return;
+    var name = ($('#signupName').value || '').trim();
+    el.textContent = (name && w.Avatar) ? w.Avatar.initials({ name: name }) : '';
   }
   function signupSay(msg, kind) {
     var el = $('#signupMsg');
@@ -299,56 +394,110 @@
     var phone = ($('#signupPhone').value || '').trim();
     var emailLocal = ($('#signupEmail').value || '').trim().split('@')[0];
     var parasId = ($('#signupParasId').value || '').trim();
-    var key = ($('#signupKey').value || '').trim();
     var p1 = $('#signupPass').value || '', p2 = $('#signupPass2').value || '';
     if (!login) return signupSay('Choose a username.', 'err');
     if (!name) return signupSay('Enter the full name.', 'err');
     if (!designation) return signupSay('Select a designation.', 'err');
     if (!department) return signupSay('Select a department.', 'err');
     if (!category) return signupSay('Select a category.', 'err');
-    if (!phone) return signupSay('Enter the phone number.', 'err');
+    // Exactly ten digits -- not nine, not eleven, and nothing but digits.
+    // The field strips non-digits as they are typed, so anything rejected
+    // here is a genuine length problem and the message can say so plainly.
+    if (!/^[0-9]{10}$/.test(phone)) {
+      return signupSay(phone
+        ? 'The phone number must be exactly 10 digits — that one has ' + phone.replace(/[^0-9]/g, '').length + '.'
+        : 'Enter the 10-digit phone number.', 'err');
+    }
     if (!emailLocal) return signupSay('Enter the email.', 'err');
     if (!parasId) return signupSay('Enter the Paras ID.', 'err');
     if (p1.length < 6) return signupSay('Use at least 6 characters for the password.', 'err');
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
-    if (!key) return signupSay('Enter the admin key.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
 
-    var profile = { name: name, designation: designation, department: department, category: category,
-                    phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId };
+    // Everything the form can check is good. The admin key is the last gate,
+    // and it is asked for in its own popup rather than sitting filled in on
+    // screen for the whole time the rest of the form is being typed.
+    pendingSignup = {
+      login: login, password: p1,
+      profile: { name: name, designation: designation, department: department, category: category,
+                 phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId }
+    };
+    signupSay('');
+    openSignupKey();
+  }
 
+  /* ---- admin-key popup ---------------------------------------------------- */
+  function openSignupKey() {
+    $('#signupKeyModalInput').value = '';
+    signupKeySay('');
+    $('#signupKeyScrim').classList.add('open');
+    setTimeout(function () { $('#signupKeyModalInput').focus(); }, 60);
+  }
+  function closeSignupKey() {
+    $('#signupKeyScrim').classList.remove('open');
+    $('#signupKeyModalInput').value = '';
+    pendingSignup = null;
+  }
+  function signupKeySay(msg, kind) {
+    var el = $('#signupKeyModalMsg');
+    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
+    el.textContent = msg || '';
+    el.style.display = msg ? 'flex' : 'none';
+  }
+
+  function confirmSignupKey(e) {
+    if (e) e.preventDefault();
+    if (busy || !pendingSignup) return;
+    var key = ($('#signupKeyModalInput').value || '').trim();
+    if (!key) return signupKeySay('Enter the admin key.', 'err');
+
+    var req = pendingSignup;
     busy = true;
-    $('#signupSubmit').classList.add('working');
-    signupSay('Checking the admin key…', '');
+    $('#signupKeyConfirm').classList.add('working');
+    signupKeySay('Checking the admin key…', '');
 
     var iters = cfg.iterations || 250000;
     w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
       if (!w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''))) {
-        busy = false; $('#signupSubmit').classList.remove('working');
-        signupSay('That admin key is not correct.', 'err');
-        $('#signupKey').select();
+        busy = false; $('#signupKeyConfirm').classList.remove('working');
+        signupKeySay('That admin key is not correct.', 'err');
+        $('#signupKeyModalInput').select();
         return;
       }
       var salt = randomSalt();
-      return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
-        return writeAuth('register', key, login, salt, hash, iters, profile).then(function (how) {
-          busy = false; $('#signupSubmit').classList.remove('working');
-          applyLocalAccount(login, salt, hash, iters, profile);
+      return w.ParasCrypto.derive(req.password, salt, iters).then(function (hash) {
+        return writeAuth('register', key, req.login, salt, hash, iters, req.profile).then(function (how) {
+          busy = false; $('#signupKeyConfirm').classList.remove('working');
+          applyLocalAccount(req.login, salt, hash, iters, req.profile);
           clearFails();
           try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
-          setCurrentUser(login);
+          setCurrentUser(req.login);
+          $('#signupKeyScrim').classList.remove('open');
+          pendingSignup = null;
           signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
-          setTimeout(open_, 900);
+          // The photo is stored against the account that now exists. A photo
+          // that fails to save must not block the sign-in it was attached to.
+          savePhotoFor(req.login).then(function () { setTimeout(open_, 900); });
         }).catch(function (err) {
-          busy = false; $('#signupSubmit').classList.remove('working');
-          signupSay(err && err.message === 'taken'
+          busy = false; $('#signupKeyConfirm').classList.remove('working');
+          signupKeySay(err && err.message === 'taken'
             ? 'That username was just taken — choose another.'
             : 'Could not create the account: ' + (err && err.message || err), 'err');
         });
       });
     }).catch(function (err) {
-      busy = false; $('#signupSubmit').classList.remove('working');
-      signupSay('Could not verify the admin key: ' + (err && err.message || err), 'err');
+      busy = false; $('#signupKeyConfirm').classList.remove('working');
+      signupKeySay('Could not verify the admin key: ' + (err && err.message || err), 'err');
+    });
+  }
+
+  function savePhotoFor(login) {
+    if (!signupPhotoFile || !w.Avatar) return Promise.resolve();
+    return w.Avatar.set(login, signupPhotoFile).then(function () {
+      signupPhotoFile = null;
+    }).catch(function () {
+      // Deliberately soft: the account is already created and the person is
+      // about to be signed in. They can set a photo from the account menu.
     });
   }
 
@@ -433,7 +582,13 @@
     showSignIn();
     if (cfg.hint) { $('#gateHint').textContent = cfg.hint; $('#gateHint').style.display = 'block'; }
 
-    $('#gateForm').addEventListener('submit', submit);
+    $('#gateForm').addEventListener('submit', gateContinue);
+    // Editing the username after the account was recognised drops back to
+    // step one, so the face on screen can never belong to a different name
+    // than the one in the box.
+    $('#gateEmail').addEventListener('input', function () {
+      if (signInStep === 'pass') { resetSignInStep(); say(''); }
+    });
     $('#gateReveal').addEventListener('click', function () {
       var p = $('#gatePass');
       var show = p.type === 'password';
@@ -456,6 +611,41 @@
     $('#signupBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
     $('#resetForm').addEventListener('submit', doReset);
     $('#signupForm').addEventListener('submit', doSignup);
+
+    /* ---- admin-key popup ---- */
+    $('#signupKeyForm').addEventListener('submit', confirmSignupKey);
+    $('#signupKeyCancel').addEventListener('click', closeSignupKey);
+    $('#signupKeyScrim').addEventListener('click', function (ev) {
+      if (ev.target === ev.currentTarget) closeSignupKey();
+    });
+    d.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && $('#signupKeyScrim').classList.contains('open')) closeSignupKey();
+    });
+
+    /* ---- sign-up photo ---- */
+    $('#signupPhotoBtn').addEventListener('click', function () {
+      $('#signupPhotoInput').value = '';
+      $('#signupPhotoInput').click();
+    });
+    $('#signupPhotoInput').addEventListener('change', function () {
+      var f = this.files && this.files[0];
+      if (!f) return;
+      if (f.type && f.type.indexOf('image/') !== 0) {
+        signupSay('Choose an image file (PNG, JPG or WEBP).', 'err');
+        return;
+      }
+      signupPhotoFile = f;
+      previewSignupPhoto(f);
+      signupSay('');
+    });
+    $('#signupName').addEventListener('input', signupInitialsPreview);
+
+    /* Digits only, and never more than ten. Stopping the wrong character
+       from ever appearing beats explaining it afterwards. */
+    $('#signupPhone').addEventListener('input', function () {
+      var clean = (this.value || '').replace(/[^0-9]/g, '').slice(0, 10);
+      if (clean !== this.value) this.value = clean;
+    });
     tickLockout();
     setTimeout(function () { $('#gateEmail').focus(); }, 120);
   }

@@ -601,22 +601,72 @@ function parseCSV(file){
   });
 }
 
+/* XLSX.read() and sheet_to_csv() are both synchronous CPU work, and a GRN
+   or COGS export can run past 100,000 rows -- on this thread that is a
+   multi-second freeze with the tab looking dead and nothing to show for it.
+   Read in ../assets/js/xlsx-worker.js instead, the tab stays responsive.
+
+   A Worker can only load over http(s): opened as a plain file://, the
+   browser refuses the worker script as cross-origin from a "null" origin,
+   and that failure happens synchronously in the constructor -- so trying it
+   first and falling back to the direct-on-this-thread version below when
+   construction throws is a reliable fallback, not a guess. */
 function parseWorkbook(file){
   return file.arrayBuffer().then(buf=>{
-    const wb = XLSX.read(new Uint8Array(buf), { type:'array', cellDates:true, dense:true });
-    // The first sheet with anything in it. A register export is one sheet;
-    // a stray empty "Sheet1" in front of it should not win.
-    const name = (wb.SheetNames||[]).find(n=>{
-      const ws = wb.Sheets[n];
-      return ws && (ws['!ref'] || (ws.length||0) > 0);
-    }) || (wb.SheetNames||[])[0];
-    if(!name) throw new Error('that workbook has no sheets');
-    // dateNF matters: a date cell must come out as text the parsers below
-    // recognise, not as an Excel serial number.
-    const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { dateNF:'dd-mmm-yyyy', blankrows:false });
-    const res = Papa.parse(csv, { header:true, skipEmptyLines:true, dynamicTyping:false });
-    return res.data;
+    try { return parseWorkbookInWorker(buf); }
+    catch(e){ return parseWorkbookHere(buf); }
   });
+}
+
+function parseWorkbookInWorker(buf){
+  return new Promise((resolve, reject)=>{
+    const worker = new Worker('../assets/js/xlsx-worker.js');   // throws under file://
+    let settled = false;
+    function fail(msg){
+      if(settled) return; settled = true;
+      worker.terminate(); reject(new Error(msg));
+    }
+    worker.onerror = e => { e.preventDefault && e.preventDefault(); fail((e && e.message) || 'could not read that spreadsheet'); };
+    worker.onmessage = e => {
+      const msg = e.data || {};
+      if(msg.type === 'names'){
+        if(settled) return; settled = true;
+        // The first sheet with anything in it. A register export is one
+        // sheet; a stray empty "Sheet1" in front of it should not win.
+        const name = msg.names[0];
+        if(!name){ worker.terminate(); reject(new Error('that workbook has no sheets')); return; }
+        worker.addEventListener('message', function mh(e2){
+          const m2 = e2.data || {};
+          if(m2.type === 'csv' && m2.name === name){
+            worker.removeEventListener('message', mh); worker.terminate();
+            resolve(Papa.parse(m2.csv, { header:true, skipEmptyLines:true, dynamicTyping:false }).data);
+          } else if(m2.type === 'error'){
+            worker.removeEventListener('message', mh); worker.terminate();
+            reject(new Error(m2.message));
+          }
+        });
+        worker.postMessage({ type:'sheet', name });
+      } else if(msg.type === 'error'){
+        fail(msg.message);
+      }
+    };
+    worker.postMessage({ type:'open', bytes: buf }, [buf]);
+  });
+}
+
+/* The original synchronous path. Kept as the fallback for file://, and good
+   enough there: opening this by double-clicking the file already trades
+   away the disk-backed database, so a slower spreadsheet read on top of
+   that is the same trade continued, not a new cost. */
+function parseWorkbookHere(buf){
+  const wb = XLSX.read(new Uint8Array(buf), { type:'array', cellDates:true, dense:true });
+  const name = (wb.SheetNames||[]).find(n=>{
+    const ws = wb.Sheets[n];
+    return ws && (ws['!ref'] || (ws.length||0) > 0);
+  }) || (wb.SheetNames||[])[0];
+  if(!name) throw new Error('that workbook has no sheets');
+  const csv = XLSX.utils.sheet_to_csv(wb.Sheets[name], { dateNF:'dd-mmm-yyyy', blankrows:false });
+  return Papa.parse(csv, { header:true, skipEmptyLines:true, dynamicTyping:false }).data;
 }
 
 // ---- parsing helpers ----

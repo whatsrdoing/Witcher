@@ -592,7 +592,17 @@
     $('#fileSearchInput').value = '';
     renderDrawerHead();
     renderFiles();
-    loadDbSummary().then(renderSectionMonths);
+    // renderDrawerHead() just painted every box from whatever dbSummary held
+    // at that instant -- null on the first open of a session, since the
+    // fetch below has not resolved yet. Every box read "nothing stored yet"
+    // until something else repainted them (clicking a box, which happens to
+    // trigger the same render for an unrelated reason). Repainting here once
+    // the real numbers are in is what makes a fresh open show them without
+    // needing a click first.
+    loadDbSummary().then(function () {
+      renderSectionPicker();
+      renderSectionMonths();
+    });
   }
 
   /* One drop box per kind of register. Dropping straight onto the right box
@@ -855,11 +865,25 @@
       var shown = q ? rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) >= 0; }) : rows;
       var host = $('#fileList');
       if (!shown.length) {
+        // A section can hold database rows with no file currently attached
+        // -- the two are independent by design: once a register is read
+        // into the database it does not need to stay around, and a file
+        // can be deleted, replaced, or simply never re-attached after an
+        // import. Left unexplained, "no files attached" next to "1 month,
+        // 18,656 rows" reads as a contradiction rather than as the normal
+        // state it is.
+        var d0 = (!q && section) ? storedFor(section) : null;
+        var hasDbRows = d0 && d0.periods.length &&
+          (!sectionPart || d0.periods.some(function (p) {
+            return (p.parts || []).some(function (pp) { return pp.part === sectionPart; });
+          }));
         host.innerHTML = '<div class="empty-state" style="padding:34px 8px">' + ico('inbox', 'lg') +
           '<h3>' + (q ? 'Nothing matches' : 'No files attached') + '</h3>' +
-          '<p>' + (q ? 'Try a different search.' : (drawerTab === 'library'
-            ? 'Drop your registers here once. The Command Centre reads each file\'s columns and offers it to every dashboard that needs it.'
-            : 'Files pinned here stay with this dashboard only.')) + '</p></div>';
+          '<p>' + (q ? 'Try a different search.' : (hasDbRows
+            ? 'That is normal here: the data above is already in the database and does not need its source file to stay attached. Drop a file to add another month, or to replace one.'
+            : (drawerTab === 'library'
+              ? 'Drop your registers here once. The Command Centre reads each file\'s columns and offers it to every dashboard that needs it.'
+              : 'Files pinned here stay with this dashboard only.'))) + '</p></div>';
       } else {
         host.innerHTML = shown.map(function (r) {
           var k = kindOf(r.name, r.type);
@@ -1126,28 +1150,102 @@
   var SHEET_EXT = /\.(xlsx|xlsm|xlsb|xls|ods)$/i;
 
   /* Read a workbook and hand back its sheet names plus a converter, so the
-     caller can ask which sheet before paying to convert one. */
+     caller can ask which sheet before paying to convert one.
+
+     A register can run past 100,000 rows, and both XLSX.read() and
+     sheet_to_csv() are synchronous CPU work -- on the main thread that is a
+     multi-second freeze with nothing to show for it but a stuck tab. Done in
+     xlsx-worker.js instead, the tab stays responsive throughout.
+
+     A Worker can only load over http(s): opened as a plain file://, the
+     browser refuses the worker script as cross-origin from a "null" origin,
+     and that failure happens synchronously in the constructor -- so trying
+     the worker first and falling back to the old direct-on-this-thread path
+     when construction throws is a reliable fallback, not a guess. */
   function readWorkbook(blob) {
-    // library.js already lazy-loads SheetJS to sniff headers; reuse that
-    // rather than fetching a second copy of a large script.
+    return blob.arrayBuffer().then(function (buf) {
+      try {
+        return readWorkbookInWorker(buf);
+      } catch (e) {
+        return readWorkbookHere(buf);
+      }
+    });
+  }
+
+  function readWorkbookInWorker(buf) {
+    return new Promise(function (resolve, reject) {
+      var worker = new Worker('assets/js/xlsx-worker.js');   // throws under file://
+      var settled = false;
+      function fail(msg) {
+        if (settled) return;
+        settled = true;
+        worker.terminate();
+        reject(new Error(msg));
+      }
+      worker.onerror = function (e) {
+        e.preventDefault && e.preventDefault();
+        fail((e && e.message) || 'could not read that spreadsheet');
+      };
+      worker.onmessage = function (e) {
+        var msg = e.data || {};
+        if (msg.type === 'names') {
+          if (settled) return;
+          settled = true;
+          resolve({
+            names: msg.names,
+            toCsv: function (name) {
+              return new Promise(function (res2, rej2) {
+                var mh = function (e2) {
+                  var m2 = e2.data || {};
+                  if (m2.type === 'csv' && m2.name === name) {
+                    worker.removeEventListener('message', mh);
+                    worker.terminate();
+                    res2(m2.csv);
+                  } else if (m2.type === 'error') {
+                    worker.removeEventListener('message', mh);
+                    worker.terminate();
+                    rej2(new Error(m2.message));
+                  }
+                };
+                worker.addEventListener('message', mh);
+                worker.postMessage({ type: 'sheet', name: name });
+              });
+            }
+          });
+        } else if (msg.type === 'error') {
+          fail(msg.message);
+        }
+      };
+      // The buffer is transferred, not copied: for a large file that is the
+      // difference between an instant handoff and duplicating tens of MB.
+      // buf is unusable in this thread after this call, which is fine --
+      // nothing here reads it again.
+      worker.postMessage({ type: 'open', bytes: buf }, [buf]);
+    });
+  }
+
+  /* The original synchronous path. Kept as the fallback for file://, and
+     good enough there: someone opening the app by double-clicking
+     index.html is trading the disk-backed database and multi-user sign-in
+     for convenience already, and a slower spreadsheet read on top of that
+     is a fair continuation of the same trade, clearly explained rather than
+     silently eaten. */
+  function readWorkbookHere(buf) {
     return w.Library.loadXLSX().then(function (XLSX) {
-      return blob.arrayBuffer().then(function (buf) {
-        var wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true, cellDates: true });
-        var names = (wb.SheetNames || []).filter(function (n) {
-          var ws = wb.Sheets[n];
-          return ws && (ws['!ref'] || (ws.length || 0) > 0);   // skip empty sheets
-        });
-        return {
-          names: names.length ? names : (wb.SheetNames || []),
-          toCsv: function (name) {
-            var ws = wb.Sheets[name];
-            if (!ws) throw new Error('sheet "' + name + '" is not in that file');
-            // Dates as plain text: the database stores everything as text and
-            // an Excel serial number in a date column is unreadable later.
-            return XLSX.utils.sheet_to_csv(ws, { dateNF: 'dd-mmm-yyyy', blankrows: false });
-          }
-        };
+      var wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true, cellDates: true });
+      var names = (wb.SheetNames || []).filter(function (n) {
+        var ws = wb.Sheets[n];
+        return ws && (ws['!ref'] || (ws.length || 0) > 0);
       });
+      return {
+        names: names.length ? names : (wb.SheetNames || []),
+        toCsv: function (name) {
+          var ws = wb.Sheets[name];
+          if (!ws) return Promise.reject(new Error('sheet "' + name + '" is not in that file'));
+          return Promise.resolve(
+            XLSX.utils.sheet_to_csv(ws, { dateNF: 'dd-mmm-yyyy', blankrows: false }));
+        }
+      };
     });
   }
 
@@ -1328,24 +1426,25 @@
     var req;
     if (pendingBook) {
       // The server cannot parse a workbook, so it gets the sheet as CSV.
+      // toCsv() runs in the background worker when one is available (see
+      // readWorkbook), so this can be a real wait for a huge sheet without
+      // the tab looking stuck.
       var sheet = $('#importSheet').value || pendingBook.names[0];
-      var csv;
-      try {
-        csv = pendingBook.toCsv(sheet);
-      } catch (e) {
-        btn.classList.remove('working'); btn.disabled = false;
-        $('#importMsg').className = 'gate-msg err';
-        $('#importMsg').textContent = 'Could not read that sheet: ' + (e && e.message || e);
-        return;
-      }
       var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
-      req = fetch('__data/import?dataset=' + encodeURIComponent(ds) +
-                  '&period=' + encodeURIComponent(per) +
-                  '&part=' + encodeURIComponent(importPart()) +
-                  '&source=' + encodeURIComponent(label),
-                  { method: 'POST',
-                    headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-                    body: new Blob([csv], { type: 'text/csv' }) });
+      req = pendingBook.toCsv(sheet).then(function (csv) {
+        return fetch('__data/import?dataset=' + encodeURIComponent(ds) +
+                    '&period=' + encodeURIComponent(per) +
+                    '&part=' + encodeURIComponent(importPart()) +
+                    '&source=' + encodeURIComponent(label),
+                    { method: 'POST',
+                      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+                      body: new Blob([csv], { type: 'text/csv' }) });
+      }, function (e) {
+        // Distinguish "could not even read the sheet" from a server-side
+        // rejection, by throwing a message the shared catch below can show
+        // as-is rather than prefixing with "Could not add it".
+        throw new Error('Could not read that sheet: ' + (e && e.message || e));
+      });
     } else {
       req = fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
                   '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per) +
@@ -1359,6 +1458,11 @@
         if (!res.ok) throw new Error(res.j.error || 'import failed');
         closeImport();
         return loadDbSummary().then(function () {
+          // Both the pill bar for the open section AND the box summaries on
+          // the grid behind it need the fresh numbers -- renderSectionMonths
+          // alone left the grid showing the pre-import count until something
+          // else happened to repaint it.
+          renderSectionPicker();
           renderSectionMonths();
           var pnm = res.j.part ? partName(ds, res.j.part) : '';
           toast(res.j.rows.toLocaleString() + ' rows added to ' +
@@ -1369,7 +1473,9 @@
       .catch(function (e) {
         btn.classList.remove('working'); btn.disabled = false;
         $('#importMsg').className = 'gate-msg err';
-        $('#importMsg').textContent = 'Could not add it: ' + (e && e.message || e);
+        $('#importMsg').textContent = /^Could not read that sheet/.test(e && e.message || '')
+          ? e.message
+          : 'Could not add it: ' + (e && e.message || e);
       });
   }
 

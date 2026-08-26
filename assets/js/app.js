@@ -1001,6 +1001,7 @@
   var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
                      'July', 'August', 'September', 'October', 'November', 'December'];
   var pendingImport = null;
+  var pendingBook = null;      // the opened workbook, when the file is a spreadsheet
 
   /* Does this file look like the kind of register this section holds?
      Compared on the header row, not the file name, because a renamed file
@@ -1033,6 +1034,72 @@
     return best;
   }
 
+  /* ---- spreadsheets ------------------------------------------------------
+     The database reads CSV. Registers arrive as often as not as .xlsx, and
+     until now those attached fine and then silently never reached the
+     database -- the section just kept saying "nothing stored yet" with no
+     hint why.
+
+     Converting happens here rather than in serve.py because SheetJS is
+     already vendored for the dashboards and handles .xls, .xlsx and .ods
+     alike; the equivalent in Python would be a new dependency for the modern
+     format and would still not read the old binary one. */
+  var SHEET_EXT = /\.(xlsx|xlsm|xlsb|xls|ods)$/i;
+
+  /* Read a workbook and hand back its sheet names plus a converter, so the
+     caller can ask which sheet before paying to convert one. */
+  function readWorkbook(blob) {
+    // library.js already lazy-loads SheetJS to sniff headers; reuse that
+    // rather than fetching a second copy of a large script.
+    return w.Library.loadXLSX().then(function (XLSX) {
+      return blob.arrayBuffer().then(function (buf) {
+        var wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true, cellDates: true });
+        var names = (wb.SheetNames || []).filter(function (n) {
+          var ws = wb.Sheets[n];
+          return ws && (ws['!ref'] || (ws.length || 0) > 0);   // skip empty sheets
+        });
+        return {
+          names: names.length ? names : (wb.SheetNames || []),
+          toCsv: function (name) {
+            var ws = wb.Sheets[name];
+            if (!ws) throw new Error('sheet "' + name + '" is not in that file');
+            // Dates as plain text: the database stores everything as text and
+            // an Excel serial number in a date column is unreadable later.
+            return XLSX.utils.sheet_to_csv(ws, { dateNF: 'dd-mmm-yyyy', blankrows: false });
+          }
+        };
+      });
+    });
+  }
+
+  /* Work through everything just dropped, one prompt at a time. Only the
+     first file used to be offered, so dropping three months at once quietly
+     filed one -- the same class of silence as the spreadsheet problem. */
+  var importQueue = [];
+
+  function offerImports(added) {
+    var can = [], cannot = [];
+    (added || []).forEach(function (m) {
+      if (!m || !m.name) return;
+      if (/\.(csv|tsv|txt)$/i.test(m.name) || SHEET_EXT.test(m.name)) can.push(m);
+      else cannot.push(m.name);
+    });
+    if (cannot.length) {
+      // Never silent: a file that cannot reach the database has to say so.
+      toast(cannot.length === 1
+        ? '"' + cannot[0] + '" was attached, but only spreadsheets and CSV files can go into the database.'
+        : cannot.length + ' files were attached but cannot go into the database — only spreadsheets and CSV files can.',
+        'warn', 9000);
+    }
+    importQueue = can.slice(1);
+    if (can.length) askImport(can[0]);
+  }
+
+  function nextImport() {
+    var nxt = importQueue.shift();
+    if (nxt) setTimeout(function () { askImport(nxt); }, 250);
+  }
+
   function askImport(fileMeta) {
     pendingImport = fileMeta;
     $('#importSection').innerHTML = ((REG && REG.datasets) || []).map(function (d) {
@@ -1058,7 +1125,44 @@
       ? 'Month and year read from the file name. Change them if that is not right.'
       : 'Could not tell the month from the file name — please choose it.';
     $('#importMsg').style.display = 'none';
+    $('#importSheetWrap').style.display = 'none';
+    $('#importSheet').innerHTML = '';
+    pendingBook = null;
     $('#importModal').classList.add('open');
+
+    if (SHEET_EXT.test(fileMeta.name)) {
+      // A workbook has to be opened before we know what is in it. Say what is
+      // happening -- reading a 10MB file takes a moment.
+      $('#importMsg').style.display = 'flex';
+      $('#importMsg').className = 'gate-msg';
+      $('#importMsg').textContent = 'Opening the spreadsheet…';
+      $('#importGo').disabled = true;
+      w.Store.Files.blob(fileMeta.id)
+        .then(function (blob) {
+          if (!blob) throw new Error('that file is no longer in the workspace');
+          return readWorkbook(blob);
+        })
+        .then(function (book) {
+          if (pendingImport !== fileMeta) return;    // modal moved on
+          pendingBook = book;
+          $('#importGo').disabled = false;
+          $('#importMsg').style.display = 'none';
+          $('#importSheet').innerHTML = book.names.map(function (n) {
+            return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+          }).join('');
+          // One sheet needs no question; more than one does, because picking
+          // the wrong one files the wrong numbers with nothing to show for it.
+          $('#importSheetWrap').style.display = book.names.length > 1 ? 'block' : 'none';
+          checkDup();
+        })
+        .catch(function (e) {
+          $('#importGo').disabled = false;
+          $('#importMsg').style.display = 'flex';
+          $('#importMsg').className = 'gate-msg err';
+          $('#importMsg').textContent = 'Could not read that spreadsheet: ' + (e && e.message || e);
+        });
+      return;
+    }
     checkDup();
   }
 
@@ -1098,7 +1202,13 @@
     }
     $('#importGo').disabled = !per;
   }
-  function closeImport() { $('#importModal').classList.remove('open'); pendingImport = null; }
+  function closeImport(skipQueue) {
+    $('#importModal').classList.remove('open');
+    pendingImport = null;
+    pendingBook = null;          // release the workbook; these are large
+    $('#importGo').disabled = false;
+    if (!skipQueue) nextImport();
+  }
 
   function runImport() {
     if (!pendingImport) return;
@@ -1109,9 +1219,33 @@
     $('#importMsg').style.display = 'flex';
     $('#importMsg').className = 'gate-msg';
     $('#importMsg').textContent = 'Reading the file into the database…';
-    fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
-          '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per),
-          { method: 'POST' })
+
+    var req;
+    if (pendingBook) {
+      // The server cannot parse a workbook, so it gets the sheet as CSV.
+      var sheet = $('#importSheet').value || pendingBook.names[0];
+      var csv;
+      try {
+        csv = pendingBook.toCsv(sheet);
+      } catch (e) {
+        btn.classList.remove('working'); btn.disabled = false;
+        $('#importMsg').className = 'gate-msg err';
+        $('#importMsg').textContent = 'Could not read that sheet: ' + (e && e.message || e);
+        return;
+      }
+      var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
+      req = fetch('__data/import?dataset=' + encodeURIComponent(ds) +
+                  '&period=' + encodeURIComponent(per) +
+                  '&source=' + encodeURIComponent(label),
+                  { method: 'POST',
+                    headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+                    body: new Blob([csv], { type: 'text/csv' }) });
+    } else {
+      req = fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
+                  '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per),
+                  { method: 'POST' });
+    }
+    req
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
         btn.classList.remove('working'); btn.disabled = false;
@@ -1134,7 +1268,10 @@
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
     var db = dashId === w.Library.ID ? null : byId(dashId);
-    var where = db ? db.name : 'the Data Library';
+    // Name the section it actually went into. Saying "the Data Library" for a
+    // file dropped into GRN Register reads like it was filed somewhere else.
+    var sec = section ? sectionById(section) : null;
+    var where = db ? db.name : (sec ? sec.name : 'the Data Library');
     if (files.length > 1 || files[0].size > 2e6) toast('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…', 'ok', 2000);
     Promise.all(files.map(function (f) {
       // Read the header row once, so the file can be routed to the right
@@ -1163,8 +1300,12 @@
         // Dropped into a section, and the database is reachable: offer to file
         // its contents too. Never automatic -- the month is a guess from the
         // file name, and filing August under July would be invisible later.
-        var csvish = (added || []).filter(function (m) { return m && /\.(csv|tsv|txt)$/i.test(m.name); });
-        if (section && w.Store.Files.onDisk() && csvish.length) askImport(csvish[0]);
+        if (section && w.Store.Files.onDisk()) offerImports(added || []);
+        else if (section && !w.Store.Files.onDisk()) {
+          toast('Filed as a file, but the database is not reachable, so nothing was added to ' +
+            ((sectionById(section) || {}).name || 'the section') +
+            '. Start serve.py and drop it again.', 'warn', 10000);
+        }
       })
       .catch(function (e) {
         var msg = (e && e.message) || String(e);

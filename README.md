@@ -359,6 +359,18 @@ One GRN export feeds Procurement Operations, Rate & MRP Variance and
 Non-Formulary Utilisation. One stock transfer feeds Store Transfer and
 Non-Formulary. You upload each file once.
 
+**Excel works as well as CSV.** Drop an `.xlsx`, `.xls`, `.xlsm` or `.ods`
+into a section and it is read straight into the month-on-month database — no
+saving as CSV first. A workbook with more than one sheet asks which one to
+use before it files anything, and the stored rows record the sheet they came
+from, so `PURCHASE JULY.xlsx [Sheet2]` is traceable later.
+
+Dropping several months at once is fine: each file gets its own month and
+year prompt in turn, rather than only the first one being offered.
+
+Anything that cannot go into the database — a PDF, an image — still attaches
+as a file, and says so rather than appearing to have worked.
+
 | File | Goes to |
 |---|---|
 | Purchase Register | Procurement Operations, Non-Formulary |

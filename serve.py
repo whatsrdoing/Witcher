@@ -297,21 +297,70 @@ def make_handler(prefix):
             self.wfile.write(("%X\r\n" % len(data)).encode("ascii") + data + b"\r\n")
 
         def _data_import(self, qs):
-            """Files an already-uploaded library file into its section."""
+            """Files a register into its section.
+
+            Two ways in. Normally the file is already in the library and only
+            its id is sent. A spreadsheet cannot be parsed here -- the reader
+            for that lives in the browser, where SheetJS already is -- so for
+            those the converted CSV arrives in the request body instead, and
+            is streamed to a temp file rather than held in memory: these are
+            tens of megabytes.
+            """
             file_id = (qs.get("fileId") or [""])[0]
             dataset = (qs.get("dataset") or [""])[0]
             period = (qs.get("period") or [""])[0]
-            if not SAFE_ID.match(file_id or ""):
-                self._json(400, {"error": "bad file id"})
+
+            if file_id:
+                if not SAFE_ID.match(file_id):
+                    self._json(400, {"error": "bad file id"})
+                    return
+                blob = os.path.join(LIBRARY_BLOBS, file_id)
+                if not os.path.exists(blob):
+                    self._json(404, {"error": "that file is no longer in the library"})
+                    return
+                rec = next((f for f in library_read_index() if f.get("id") == file_id), None)
+                source = (rec or {}).get("name") or file_id
+                self._import_from(blob, dataset, period, source)
                 return
-            blob = os.path.join(LIBRARY_BLOBS, file_id)
-            if not os.path.exists(blob):
-                self._json(404, {"error": "that file is no longer in the library"})
-                return
-            rec = next((f for f in library_read_index() if f.get("id") == file_id), None)
-            source = (rec or {}).get("name") or file_id
+
+            # Body upload: CSV converted from a spreadsheet by the browser.
+            source = (qs.get("source") or ["spreadsheet"])[0][:200]
             try:
-                out = store().import_csv(blob, dataset, period, source=source)
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
+            if n <= 0:
+                self._json(400, {"error": "no file id and no body to import"})
+                return
+            tmp = os.path.join(LIBRARY_DIR, "import-%s.csv.part" % uuid.uuid4().hex)
+            written = 0
+            try:
+                os.makedirs(LIBRARY_DIR, exist_ok=True)
+                with open(tmp, "wb") as out:
+                    left = n
+                    while left > 0:
+                        chunk = self.rfile.read(min(COPY_CHUNK, left))
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        written += len(chunk)
+                        left -= len(chunk)
+                if written != n:
+                    # A short read means the upload was cut off. Importing it
+                    # would quietly file half a month.
+                    self._json(400, {"error": "upload was cut short (%d of %d bytes)" % (written, n)})
+                    return
+                self._import_from(tmp, dataset, period, source)
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+
+        def _import_from(self, path, dataset, period, source):
+            try:
+                out = store().import_csv(path, dataset, period, source=source)
                 print("  imported %s %s: %s rows from %s" % (dataset, period, out["rows"], source))
                 self._json(200, out)
             except Exception as exc:                      # noqa: BLE001

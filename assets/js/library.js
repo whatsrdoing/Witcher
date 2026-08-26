@@ -308,6 +308,7 @@
   w.Library = {
     ID: LIBRARY_ID,
     BIG_FILE: BIG_FILE,
+    loadXLSX: loadXLSX,      // shared so the importer does not load a second copy
     profile: profile,
     condense: condense,
     sniff: sniff,

@@ -185,10 +185,23 @@ header{
 .unit-pill:hover{border-color:var(--teal);color:#fff;}
 .unit-pill.active{background:linear-gradient(135deg, var(--brand-blue), #4A6FD4);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(91,141,239,.35);}
 .unit-pill.all-pill.active{background:linear-gradient(135deg, var(--teal), #22B8A8);box-shadow:0 4px 14px rgba(45,212,191,.35);}
+.unit-pill.mini{padding:4px 12px;font-size:11.5px;border-radius:14px;}
+.repeat-unit-pills{display:flex;flex-wrap:wrap;gap:6px;}
 
 /* ---------- Upload panel ---------- */
 .upload-panel{padding:26px;margin:0 auto 26px;max-width:820px;}
 @media (max-width:900px){.upload-panel{max-width:none;}}
+/* Once built, Step 1 has done its job -- collapsed to a single slim strip
+   (still holding the way back in, "Upload Different Files") instead of
+   sitting there full-size above the dashboard it just built. */
+#collapsedNote{display:none;}
+.upload-panel.collapsed{padding:14px 26px;max-width:none;}
+.upload-panel.collapsed h2,
+.upload-panel.collapsed > .hint,
+.upload-panel.collapsed .upload-grid,
+.upload-panel.collapsed #buildBtn,
+.upload-panel.collapsed #buildNote{display:none;}
+.upload-panel.collapsed #collapsedNote{display:inline;}
 .upload-panel h2{margin:0 0 4px;font-size:17px;color:#fff;font-weight:700;}
 .upload-panel .hint{color:var(--text-muted);font-size:13px;margin:0 0 20px;line-height:1.5;}
 .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
@@ -351,6 +364,7 @@ footer b{color:var(--text-muted);}
       <button id="buildBtn" disabled>Build Dashboard</button>
       <button id="resetBtn" style="display:none;">Upload Different Files</button>
       <span class="build-note" id="buildNote">Load both files to enable this button.</span>
+      <span class="build-note" id="collapsedNote">Dashboard built from these files — showing it below. Use this button if you need to load different ones.</span>
     </div>
   </div>
 
@@ -402,6 +416,8 @@ footer b{color:var(--text-muted);}
         </div>
       </div>
       <div class="table-wrap" id="shelfTableWrap"><table id="tblShelf"></table></div>
+      <div class="table-search" id="shelfDetailSearchWrap" style="display:none;"><input type="text" class="search-input" id="searchShelfDetail" placeholder="Search item, GRN No., unit…"></div>
+      <div class="table-wrap" id="shelfDetailTableWrap" style="display:none;"><table id="tblShelfDetail"></table></div>
     </div>
 
     <!-- APPROVAL SLABS -->
@@ -454,15 +470,15 @@ footer b{color:var(--text-muted);}
         <h2>Repeat Local Purchases</h2>
         <span class="section-tag">Same item, more than once</span>
       </div>
-      <p class="section-desc">Items that were purchased locally more than once — a recurring local-purchase pattern that usually belongs on a regular PO instead. Pick a unit below to see, for that unit only, how many times each item — e.g. Ecosprin — was purchased locally.</p>
-      <div class="action-row" style="margin-bottom:10px; gap:18px;">
+      <p class="section-desc">Items that were purchased locally more than once — a recurring local-purchase pattern that usually belongs on a regular PO instead. Pick one or more units below — both the Item Wise chart and the table narrow to just those units, so you can see, e.g., how many times Ecosprin was purchased locally in DBG alone, or across DBG and GGN together.</p>
+      <div class="action-row" style="margin-bottom:10px; gap:18px;flex-wrap:wrap;">
         <div class="metric-toggle" id="repeatModeToggle">
           <button data-mode="item" class="active">Item Wise</button>
           <button data-mode="unit" >Unit Wise</button>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.4px;">Unit</span>
-          <select id="repeatUnitSelect" class="select-plain"></select>
+          <div class="repeat-unit-pills" id="repeatUnitPills"></div>
         </div>
       </div>
       <div class="chart-box">
@@ -662,6 +678,7 @@ document.getElementById('resetBtn').addEventListener('click', () => {
   document.getElementById('dashboardBody').classList.remove('visible');
   document.getElementById('unitFilterBox').style.display = 'none';
   document.getElementById('resetBtn').style.display = 'none';
+  document.getElementById('uploadPanel').classList.remove('collapsed');
   checkAllLoaded();
 });
 
@@ -924,6 +941,7 @@ document.getElementById('buildBtn').addEventListener('click', () => {
       document.getElementById('unitFilterBox').style.display = 'block';
       document.getElementById('dashboardBody').classList.add('visible');
       document.getElementById('resetBtn').style.display = 'inline-block';
+      document.getElementById('uploadPanel').classList.add('collapsed');
       document.getElementById('dashboardBody').scrollIntoView({behavior:'smooth'});
     }catch(err){
       alert('Something went wrong while building the dashboard: ' + err.message);
@@ -1002,7 +1020,7 @@ function killChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id];
 let unitMetric = 'count';
 let itemSort = {key:'epr', dir:'desc'};
 let repeatMode = 'item';
-let repeatUnitFilter = 'ALL';
+let repeatUnitFilters = null; // null = All Units; otherwise a Set of selected unit codes
 
 function render(units){
   if(!RAW) return;
@@ -1025,9 +1043,9 @@ function render(units){
   renderItemTable(itemAgg);
   renderCrossCheckTable(crossCheck);
   renderPOChart(crossCheck);
-  buildRepeatUnitSelect(units);
-  renderRepeatTable(itemAgg, unitItemAgg);
-  renderRepeatChart(itemAgg, unitItemAgg);
+  buildRepeatUnitPills(units);
+  renderRepeatTable(unitItemAgg);
+  renderRepeatChart(unitItemAgg);
   renderCompare(units, RAW.grnAgg);
 
   document.getElementById('unitMetricToggle').querySelectorAll('button').forEach(b=>{
@@ -1042,7 +1060,7 @@ function render(units){
     b.onclick = () => {
       repeatMode = b.getAttribute('data-mode');
       document.getElementById('repeatModeToggle').querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
-      renderRepeatChart(itemAgg, unitItemAgg);
+      renderRepeatChart(unitItemAgg);
     };
   });
 }
@@ -1314,17 +1332,23 @@ function renderShelfLife(shelfAgg, localLines){
   const emptyEl = document.getElementById('shelfEmptyState');
   const holderEl = document.getElementById('shelfChartHolder');
   const tableWrapEl = document.getElementById('shelfTableWrap');
+  const detailSearchWrapEl = document.getElementById('shelfDetailSearchWrap');
+  const detailTableWrapEl = document.getElementById('shelfDetailTableWrap');
   const hasExpiry = localLines.some(l=>l.expiryDt);
   if(!hasExpiry){
     emptyEl.style.display = 'block';
     holderEl.style.display = 'none';
     tableWrapEl.style.display = 'none';
+    detailSearchWrapEl.style.display = 'none';
+    detailTableWrapEl.style.display = 'none';
     killChart('chartShelf');
     return;
   }
   emptyEl.style.display = 'none';
   holderEl.style.display = 'block';
   tableWrapEl.style.display = 'block';
+  detailSearchWrapEl.style.display = 'block';
+  detailTableWrapEl.style.display = 'block';
 
   const buckets = shelfAgg.buckets;
   const labels = buckets.map(b=>b.label);
@@ -1356,6 +1380,20 @@ function renderShelfLife(shelfAgg, localLines){
     `<tr><td><span class="badge" style="background:${b.color}29;color:${b.color};border:1px solid ${b.color}55">${b.label}</span></td><td class="num">${b.count.toLocaleString('en-IN')}</td><td class="num">${fmtINR(b.epr)}</td></tr>`
   ).join('');
   document.getElementById('tblShelf').innerHTML = thead+'<tbody>'+body+'</tbody>';
+
+  // Item-level detail behind the bucket summary above -- which item, on which
+  // GRN, landed in which bucket. Soonest-to-expire first, since that's the
+  // one operationally worth noticing.
+  const detailLines = localLines.filter(l=>l.dt && l.expiryDt)
+    .map(l=>({ line:l, days: daysBetween(l.dt, l.expiryDt), bucket: shelfBucketFor(daysBetween(l.dt, l.expiryDt)) }))
+    .sort((a,b)=>a.days-b.days);
+  const detailRows = detailLines.map(({line:l, bucket:b})=>
+    `<tr><td>${escapeHtml(l.itemCode)}</td><td>${escapeHtml(l.itemName)}</td><td>${escapeHtml(l.unit)}</td><td>${escapeHtml(l.grnNo)}</td><td>${fmtDateOnly(l.dt)}</td><td>${fmtDateOnly(l.expiryDt)}</td>`+
+    `<td><span class="badge" style="background:${b.color}29;color:${b.color};border:1px solid ${b.color}55">${b.label}</span></td><td class="num">${fmtINR(l.epr)}</td></tr>`
+  );
+  renderSearchableTable('tblShelfDetail','searchShelfDetail',
+    ['Item Code','Item Name','Unit','GRN No.','GRN Date','Expiry Date','Shelf Life At Purchase','EPR Value'],
+    detailRows, detailLines.map(({line:l})=>[l.itemCode,l.itemName,l.unit,l.grnNo].join(' ')));
 }
 
 /* ---------- Approval slabs ---------- */
@@ -1520,31 +1558,64 @@ function renderPOChart(crossCheck){
 }
 
 /* ---------- Repeat local purchases ---------- */
-let LAST_REPEAT_ITEM_AGG = [];
 let LAST_REPEAT_UNIT_ITEM_AGG = [];
-function buildRepeatUnitSelect(units){
-  const sel = document.getElementById('repeatUnitSelect');
-  if(!units.includes(repeatUnitFilter)) repeatUnitFilter = 'ALL';
-  sel.innerHTML = '<option value="ALL">All Units</option>' +
-    units.map(u=>`<option value="${escapeHtml(u)}"${u===repeatUnitFilter?' selected':''}>${escapeHtml(u)}</option>`).join('');
-  sel.onchange = () => { repeatUnitFilter = sel.value; drawRepeatTable(); };
+function buildRepeatUnitPills(units){
+  // Selections from a previous, wider unit list (e.g. before the top HOSPITAL
+  // UNIT filter narrowed things) never leave a phantom pill checked.
+  if(repeatUnitFilters){
+    repeatUnitFilters = new Set(Array.from(repeatUnitFilters).filter(u=>units.includes(u)));
+    if(!repeatUnitFilters.size || repeatUnitFilters.size===units.length) repeatUnitFilters = null;
+  }
+  const allSelected = !repeatUnitFilters;
+  const host = document.getElementById('repeatUnitPills');
+  host.innerHTML = '<button type="button" class="unit-pill mini all-pill'+(allSelected?' active':'')+'" data-u="ALL">All Units</button>' +
+    units.map(u=>`<button type="button" class="unit-pill mini${!allSelected && repeatUnitFilters.has(u)?' active':''}" data-u="${escapeHtml(u)}">${escapeHtml(u)}</button>`).join('');
+  host.querySelectorAll('.unit-pill').forEach(btn=>{
+    btn.onclick = () => {
+      const u = btn.getAttribute('data-u');
+      if(u==='ALL'){
+        repeatUnitFilters = null;
+      } else if(!repeatUnitFilters){
+        repeatUnitFilters = new Set([u]);          // was "All" -- narrow to just this one
+      } else if(repeatUnitFilters.has(u)){
+        repeatUnitFilters.delete(u);
+        if(!repeatUnitFilters.size) repeatUnitFilters = null;   // nothing left checked -> back to All
+      } else {
+        repeatUnitFilters.add(u);
+        if(repeatUnitFilters.size===units.length) repeatUnitFilters = null; // every unit checked -> same as All
+      }
+      buildRepeatUnitPills(units);
+      drawRepeatTable();
+      renderRepeatChart(LAST_REPEAT_UNIT_ITEM_AGG);
+    };
+  });
 }
-function renderRepeatTable(itemAgg, unitItemAgg){
-  LAST_REPEAT_ITEM_AGG = itemAgg;
+function renderRepeatTable(unitItemAgg){
   LAST_REPEAT_UNIT_ITEM_AGG = unitItemAgg;
   drawRepeatTable();
 }
-// "All Units" reads the item-level aggregate (a repeat can span units); picking one unit switches
-// to the unit-scoped aggregate, so "is Ecosprin there, how many times in DBG" reads DBG-only counts.
-function computeRepeatRows(){
-  if(repeatUnitFilter === 'ALL'){
-    return LAST_REPEAT_ITEM_AGG.filter(r=>r.grnCount>1)
-      .map(r=>({itemCode:r.itemCode, itemName:r.itemName, unitsLabel:r.units.join(', '), grnCount:r.grnCount, qty:r.qty, epr:r.epr}))
-      .sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
-  }
-  return LAST_REPEAT_UNIT_ITEM_AGG.filter(a=>a.unit===repeatUnitFilter && a.grnCount>1)
-    .map(a=>({itemCode:a.itemCode, itemName:a.itemName, unitsLabel:a.unit, grnCount:a.grnCount, qty:a.qty, epr:a.epr}))
+// Item Wise chart and table both read this: sums each item's qty/EPR/GRN-count across
+// whichever units are selected (all of them, by default), so picking DBG+GGN answers
+// "how many times was Ecosprin bought locally across DBG and GGN" rather than per-unit.
+function repeatItemAggregate(scopedUnitItemAgg){
+  const map = new Map();
+  scopedUnitItemAgg.forEach(a=>{
+    const key = a.itemCode || ('NAME::'+a.itemName);
+    if(!map.has(key)) map.set(key, {itemCode:a.itemCode, itemName:a.itemName, units:new Set(), grnCount:0, qty:0, epr:0});
+    const r = map.get(key);
+    r.units.add(a.unit); r.grnCount += a.grnCount; r.qty += a.qty; r.epr += a.epr;
+  });
+  return Array.from(map.values())
+    .filter(r=>r.grnCount>1)
+    .map(r=>({...r, units:Array.from(r.units).sort(), epr:Math.round(r.epr*100)/100}))
     .sort((a,b)=> b.grnCount-a.grnCount || b.epr-a.epr);
+}
+function repeatScopedUnitItemAgg(){
+  return repeatUnitFilters ? LAST_REPEAT_UNIT_ITEM_AGG.filter(a=>repeatUnitFilters.has(a.unit)) : LAST_REPEAT_UNIT_ITEM_AGG;
+}
+function computeRepeatRows(){
+  return repeatItemAggregate(repeatScopedUnitItemAgg())
+    .map(r=>({itemCode:r.itemCode, itemName:r.itemName, unitsLabel:r.units.join(', '), grnCount:r.grnCount, qty:r.qty, epr:r.epr}));
 }
 function drawRepeatTable(){
   const q = (document.getElementById('searchRepeat').value||'').toLowerCase();
@@ -1552,19 +1623,20 @@ function drawRepeatTable(){
   const thead = '<thead><tr><th>Item Code</th><th>Item Name</th><th>Unit(s)</th><th>Times Purchased Locally</th><th>Total Qty</th><th>Total EPR</th></tr></thead>';
   const body = rows.length ? rows.map(r=>
     `<tr class="flag-row"><td>${escapeHtml(r.itemCode)}</td><td>${escapeHtml(r.itemName)}</td><td>${escapeHtml(r.unitsLabel)}</td><td class="num">${r.grnCount}</td><td class="num">${r.qty.toLocaleString('en-IN')}</td><td class="num">${fmtINR(r.epr)}</td></tr>`
-  ).join('') : `<tr><td colspan="6"><div class="empty-state">No item was purchased locally more than once ${repeatUnitFilter==='ALL'?'in this filter':'in '+escapeHtml(repeatUnitFilter)}.</div></td></tr>`;
+  ).join('') : `<tr><td colspan="6"><div class="empty-state">No item was purchased locally more than once ${repeatUnitFilters?('in '+escapeHtml(Array.from(repeatUnitFilters).sort().join(', '))):'in this filter'}.</div></td></tr>`;
   document.getElementById('tblRepeat').innerHTML = thead+'<tbody>'+body+'</tbody>';
 }
 document.getElementById('searchRepeat').addEventListener('input', drawRepeatTable);
 
 const REPEAT_TOP_N = 20;
-function renderRepeatChart(itemAgg, unitItemAgg){
+function renderRepeatChart(unitItemAgg){
   killChart('chartRepeat');
   const inner = document.getElementById('repeatChartInner');
   const ctx = document.getElementById('chartRepeat').getContext('2d');
+  const scopedUnitItemAgg = repeatUnitFilters ? unitItemAgg.filter(a=>repeatUnitFilters.has(a.unit)) : unitItemAgg;
 
   if(repeatMode === 'item'){
-    const rows = itemAgg.filter(r=>r.grnCount>1).sort((a,b)=>b.grnCount-a.grnCount).slice(0, REPEAT_TOP_N);
+    const rows = repeatItemAggregate(scopedUnitItemAgg).slice(0, REPEAT_TOP_N);
     const labels = rows.map(r=> r.itemName.length>22 ? r.itemName.slice(0,20)+'…' : r.itemName);
     const data = rows.map(r=>r.grnCount);
     const eprByIndex = rows.map(r=>r.epr);
@@ -1585,7 +1657,7 @@ function renderRepeatChart(itemAgg, unitItemAgg){
       }
     });
   } else {
-    const repeatByUnitItem = unitItemAgg.filter(a=>a.grnCount>1);
+    const repeatByUnitItem = scopedUnitItemAgg.filter(a=>a.grnCount>1);
     const perUnit = {};
     repeatByUnitItem.forEach(a=>{
       if(!perUnit[a.unit]) perUnit[a.unit] = {items:0, epr:0};

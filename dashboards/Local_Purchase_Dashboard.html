@@ -571,6 +571,19 @@ function setStatus(key, ok, msg){
   card.classList.add(ok ? 'loaded' : 'error');
   status.textContent = msg;
 }
+// scrollIntoView() alone lines the target's top edge up with the very top of
+// the viewport -- but the header (logo + hospital-unit pills) is sticky and
+// sits on top of whatever is there, so the target's top edge (and the
+// collapsed upload strip just above it) end up tucked underneath it,
+// invisible, reading as a big blank gap. Scrolling to an offset that clears
+// the header's actual height fixes that.
+function scrollToDashboardBody(){
+  const body = document.getElementById('dashboardBody');
+  const header = document.querySelector('header');
+  const offset = (header ? header.getBoundingClientRect().height : 0) + 12;
+  const top = Math.max(0, body.getBoundingClientRect().top + window.pageYOffset - offset);
+  window.scrollTo({ top, behavior: 'smooth' });
+}
 function checkAllLoaded(){
   const allLoaded = Object.values(loaded).every(v => v !== null);
   document.getElementById('buildBtn').disabled = !allLoaded;
@@ -942,7 +955,7 @@ document.getElementById('buildBtn').addEventListener('click', () => {
       document.getElementById('dashboardBody').classList.add('visible');
       document.getElementById('resetBtn').style.display = 'inline-block';
       document.getElementById('uploadPanel').classList.add('collapsed');
-      document.getElementById('dashboardBody').scrollIntoView({behavior:'smooth'});
+      scrollToDashboardBody();
     }catch(err){
       alert('Something went wrong while building the dashboard: ' + err.message);
       console.error(err);

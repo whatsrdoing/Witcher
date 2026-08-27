@@ -497,6 +497,86 @@
       ]
     },
     {
+      "id": "data-health-check",
+      "name": "Data Health Check",
+      "category": "audit",
+      "description": "Runs every register you have through generic quality checks — exact duplicate rows, blank or inconsistent columns, unreadable or out-of-range dates, negative or outlier numbers — before any of it reaches a dashboard.",
+      "file": "dashboards/Data_Health_Check_Dashboard.html",
+      "icon": "check",
+      "status": "live",
+      "order": 1,
+      "tags": [
+        "quality",
+        "cleansing",
+        "duplicates",
+        "anomaly",
+        "audit",
+        "validation"
+      ],
+      "inputs": [
+        {
+          "label": "GRN Register",
+          "match": ["\\bgrn\\b"],
+          "needs": ["UNIT", "Item Code", "Received Qty.", "GRN No."],
+          "optional": true
+        },
+        {
+          "label": "Purchase Register",
+          "match": ["purchase\\s*register", "\\bpr\\b"],
+          "needs": ["UNIT", "Item Code", "PO No", "Status"],
+          "optional": true
+        },
+        {
+          "label": "COGS",
+          "match": ["cogs", "consumption"],
+          "needs": ["UNIT", "Item Id", "Qty", "Total EPR", "Total MRP"],
+          "optional": true
+        },
+        {
+          "label": "Stock Transfer",
+          "match": ["stock\\s*transfer", "store\\s*transfer", "\\btransfer\\b"],
+          "needs": ["UNIT", "From Store", "To Store", "Item Code", "Transfered Qty."],
+          "optional": true
+        },
+        {
+          "label": "RTV Register",
+          "match": ["\\brtv\\b", "return\\s*to\\s*vendor", "\\breturn\\s*register\\b"],
+          "needs": ["UNIT", "Return No", "Return Date", "Item Code", "Supplier Name"],
+          "optional": true
+        },
+        {
+          "label": "Non-Formulary List",
+          "match": ["non\\s*formulary"],
+          "needs": ["ItemId", "ITEM NAME", "ITEM CODE"],
+          "optional": true
+        },
+        {
+          "label": "Formulary List",
+          "match": ["\\bformulary\\s*(item\\s*)?list\\b"],
+          "needs": ["ItemId", "ITEM NAME", "ITEM CODE"],
+          "optional": true
+        },
+        {
+          "label": "Expiry Stock",
+          "match": ["expiry\\s*stock", "\\bexpiry\\b"],
+          "needs": [],
+          "optional": true
+        },
+        {
+          "label": "Non Moving",
+          "match": ["non\\s*moving", "slow\\s*moving"],
+          "needs": [],
+          "optional": true
+        },
+        {
+          "label": "SCM Employee / Permissions",
+          "match": ["scm\\s*employee", "permission", "\\brole\\b"],
+          "needs": [],
+          "optional": true
+        }
+      ]
+    },
+    {
       "id": "scm-audit",
       "name": "Full SCM Audit",
       "category": "audit",

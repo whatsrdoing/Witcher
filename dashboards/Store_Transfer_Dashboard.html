@@ -66,7 +66,7 @@ License: MIT
   /* Offline vendored by the Command Centre — same faces, served from ../assets/vendor/fonts. */
   @import url('../assets/vendor/fonts/fonts.css');
   :root{
-    --bg:#EDEFF3; --panel:#FFFFFF; --ink:#1B2733; --muted:#5C6773;
+    --bg:#F4F5F7; --panel:#FFFFFF; --ink:#1B2733; --muted:#5C6773;
     --teal:#2F5CA2; --teal-deep:#16294A; --teal-soft:#E3E9F4;
     --amber:#6B7683; --amber-soft:#E7E9EC; --line:#DBDFE5; --danger:#A8412F;
   }
@@ -85,7 +85,7 @@ License: MIT
      animation-timing custom properties, no colors, so it needs no light
      counterpart at all. */
   :root[data-theme="light"]{
-    --bg:#EDF1F6; --ink:#101826; --muted:#4A5768; --line:rgba(16,24,38,.13);
+    --bg:#F4F5F7; --ink:#101826; --muted:#4A5768; --line:rgba(20,22,28,.13);
     color-scheme: light;
   }
   *{box-sizing:border-box;}
@@ -178,31 +178,9 @@ License: MIT
 
   body{
     position:relative;overflow-x:hidden;min-height:100vh;
-    background:
-      radial-gradient(60% 50% at 15% 0%, rgba(78,134,224,.20), transparent 60%),
-      radial-gradient(55% 45% at 100% 15%, rgba(107,118,131,.18), transparent 60%),
-      radial-gradient(70% 55% at 50% 120%, rgba(47,92,162,.14), transparent 60%),
-      var(--bg);
+    background:var(--bg);
     background-attachment:fixed;
   }
-  /* soft, animated, but no filter:blur — that would force every glass panel behind
-     it to resample a moving layer on every frame, which is what made the page heavy */
-  body::before{
-    content:"";position:fixed;inset:-12%;z-index:-1;pointer-events:none;
-    background:
-      radial-gradient(28% 24% at 20% 22%, rgba(78,134,224,.24), transparent 72%),
-      radial-gradient(25% 22% at 82% 62%, rgba(168,65,47,.10), transparent 72%),
-      radial-gradient(30% 26% at 55% 92%, rgba(47,92,162,.20), transparent 72%);
-    animation:auroraDrift 30s ease-in-out infinite;
-    will-change:transform;
-    transform:translateZ(0);
-  }
-  @keyframes auroraDrift{
-    0%,100%{transform:translate3d(0,0,0) scale(1)}
-    33%{transform:translate3d(3%,-4%,0) scale(1.07)}
-    66%{transform:translate3d(-4%,3%,0) scale(1.03)}
-  }
-  @media (prefers-reduced-motion:reduce){ body::before{animation:none} }
 
   /* frosted surfaces. backdrop-filter is by far the most expensive property on this
      page — profiling showed it alone taking idle rendering from 60fps to ~20fps once
@@ -916,7 +894,12 @@ function getUnitColor(unit){
 function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
 function chartTextColor(){ return isLightTheme() ? '#101826' : '#1B2733'; }
 function chartMutedColor(){ return isLightTheme() ? '#4A5768' : '#5C6773'; }
-function chartGridColor(){ return isLightTheme() ? 'rgba(16,24,38,.10)' : '#DBDFE5'; }
+function chartGridColor(){ return isLightTheme() ? 'rgba(20,22,28,.10)' : '#DBDFE5'; }
+// Every chart here is destroyed and rebuilt on a theme change (see the
+// "parasthemechange" listener below), so its entrance animation used to
+// replay every time -- drawing instantly instead of what could read as a
+// moment of hanging.
+Chart.defaults.animation = false;
 
 function renderTop20(){
   const filtered = getStoreAndDateFiltered();

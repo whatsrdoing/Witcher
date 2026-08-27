@@ -1089,11 +1089,22 @@
   var dbSummary = null;                       // what the database holds, by section
   function loadDbSummary() {
     if (!w.Store.Files.onDisk()) return Promise.resolve(null);
-    return fetch('__data', { cache: 'no-store' })
-      .then(function (r) {
-        if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
-        return r.ok ? r.json() : null;
-      })
+    // Called right after boot -- a 401 here can be this request racing the
+    // just-set session cookie rather than a real expiry, so give it one
+    // forgiving retry (see storage.js's libFetch/checkPersistence) before
+    // concluding the session is actually gone.
+    var attempt = function (retryOn401) {
+      return fetch('__data', { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401 && retryOn401) {
+            return new Promise(function (res) { setTimeout(res, 300); })
+              .then(function () { return attempt(false); });
+          }
+          if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
+          return r.ok ? r.json() : null;
+        });
+    };
+    return attempt(true)
       .then(function (j) { dbSummary = (j && j.datasets) || []; return dbSummary; })
       .catch(function () { return null; });
   }
@@ -1464,7 +1475,7 @@
     $('#importMsg').className = 'gate-msg';
     $('#importMsg').textContent = 'Reading the file into the database…';
 
-    var req;
+    var send;
     if (pendingBook) {
       // The server cannot parse a workbook, so it gets the sheet as CSV.
       // toCsv() runs in the background worker when one is available (see
@@ -1472,14 +1483,19 @@
       // the tab looking stuck.
       var sheet = $('#importSheet').value || pendingBook.names[0];
       var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
-      req = pendingBook.toCsv(sheet).then(function (csv) {
-        return fetch('__data/import?dataset=' + encodeURIComponent(ds) +
+      send = pendingBook.toCsv(sheet).then(function (csv) {
+        // Built once and reused across a retry -- a Blob (unlike a stream)
+        // can be sent through fetch() more than once safely.
+        var blob = new Blob([csv], { type: 'text/csv' });
+        var url = '__data/import?dataset=' + encodeURIComponent(ds) +
                     '&period=' + encodeURIComponent(per) +
                     '&part=' + encodeURIComponent(importPart()) +
-                    '&source=' + encodeURIComponent(label),
-                    { method: 'POST',
+                    '&source=' + encodeURIComponent(label);
+        return function () {
+          return fetch(url, { method: 'POST',
                       headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-                      body: new Blob([csv], { type: 'text/csv' }) });
+                      body: blob });
+        };
       }, function (e) {
         // Distinguish "could not even read the sheet" from a server-side
         // rejection, by throwing a message the shared catch below can show
@@ -1487,15 +1503,29 @@
         throw new Error('Could not read that sheet: ' + (e && e.message || e));
       });
     } else {
-      req = fetch('__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
+      var url2 = '__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
                   '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per) +
-                  '&part=' + encodeURIComponent(importPart()),
-                  { method: 'POST' });
+                  '&part=' + encodeURIComponent(importPart());
+      send = Promise.resolve(function () { return fetch(url2, { method: 'POST' }); });
     }
-    req
-      .then(function (r) {
-        if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
-        return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+    send
+      .then(function (doFetch) {
+        // A 401 this soon after sign-in (this modal can be reached moments
+        // after unlocking, via an auto-picked upload) can be the session
+        // cookie racing this exact request rather than a real expiry -- one
+        // forgiving retry before treating it as the session actually being
+        // gone, same as storage.js's libFetch/checkPersistence.
+        var attempt = function (retryOn401) {
+          return doFetch().then(function (r) {
+            if (r.status === 401 && retryOn401) {
+              return new Promise(function (res) { setTimeout(res, 300); })
+                .then(function () { return attempt(false); });
+            }
+            if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
+            return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+          });
+        };
+        return attempt(true);
       })
       .then(function (res) {
         btn.classList.remove('working'); btn.disabled = false;
@@ -2000,15 +2030,35 @@
       if (m.pairs.length < required) return;
       fillPairs(m.pairs).then(function (r) {
         if (!r.done || r.failed) return;
-        setTimeout(function () {
+        // fillInput only dispatches the 'change' event -- it does not wait
+        // for the dashboard's own handler to finish reading the file, which
+        // for a large register (tens of thousands of rows, an .xlsx read
+        // via FileReader) can take several seconds. A single click attempt
+        // shortly after filling used to fire while the dashboard's own
+        // build button was still disabled -- silently doing nothing, with
+        // every box showing filled or "Reading..." forever and no retry.
+        // Poll instead: cheap per attempt (skips straight past if nothing
+        // is ready yet), and 30s covers even a very large workbook.
+        var attempts = 0, maxAttempts = 100;
+        var tryClick = function () {
+          attempts++;
           var clicked = clickBuildButton(id);
-          if (current === id) refreshMatchBar();
-          var db = byId(id);
-          toast((clicked
-            ? '"' + (db ? db.name : id) + '" auto-filled and run from ' + r.done + ' Data Library file' + (r.done === 1 ? '' : 's') + '.'
-            : 'Auto-filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') + ' from the Data Library — press the dashboard\'s own build button to run it.'
-          ), 'ok', 5000);
-        }, 150);
+          if (clicked) {
+            if (current === id) refreshMatchBar();
+            var db = byId(id);
+            toast('"' + (db ? db.name : id) + '" auto-filled and run from ' + r.done + ' Data Library file' + (r.done === 1 ? '' : 's') + '.', 'ok', 5000);
+            return;
+          }
+          if (attempts >= maxAttempts) {
+            var db2 = byId(id);
+            toast('Auto-filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') + ' from the Data Library for "' +
+              (db2 ? db2.name : id) + '" — it is still reading a large file; press the dashboard\'s own build button once it says everything is loaded.',
+              'warn', 8000);
+            return;
+          }
+          setTimeout(tryClick, 300);
+        };
+        setTimeout(tryClick, 150);
       });
     });
   }

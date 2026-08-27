@@ -126,11 +126,9 @@ html{scroll-behavior:smooth;}
 body{
   margin:0;font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,Arial,sans-serif;
   color:var(--text);
-  background:
-    radial-gradient(900px 500px at 8% -8%, rgba(91,143,214,.35), transparent 60%),
-    radial-gradient(800px 480px at 108% 8%, rgba(44,90,161,.22), transparent 55%),
-    radial-gradient(700px 520px at 50% 110%, rgba(117,125,135,.18), transparent 55%),
-    linear-gradient(160deg, #eef2f8 0%, #e6ecf5 45%, #eef1f6 100%);
+  /* Flat and neutral on purpose -- see the matching note on the same
+     pattern in Local_Purchase_Dashboard.html. */
+  background:#F4F5F7;
   background-attachment:fixed;
   min-height:100vh;
 }
@@ -1417,6 +1415,10 @@ function chartTextColor(){ return isDarkTheme() ? '#D6DEE5' : '#3A4658'; }
 function chartGridColor(){ return isDarkTheme() ? 'rgba(255,255,255,.08)' : 'rgba(26,58,104,.08)'; }
 function chartBorderColor(){ return isDarkTheme() ? '#12161d' : '#ffffff'; }
 function destroyChart(id){ if(rtvCharts[id]){ rtvCharts[id].destroy(); delete rtvCharts[id]; } }
+// All three charts are destroyed and rebuilt on a theme change (see above),
+// so their entrance animation used to replay every time it toggled --
+// drawing instantly instead of what could read as the page hanging.
+Chart.defaults.animation = false;
 function drawBar(id, labels, values, horizontal, format, colors){
   destroyChart(id);
   const ctx = document.getElementById(id).getContext('2d');

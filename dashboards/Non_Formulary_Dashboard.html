@@ -70,14 +70,14 @@
    they're saturated enough to read on both a near-black and a near-white
    surface, so only the neutral surface/text tokens need a light variant. */
 :root[data-theme="light"]{
-  --bg-deep:#EDF1F6;
-  --glass-bg: rgba(16,24,38,0.045);
-  --glass-bg-strong: rgba(16,24,38,0.075);
-  --glass-border: rgba(16,24,38,0.13);
-  --glass-border-soft: rgba(16,24,38,0.08);
-  --text:#101826;
-  --text-muted:#4A5768;
-  --text-dim:#7B8792;
+  --bg-deep:#F4F5F7;
+  --glass-bg: rgba(20,22,28,0.04);
+  --glass-bg-strong: rgba(20,22,28,0.07);
+  --glass-border: rgba(20,22,28,0.12);
+  --glass-border-soft: rgba(20,22,28,0.075);
+  --text:#16181D;
+  --text-muted:#585C64;
+  --text-dim:#84878E;
   --danger-bg: rgba(192,57,46,0.08);
   --danger-border: rgba(192,57,46,0.35);
   --ok-bg: rgba(18,128,90,0.10);
@@ -85,11 +85,11 @@
   color-scheme: light;
 }
 :root[data-theme="light"] body{
-  background:
-    radial-gradient(circle at 12% -8%, rgba(91,141,239,0.14), transparent 42%),
-    radial-gradient(circle at 92% 6%, rgba(45,212,191,0.10), transparent 40%),
-    radial-gradient(circle at 50% 100%, rgba(167,139,250,0.06), transparent 45%),
-    linear-gradient(180deg, #EDF1F6 0%, #E7ECF3 35%, #E3E9F1 100%);
+  /* Flat and neutral on purpose -- the colored radial blooms used in dark
+     mode (where they read as ambient glow on near-black) turned this into a
+     visibly blue-tinted page on a light background, which is what this
+     overrides. */
+  background:#F4F5F7;
 }
 :root[data-theme="light"] header{background:rgba(255,255,255,.72);}
 :root[data-theme="light"] .brand-text h1,
@@ -106,39 +106,39 @@
 :root[data-theme="light"] .search-input,
 :root[data-theme="light"] .diag-panel h3{ color:var(--text); }
 :root[data-theme="light"] .upload-panel .hint b{ color:var(--text) !important; }
-:root[data-theme="light"] .unit-pill{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] .unit-pill{ background:rgba(20,22,28,.04); }
 :root[data-theme="light"] .unit-pill:hover{ color:var(--text); }
-:root[data-theme="light"] .filter-box select{ background:rgba(16,24,38,.06); }
+:root[data-theme="light"] .filter-box select{ background:rgba(20,22,28,.06); }
 :root[data-theme="light"] .filter-box select option,
-:root[data-theme="light"] .select-plain option{ background:#fff; color:#101826; }
-:root[data-theme="light"] .date-input{ background:rgba(16,24,38,.04); color-scheme:light; }
-:root[data-theme="light"] .date-clear-btn{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] .upload-card{ background:rgba(16,24,38,.025); }
-:root[data-theme="light"] .upload-card input[type=file]::file-selector-button{ background:rgba(16,24,38,.06); color:var(--text); }
-:root[data-theme="light"] #buildBtn{ border-color:rgba(16,24,38,.14); }
-:root[data-theme="light"] #buildBtn:disabled{ background:rgba(16,24,38,.05); }
-:root[data-theme="light"] #resetBtn{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] #resetBtn:hover{ background:rgba(16,24,38,.07); color:var(--text); }
-:root[data-theme="light"] .chart-box{ background:rgba(16,24,38,.02); }
-:root[data-theme="light"] thead th{ background:#E7ECF3; color:var(--text); }
-:root[data-theme="light"] tbody td{ border-bottom-color:rgba(16,24,38,.06); }
-:root[data-theme="light"] .select-plain{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] .msel-btn{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] .msel-panel{ background:#fff; box-shadow:0 16px 40px rgba(16,24,38,.18); }
-:root[data-theme="light"] .msel-actions button{ background:rgba(16,24,38,.035); }
-:root[data-theme="light"] .msel-item:hover{ background:rgba(16,24,38,.05); }
-:root[data-theme="light"] .search-input{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] .select-plain option{ background:#fff; color:#16181D; }
+:root[data-theme="light"] .date-input{ background:rgba(20,22,28,.04); color-scheme:light; }
+:root[data-theme="light"] .date-clear-btn{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] .upload-card{ background:rgba(20,22,28,.025); }
+:root[data-theme="light"] .upload-card input[type=file]::file-selector-button{ background:rgba(20,22,28,.06); color:var(--text); }
+:root[data-theme="light"] #buildBtn{ border-color:rgba(20,22,28,.14); }
+:root[data-theme="light"] #buildBtn:disabled{ background:rgba(20,22,28,.05); }
+:root[data-theme="light"] #resetBtn{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] #resetBtn:hover{ background:rgba(20,22,28,.07); color:var(--text); }
+:root[data-theme="light"] .chart-box{ background:rgba(20,22,28,.02); }
+:root[data-theme="light"] thead th{ background:#EBECEF; color:var(--text); }
+:root[data-theme="light"] tbody td{ border-bottom-color:rgba(20,22,28,.06); }
+:root[data-theme="light"] .select-plain{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] .msel-btn{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] .msel-panel{ background:#fff; box-shadow:0 16px 40px rgba(20,22,28,.18); }
+:root[data-theme="light"] .msel-actions button{ background:rgba(20,22,28,.035); }
+:root[data-theme="light"] .msel-item:hover{ background:rgba(20,22,28,.05); }
+:root[data-theme="light"] .search-input{ background:rgba(20,22,28,.04); }
 :root[data-theme="light"] .search-input::placeholder{ color:var(--text-dim); }
-:root[data-theme="light"] .search-input:focus{ background:rgba(16,24,38,.06); }
-:root[data-theme="light"] .tag-none{ background:rgba(16,24,38,.05); }
-:root[data-theme="light"] .ratio-bar-track{ background:rgba(16,24,38,.08); }
-:root[data-theme="light"] .custom-legend{ background:rgba(16,24,38,.02); }
-:root[data-theme="light"] .custom-legend-item:hover{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] .diag-table th{ border-bottom-color:rgba(16,24,38,.12); }
-:root[data-theme="light"] .diag-table td{ border-bottom-color:rgba(16,24,38,.06); }
-:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(16,24,38,.16); }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:rgba(16,24,38,.26); }
+:root[data-theme="light"] .search-input:focus{ background:rgba(20,22,28,.06); }
+:root[data-theme="light"] .tag-none{ background:rgba(20,22,28,.05); }
+:root[data-theme="light"] .ratio-bar-track{ background:rgba(20,22,28,.08); }
+:root[data-theme="light"] .custom-legend{ background:rgba(20,22,28,.02); }
+:root[data-theme="light"] .custom-legend-item:hover{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] .diag-table th{ border-bottom-color:rgba(20,22,28,.12); }
+:root[data-theme="light"] .diag-table td{ border-bottom-color:rgba(20,22,28,.06); }
+:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(20,22,28,.16); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:rgba(20,22,28,.26); }
 
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
@@ -678,11 +678,17 @@ footer b{color:var(--text-muted);}
 // see the "parasthemechange" listener at the bottom of this file.
 function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
 function chartTextColor(){ return isLightTheme() ? '#3A4658' : '#93A1AD'; }
-function chartGridColor(){ return isLightTheme() ? 'rgba(16,24,38,.08)' : 'rgba(255,255,255,.06)'; }
+function chartGridColor(){ return isLightTheme() ? 'rgba(20,22,28,.08)' : 'rgba(255,255,255,.06)'; }
 
 Chart.defaults.color = chartTextColor();
-Chart.defaults.borderColor = isLightTheme() ? 'rgba(16,24,38,.09)' : 'rgba(255,255,255,0.07)';
+Chart.defaults.borderColor = isLightTheme() ? 'rgba(20,22,28,.09)' : 'rgba(255,255,255,0.07)';
 Chart.defaults.font.family = "-apple-system, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif";
+// All six charts here are destroyed and rebuilt from scratch on a theme
+// change (see the note above) or a filter change, so Chart.js's default
+// entrance animation used to replay across all of them at once, every
+// time -- the page feeling like it hangs for a moment is that animation,
+// not actual work. Draws instantly instead.
+Chart.defaults.animation = false;
 
 /* Draws a centered "No data" message on any chart whose labels are empty — applies to every
    chart uniformly, without ever touching the canvas element itself (unlike hiding/removing the
@@ -697,7 +703,7 @@ const noDataPlugin = {
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.font = "13px -apple-system, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif";
-      ctx.fillStyle = isLightTheme() ? '#7B8792' : '#5C6773';
+      ctx.fillStyle = isLightTheme() ? '#84878E' : '#5C6773';
       ctx.fillText('No data for this selection', (area.left+area.right)/2, (area.top+area.bottom)/2);
       ctx.restore();
     }
@@ -2014,7 +2020,7 @@ function render(selectedUnits){
    time, so the charts need an explicit rebuild the moment the theme actually changes. */
 document.addEventListener('parasthemechange', () => {
   Chart.defaults.color = chartTextColor();
-  Chart.defaults.borderColor = isLightTheme() ? 'rgba(16,24,38,.09)' : 'rgba(255,255,255,0.07)';
+  Chart.defaults.borderColor = isLightTheme() ? 'rgba(20,22,28,.09)' : 'rgba(255,255,255,0.07)';
   if(PAYLOAD) render(selectedUnits);
 });
 

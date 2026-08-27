@@ -81,33 +81,57 @@
   :root[data-theme="light"]{
     --ink:#101826;
     --muted:#4A5768;
-    --bg:#E3E9F1;
+    --bg:#F4F5F7;
     --panel:#FFFFFF;
     --line:#DCE3EA;
 
-    --glass-fill: rgba(16,24,38,0.035);
-    --glass-fill-strong: rgba(16,24,38,0.065);
-    --glass-fill-tint: rgba(16,24,38,0.05);
-    --glass-border: rgba(16,24,38,0.12);
-    --glass-border-soft: rgba(16,24,38,0.08);
-    --glass-shadow: 0 8px 32px rgba(16,24,38,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
-    --glass-shadow-lg: 0 20px 60px rgba(16,24,38,0.16), inset 0 1px 0 rgba(255,255,255,0.55);
+    --glass-fill: rgba(20,22,28,0.035);
+    --glass-fill-strong: rgba(20,22,28,0.065);
+    --glass-fill-tint: rgba(20,22,28,0.05);
+    --glass-border: rgba(20,22,28,0.12);
+    --glass-border-soft: rgba(20,22,28,0.08);
+    --glass-shadow: 0 8px 32px rgba(20,22,28,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
+    --glass-shadow-lg: 0 20px 60px rgba(20,22,28,0.16), inset 0 1px 0 rgba(255,255,255,0.55);
     color-scheme: light;
   }
+  /* Flat and neutral on purpose -- the default "liquid glass" look above is
+     an intentional strong teal/cyan/violet wash, fine for this dashboard's
+     own default appearance, but reading as visibly blue-tinted once it sits
+     next to every other (neutral) dashboard in the Command Centre. This is
+     what the shell's own light toggle actually renders. */
   :root[data-theme="light"] body{
-    background: linear-gradient(160deg, #EDF1F6 0%, #E7ECF3 45%, #E3E9F1 100%);
+    background:#F4F5F7;
   }
-  :root[data-theme="light"] body::before{
-    background:
-      radial-gradient(900px 620px at 8% -8%, rgba(120,200,225,0.28), transparent 60%),
-      radial-gradient(800px 640px at 96% 8%, rgba(150,130,230,0.18), transparent 60%),
-      radial-gradient(1000px 700px at 30% 100%, rgba(60,195,175,0.20), transparent 60%),
-      radial-gradient(900px 700px at 90% 95%, rgba(70,150,225,0.16), transparent 60%),
-      radial-gradient(700px 520px at 50% 50%, rgba(180,235,225,0.14), transparent 65%);
+  :root[data-theme="light"] body::before{ background:none; }
+  :root[data-theme="light"] body::after{ background:none; }
+
+  /* ---------- Dark theme ----------
+     This dashboard's own default palette above is already its light look,
+     with no dark counterpart at all -- so the shell's dark toggle used to
+     do nothing here. This is that missing dark palette, following the same
+     near-black/translucent-white-glass convention as the rest of the
+     Command Centre. Brand/status accents (teal/amber/rose) are unchanged. */
+  :root[data-theme="dark"]{
+    --ink:#EAEFF4;
+    --muted:#93A1AD;
+    --bg:#05070a;
+    --panel:#0E1420;
+    --line:rgba(255,255,255,0.12);
+
+    --glass-fill: rgba(255,255,255,0.055);
+    --glass-fill-strong: rgba(255,255,255,0.095);
+    --glass-fill-tint: rgba(255,255,255,0.06);
+    --glass-border: rgba(255,255,255,0.14);
+    --glass-border-soft: rgba(255,255,255,0.09);
+    --glass-shadow: 0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+    --glass-shadow-lg: 0 20px 60px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+    color-scheme: dark;
   }
-  :root[data-theme="light"] body::after{
-    background: radial-gradient(1400px 900px at 50% -10%, rgba(255,255,255,0.65), transparent 55%);
+  :root[data-theme="dark"] body{
+    background: linear-gradient(180deg, #05070a 0%, #090c11 35%, #0b0f16 100%);
   }
+  :root[data-theme="dark"] body::before{ background:none; }
+  :root[data-theme="dark"] body::after{ background:none; }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0; height:100%;}
   body{

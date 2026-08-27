@@ -238,9 +238,19 @@
      available when the app is served over http (not opened from file://). */
   var LIB = '__library';
 
-  function libFetch(path, opts) {
+  function libFetch(path, opts, retryOn401) {
+    if (retryOn401 === undefined) retryOn401 = true;
     return fetch(LIB + path, Object.assign({ cache: 'no-store' }, opts || {}))
       .then(function (r) {
+        // A 401 moments after sign-in can be this exact request racing the
+        // session cookie rather than a real expiry (see checkPersistence's
+        // retry, above) -- so give it one forgiving retry before treating it
+        // as the session actually being gone. rec.blob (the only body ever
+        // passed through here) is a Blob, which fetch can safely re-send.
+        if (r.status === 401 && retryOn401) {
+          return new Promise(function (res) { setTimeout(res, 300); })
+            .then(function () { return libFetch(path, opts, false); });
+        }
         // The session this tab thought it had is gone -- expired, or the
         // server restarted and dropped every session it was holding. Back
         // to the sign-in screen cleanly rather than surfacing this as a
@@ -355,12 +365,41 @@
     // A 200 is not enough on its own: a stale server (or anything that
     // answers with the app's own HTML) would look like a working library and
     // then read back as empty. It only counts if it really is the index.
-    probePromise = fetch(LIB, { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
+    //
+    // A 401 here is not proof the server is unreachable -- the opposite: a
+    // real HTTP response, even a rejecting one, only comes from a server
+    // that is there and answering. But it also is not proof the on-disk
+    // library is USABLE right now: the very first call through here can be
+    // the login gate painting an account's avatar before anyone has signed
+    // in at all, when a 401 is simply the truth, not a race. So a 401 gets
+    // one retry after a beat (covers a session cookie set moments ago by a
+    // real sign-in that has not reached this exact request yet), and if it
+    // is still 401, this decides the on-disk store is not usable FOR NOW and
+    // falls back to IndexedDB for this call -- but does not memoise that as
+    // the answer for the rest of the page's life, so the next call (e.g.
+    // right after that real sign-in completes) probes fresh instead of being
+    // stuck on a verdict made before anyone had a session. Getting this
+    // wrong used to be a real trap either way: treating every 401 as
+    // "unreachable forever" silently ran the whole tab off browser storage
+    // with nothing on screen saying so; treating it as "authenticated" threw
+    // the login gate itself into a lock()-triggered reload loop.
+    var wasUnauth = false;
+    var attempt = function (retryOn401) {
+      return fetch(LIB, { cache: 'no-store' }).then(function (r) {
+        if (r.status === 401 && retryOn401) {
+          return new Promise(function (res) { setTimeout(res, 300); })
+            .then(function () { return attempt(false); });
+        }
+        if (r.status === 401) { wasUnauth = true; return null; }
+        return r.ok ? r.json() : null;
+      });
+    };
+    probePromise = attempt(true)
       .then(function (j) { return !!(j && Array.isArray(j.files)); })
       .catch(function () { return false; })
       .then(function (ok) {
         httpOk = ok;
+        if (wasUnauth) probePromise = null;
         if (!ok) return probeIdb();
         return migrateToLibrary().then(function (n) { lastMigrated = n; return true; });
       });

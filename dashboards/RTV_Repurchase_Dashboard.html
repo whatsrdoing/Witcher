@@ -50,6 +50,77 @@
   --glass-border: rgba(255,255,255,.65);
   --glass-blur: blur(18px) saturate(160%);
 }
+
+/* ---------- Dark theme ----------
+   This dashboard is bright/light by default (unlike most of this app's
+   dashboards, which default to dark) -- so this block is the ADDED override,
+   not the default. Follows the Command Centre shell's own dark/light toggle,
+   relayed via the "parasthemechange" bridge injected at the bottom of this
+   file (see assets/js/dashboard-bridge.js). Brand colors (navy/navy2/accent/
+   accent2/amber/red/green) are left unchanged -- they're saturated enough to
+   read on both a near-black and a near-white surface -- only the neutral
+   surface/text/glass tokens get a dark variant. A few selectors that use
+   --navy/--navy2 directly as foreground text (fine on this file's light
+   default, unreadable on a dark surface) get their own corrective rule below,
+   same as the literal (non-var) backgrounds sprinkled through this file. */
+:root[data-theme="dark"]{
+  --card:rgba(255,255,255,.04);
+  --text:#EAEFF4; --muted:#93A1AD; --border:rgba(255,255,255,.12);
+  --shadow: 0 8px 30px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
+  --glass-bg: rgba(255,255,255,.055);
+  --glass-bg-strong: rgba(255,255,255,.095);
+  --glass-border: rgba(255,255,255,.14);
+  --glass-blur: blur(18px) saturate(160%);
+  color-scheme: dark;
+}
+:root[data-theme="dark"] body{
+  background:
+    radial-gradient(900px 500px at 8% -8%, rgba(91,143,214,.14), transparent 60%),
+    radial-gradient(800px 480px at 108% 8%, rgba(44,90,161,.16), transparent 55%),
+    radial-gradient(700px 520px at 50% 110%, rgba(120,130,145,.10), transparent 55%),
+    linear-gradient(160deg, #05070a 0%, #0a0d12 45%, #05070a 100%);
+}
+:root[data-theme="dark"] .glass{ background:var(--glass-bg); }
+:root[data-theme="dark"] .brand-divider{ background:linear-gradient(rgba(255,255,255,0), rgba(255,255,255,.18), rgba(255,255,255,0)); }
+:root[data-theme="dark"] .brand h1,
+:root[data-theme="dark"] .upload-card h2,
+:root[data-theme="dark"] .dropzone .title,
+:root[data-theme="dark"] .kpi-value,
+:root[data-theme="dark"] .chart-card h3,
+:root[data-theme="dark"] .table-card .table-head h3{ color:var(--text); }
+:root[data-theme="dark"] .toggle-btn,
+:root[data-theme="dark"] .change-files-btn,
+:root[data-theme="dark"] .reset-btn,
+:root[data-theme="dark"] .ms-actions button,
+:root[data-theme="dark"] .pg-btn{ color:var(--text); }
+:root[data-theme="dark"] .bucket-card.active{ outline-color:var(--accent2); }
+:root[data-theme="dark"] .toggle-group{ background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.12); }
+:root[data-theme="dark"] .toggle-btn:not(.active):hover{ background:rgba(255,255,255,.08); }
+:root[data-theme="dark"] .change-files-btn:hover{ background:rgba(255,255,255,.10); }
+:root[data-theme="dark"] .dropzone{ background:rgba(255,255,255,.03); }
+:root[data-theme="dark"] .dropzone:hover, :root[data-theme="dark"] .dropzone.dragover{ background:rgba(91,143,214,.10); }
+:root[data-theme="dark"] .dropzone.filled{ background:rgba(63,156,93,.12); }
+:root[data-theme="dark"] .filter-bar select,
+:root[data-theme="dark"] .filter-bar input[type=text],
+:root[data-theme="dark"] .ms-btn{ background:rgba(255,255,255,.06); color:var(--text); border-color:rgba(255,255,255,.14); }
+:root[data-theme="dark"] .ms-panel{ background:rgba(20,24,32,.96); }
+:root[data-theme="dark"] .ms-search{ background:rgba(255,255,255,.06); color:var(--text); }
+:root[data-theme="dark"] .ms-actions button{ background:rgba(255,255,255,.08); }
+:root[data-theme="dark"] .ms-actions button:hover{ background:rgba(255,255,255,.14); }
+:root[data-theme="dark"] .ms-option:hover{ background:rgba(255,255,255,.06); }
+:root[data-theme="dark"] .reset-btn{ background:rgba(255,255,255,.05); border-color:rgba(255,255,255,.14); }
+:root[data-theme="dark"] .reset-btn:hover{ background:rgba(255,255,255,.10); }
+:root[data-theme="dark"] .table-card .table-head{ background:rgba(255,255,255,.04); border-bottom-color:rgba(255,255,255,.10); }
+:root[data-theme="dark"] .table-scroll{ background:rgba(10,13,18,.9); }
+:root[data-theme="dark"] tbody td{ border-bottom-color:rgba(255,255,255,.07); }
+:root[data-theme="dark"] tbody tr:hover{ background:rgba(255,255,255,.05); }
+:root[data-theme="dark"] tbody td.col-pair-a{ background:rgba(91,143,214,.05); }
+:root[data-theme="dark"] tbody td.col-pair-b{ background:rgba(224,145,47,.06); }
+:root[data-theme="dark"] .pagination{ background:rgba(255,255,255,.04); border-top-color:rgba(255,255,255,.10); }
+:root[data-theme="dark"] .pg-btn{ background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.14); }
+:root[data-theme="dark"] .pg-btn:hover:not(:disabled){ background:rgba(255,255,255,.12); }
+:root[data-theme="dark"] .pg-size select{ background:rgba(255,255,255,.06); color:var(--text); border-color:rgba(255,255,255,.14); }
+
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
 body{
@@ -1334,10 +1405,22 @@ document.querySelectorAll('#rpTable thead th').forEach(th=>{
 });
 
 // ================= CHART HELPERS =================
+// Chart.js bakes its colors in at creation time, so unlike the CSS above it
+// can't just "follow" a CSS variable -- these read the shell-relayed
+// data-theme attribute fresh on every (re)draw, and the parasthemechange
+// listener below tears down and redraws the charts whenever it flips.
+// Only chrome (grid lines, axis/legend text, the doughnut's slice border)
+// follows the theme here -- the data-series colors passed in by callers
+// (COLORS, and the explicit bucket/value colors) are left untouched.
+function isDarkTheme(){ return document.documentElement.getAttribute('data-theme') === 'dark'; }
+function chartTextColor(){ return isDarkTheme() ? '#D6DEE5' : '#3A4658'; }
+function chartGridColor(){ return isDarkTheme() ? 'rgba(255,255,255,.08)' : 'rgba(26,58,104,.08)'; }
+function chartBorderColor(){ return isDarkTheme() ? '#12161d' : '#ffffff'; }
 function destroyChart(id){ if(rtvCharts[id]){ rtvCharts[id].destroy(); delete rtvCharts[id]; } }
 function drawBar(id, labels, values, horizontal, format, colors){
   destroyChart(id);
   const ctx = document.getElementById(id).getContext('2d');
+  const tickColor = chartTextColor(), gridColor = chartGridColor();
   rtvCharts[id] = new Chart(ctx, {
     type:'bar',
     data:{labels, datasets:[{data:values, backgroundColor: colors || COLORS, borderRadius:5}]},
@@ -1345,8 +1428,8 @@ function drawBar(id, labels, values, horizontal, format, colors){
       responsive:true, maintainAspectRatio:false, indexAxis: horizontal?'y':'x',
       plugins:{legend:{display:false}, tooltip:{callbacks:{label:(c)=> format==='currency' ? fmtINR(c.parsed[horizontal?'x':'y']) : fmtNum(c.parsed[horizontal?'x':'y'])}}},
       scales:{
-        x:{ ticks: horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {} , grid:{display:horizontal}},
-        y:{ ticks: !horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {}, grid:{display:!horizontal} }
+        x:{ ticks: Object.assign({color:tickColor}, horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {}) , grid:{display:horizontal, color:gridColor}},
+        y:{ ticks: Object.assign({color:tickColor}, !horizontal ? {callback:v=>format==='currency'?fmtINR(v):v} : {}), grid:{display:!horizontal, color:gridColor} }
       }
     }
   });
@@ -1354,11 +1437,15 @@ function drawBar(id, labels, values, horizontal, format, colors){
 function drawLine(id, labels, values){
   destroyChart(id);
   const ctx = document.getElementById(id).getContext('2d');
+  const tickColor = chartTextColor(), gridColor = chartGridColor();
   rtvCharts[id] = new Chart(ctx, {
     type:'line',
     data:{labels, datasets:[{data:values, borderColor:'#2f7dd1', backgroundColor:'#2f7dd120', fill:true, tension:.3, pointRadius:4}]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:c=>fmtINR(c.parsed.y)}}},
-      scales:{y:{ticks:{callback:v=>fmtINR(v)}}}}
+      scales:{
+        x:{ ticks:{color:tickColor}, grid:{color:gridColor} },
+        y:{ ticks:{color:tickColor, callback:v=>fmtINR(v)}, grid:{color:gridColor} }
+      }}
   });
 }
 function drawDoughnut(id, labels, values, colors){
@@ -1366,10 +1453,17 @@ function drawDoughnut(id, labels, values, colors){
   const ctx = document.getElementById(id).getContext('2d');
   rtvCharts[id] = new Chart(ctx, {
     type:'doughnut',
-    data:{labels, datasets:[{data:values, backgroundColor: colors || COLORS, borderColor:'#fff', borderWidth:2}]},
-    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:12,font:{size:11}}}, tooltip:{callbacks:{label:c=>c.label+': '+fmtINR(c.parsed)}}}}
+    data:{labels, datasets:[{data:values, backgroundColor: colors || COLORS, borderColor:chartBorderColor(), borderWidth:2}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:12,padding:12,font:{size:11}, color:chartTextColor()}}, tooltip:{callbacks:{label:c=>c.label+': '+fmtINR(c.parsed)}}}}
   });
 }
+
+// Charts must be rebuilt (not just restyled) when the shell's theme flips --
+// see the chart-chrome helpers above. Only rebuild once a file has actually
+// been loaded; before that these canvases hold no chart to redraw.
+document.addEventListener('parasthemechange', () => {
+  if(RTV_DATA.length){ renderRTV(); renderRP(); }
+});
 </script>
 <!-- paras-command-centre-bridge -->
 <script>

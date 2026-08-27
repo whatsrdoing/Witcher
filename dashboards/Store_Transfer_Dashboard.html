@@ -70,6 +70,24 @@ License: MIT
     --teal:#2F5CA2; --teal-deep:#16294A; --teal-soft:#E3E9F4;
     --amber:#6B7683; --amber-soft:#E7E9EC; --line:#DBDFE5; --danger:#A8412F;
   }
+
+  /* ---------- Light theme ----------
+     Follows the Command Centre shell's own dark/light toggle -- see the
+     "parasthemechange" bridge relay at the bottom of this file's script.
+     This dashboard's own default (above) is already a bright, glass-panel
+     design -- unlike Local_Purchase_Dashboard.html's near-black default --
+     so the shift here is smaller: it brings the neutral surface/text tokens
+     in line with the Command Centre's shared light palette (see
+     Local_Purchase_Dashboard.html) so every dashboard converges on the same
+     light look. Brand accents (teal/teal-deep/amber/danger) are unchanged --
+     they already read fine on a light surface in both states -- and the
+     second :root{} below (the "LIQUID GLASS + MOTION" block) holds only
+     animation-timing custom properties, no colors, so it needs no light
+     counterpart at all. */
+  :root[data-theme="light"]{
+    --bg:#EDF1F6; --ink:#101826; --muted:#4A5768; --line:rgba(16,24,38,.13);
+    color-scheme: light;
+  }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk','Inter',sans-serif;}
   .num{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
@@ -890,6 +908,16 @@ function getUnitColor(unit){
   return UNIT_COLORS[(idx >= 0 ? idx : 0) % UNIT_COLORS.length];
 }
 
+// Chart.js bakes colors into the chart at creation time, so unlike the rest of the page
+// (plain CSS, follows the shell's theme live) every chart is rebuilt on a theme change --
+// see the "parasthemechange" listener after renderAll() below. Values below mirror this
+// dashboard's own --ink/--muted/--line tokens (dark-mode branch === today's hardcoded
+// chart colors, unchanged) with a light-mode branch matching the family light palette.
+function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
+function chartTextColor(){ return isLightTheme() ? '#101826' : '#1B2733'; }
+function chartMutedColor(){ return isLightTheme() ? '#4A5768' : '#5C6773'; }
+function chartGridColor(){ return isLightTheme() ? 'rgba(16,24,38,.10)' : '#DBDFE5'; }
+
 function renderTop20(){
   const filtered = getStoreAndDateFiltered();
   const map = new Map();
@@ -943,7 +971,7 @@ function renderTop20(){
       const meta0 = chart.getDatasetMeta(0);
       ctx.save();
       ctx.font = "11px 'IBM Plex Mono', monospace";
-      ctx.fillStyle = '#5C6773';
+      ctx.fillStyle = chartMutedColor();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       arr.forEach((item, i) => {
@@ -967,7 +995,7 @@ function renderTop20(){
       layout: { padding: { right: 70 } },
       plugins: {
         legend: hasUnitColumn
-          ? { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: '#1B2733' } }
+          ? { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: chartTextColor() } }
           : { display: false },
         tooltip: {
           callbacks: {
@@ -984,8 +1012,8 @@ function renderTop20(){
         }
       },
       scales: {
-        x: { stacked: hasUnitColumn, grace: '12%', grid:{color:'#DBDFE5'}, ticks:{ callback:(v)=>fmtInt(v), font:{size:11}, color:'#5C6773' } },
-        y: { stacked: hasUnitColumn, grid:{display:false}, ticks:{ font:{size:11}, color:'#1B2733' } },
+        x: { stacked: hasUnitColumn, grace: '12%', grid:{color:chartGridColor()}, ticks:{ callback:(v)=>fmtInt(v), font:{size:11}, color:chartMutedColor() } },
+        y: { stacked: hasUnitColumn, grid:{display:false}, ticks:{ font:{size:11}, color:chartTextColor() } },
       }
     },
     plugins: [qtyLabelPlugin]
@@ -1033,7 +1061,7 @@ function renderTrend(){
       responsive:true, maintainAspectRatio:false,
       plugins: {
         legend: hasUnitColumn
-          ? { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: '#1B2733' } }
+          ? { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, color: chartTextColor() } }
           : { display: false },
         tooltip: {
           callbacks: {
@@ -1045,8 +1073,8 @@ function renderTrend(){
         }
       },
       scales: {
-        x: { stacked: hasUnitColumn, grid:{display:false}, ticks:{font:{size:11}, color:'#5C6773'} },
-        y: { stacked: hasUnitColumn, grid:{color:'#DBDFE5'}, ticks:{ callback:(v)=>fmtInt(v), font:{size:11}, color:'#5C6773' } },
+        x: { stacked: hasUnitColumn, grid:{display:false}, ticks:{font:{size:11}, color:chartMutedColor()} },
+        y: { stacked: hasUnitColumn, grid:{color:chartGridColor()}, ticks:{ callback:(v)=>fmtInt(v), font:{size:11}, color:chartMutedColor() } },
       }
     }
   });
@@ -1091,12 +1119,12 @@ function renderMonthlyByUnit(){
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: {
-        legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11.5 }, color: '#1B2733' } },
+        legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11.5 }, color: chartTextColor() } },
         tooltip: { callbacks: { label: (item) => item.dataset.label + ': ' + (monthlyMetric === 'qty' ? fmtInt(item.raw) : fmtCurrency(item.raw)) } }
       },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#5C6773' } },
-        y: { grid: { color: '#DBDFE5' }, ticks: { callback: (v) => fmtInt(v), font: { size: 11 }, color: '#5C6773' } },
+        x: { grid: { display: false }, ticks: { font: { size: 11 }, color: chartMutedColor() } },
+        y: { grid: { color: chartGridColor() }, ticks: { callback: (v) => fmtInt(v), font: { size: 11 }, color: chartMutedColor() } },
       }
     }
   });
@@ -1169,6 +1197,11 @@ function renderAll(){
       : `${selectedUnits.size} unit${selectedUnits.size > 1 ? 's' : ''} selected · ${count.toLocaleString('en-IN')} rows`;
   }
 }
+
+/* The rest of the page follows the shell's dark/light toggle live, through plain CSS
+   (:root[data-theme="light"] above) -- but Chart.js bakes its colors in at creation
+   time, so the charts need an explicit rebuild the moment the theme actually changes. */
+document.addEventListener('parasthemechange', () => { if(rawRows.length) renderAll(); });
 
 function initDashboard(){
   document.getElementById('uploadWrap').style.display = 'none';

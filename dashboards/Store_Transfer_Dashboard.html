@@ -88,6 +88,20 @@ License: MIT
     --bg:#F4F5F7; --ink:#101826; --muted:#4A5768; --line:rgba(20,22,28,.13);
     color-scheme: light;
   }
+  /* ---------- Dark theme ----------
+     This dashboard's own default palette above is already its light look,
+     with no dark counterpart at all -- so the shell's dark toggle used to
+     do nothing here. --panel and the LIQUID GLASS section's hardcoded white
+     translucent fills further down (header/toolbar/panel/kpi/dropzone/
+     msel-panel, plus the icon-badge and error-box tints) never respected
+     the light/dark split at all -- they need their own tokens (defined in
+     the LIQUID GLASS block below) so this override can reach them too. */
+  :root[data-theme="dark"]{
+    --bg:#05070a; --panel:#0E1420; --ink:#EAEFF4; --muted:#93A1AD;
+    --line:rgba(255,255,255,.12); --teal-soft:rgba(47,92,162,.22);
+    --amber-soft:rgba(107,118,131,.22);
+    color-scheme: dark;
+  }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:'Space Grotesk','Inter',sans-serif;}
   .num{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;}
@@ -114,12 +128,12 @@ License: MIT
 
   .upload-wrap{min-height:70vh;display:flex;align-items:center;justify-content:center;padding:24px;}
   .dropzone{width:100%;max-width:560px;cursor:pointer;border:2px dashed var(--line);background:var(--panel);border-radius:14px;padding:48px 32px;text-align:center;transition:all .15s ease;}
-  .dropzone.drag{border-color:var(--amber);background:var(--amber-soft);}
+  .dropzone.drag{border-color:var(--amber);background:var(--amber-soft);color:var(--ink);}
   .dropzone .icon{width:56px;height:56px;border-radius:12px;background:var(--teal-soft);color:var(--teal);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:24px;}
   .dropzone h2{font-size:18px;font-weight:600;margin:0 0 6px;}
   .dropzone p{font-size:13.5px;color:var(--muted);line-height:1.5;margin:0 0 4px;}
   .dropzone .hint{font-size:12.5px;color:var(--muted);margin-top:14px;}
-  .error-box{margin-top:18px;background:#F6E6E2;color:var(--danger);border-radius:8px;padding:10px 14px;font-size:13px;display:flex;gap:8px;align-items:flex-start;text-align:left;}
+  .error-box{margin-top:18px;background:var(--error-bg);color:var(--danger);border-radius:8px;padding:10px 14px;font-size:13px;display:flex;gap:8px;align-items:flex-start;text-align:left;}
   .loading-msg{margin-top:16px;font-size:13px;color:var(--teal);font-weight:600;}
 
   .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;}
@@ -174,6 +188,29 @@ License: MIT
     --ease-out:cubic-bezier(0.23,1,0.32,1);
     --ease-in-out:cubic-bezier(0.77,0,0.175,1);
     --glass-blur:13px;
+
+    --glass-fill: rgba(255,255,255,.62);
+    --glass-fill-strong: rgba(255,255,255,.82);
+    --glass-border: rgba(255,255,255,.7);
+    --glass-border-strong: rgba(255,255,255,.8);
+    --glass-shadow: 0 8px 30px rgba(22,41,74,.12),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.55),inset 0 0 30px rgba(255,255,255,.10);
+    --glass-shadow-2: 0 8px 30px rgba(22,41,74,.12),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.6);
+    --sheen-top: rgba(255,255,255,.85);
+    --hover-wash: rgba(255,255,255,.6);
+    --hover-glow: rgba(255,255,255,.55);
+    --error-bg: #F6E6E2;
+  }
+  :root[data-theme="dark"]{
+    --glass-fill: rgba(255,255,255,.055);
+    --glass-fill-strong: rgba(255,255,255,.09);
+    --glass-border: rgba(255,255,255,.13);
+    --glass-border-strong: rgba(255,255,255,.16);
+    --glass-shadow: 0 8px 30px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.05);
+    --glass-shadow-2: 0 8px 30px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.05);
+    --sheen-top: rgba(255,255,255,.10);
+    --hover-wash: rgba(255,255,255,.09);
+    --hover-glow: rgba(255,255,255,.08);
+    --error-bg: rgba(168,65,47,.18);
   }
 
   body{
@@ -190,16 +227,16 @@ License: MIT
      you actually work with while browsing a big sheet — use a plain translucent
      background instead. Same liquid-glass look, none of the per-frame blur cost. */
   header,.dropzone,.msel-panel{
-    background:rgba(255,255,255,.62);
+    background:var(--glass-fill);
     -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(160%);
     backdrop-filter:blur(var(--glass-blur)) saturate(160%);
-    border:1px solid rgba(255,255,255,.7);
-    box-shadow:0 8px 30px rgba(22,41,74,.12),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.55),inset 0 0 30px rgba(255,255,255,.10);
+    border:1px solid var(--glass-border);
+    box-shadow:var(--glass-shadow);
   }
   .toolbar,.panel,.kpi{
-    background:rgba(255,255,255,.82);
-    border:1px solid rgba(255,255,255,.8);
-    box-shadow:0 8px 30px rgba(22,41,74,.12),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.6);
+    background:var(--glass-fill-strong);
+    border:1px solid var(--glass-border-strong);
+    box-shadow:var(--glass-shadow-2);
   }
   header{
     background:rgba(22,41,74,.68);color:#fff;
@@ -254,13 +291,13 @@ License: MIT
   @media (prefers-reduced-motion:reduce){ .kpi .flow{display:none} }
   header::before,.toolbar::before,.kpi::before,.panel::before,.dropzone::before,.msel-panel::before{
     content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;
-    background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,0) 42%);
+    background:linear-gradient(180deg,var(--sheen-top),rgba(255,255,255,0) 42%);
     -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
     -webkit-mask-composite:xor;mask-composite:exclude;
     pointer-events:none;
   }
   @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-    header,.dropzone,.msel-panel{background:rgba(255,255,255,.94)}
+    header,.dropzone,.msel-panel{background:var(--glass-fill-strong)}
   }
 
   /* ---- entrance: dashboard, panels, kpis (replay whenever the DOM restores / rebuilds) ---- */
@@ -341,11 +378,11 @@ License: MIT
   table.ledger tr{transition:background .12s ease}
 
   @media (hover:hover) and (pointer:fine){
-    .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(22,41,74,.16),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.55)}
-    .panel:hover{box-shadow:0 10px 26px rgba(22,41,74,.14),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 rgba(255,255,255,.55)}
+    .kpi:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(22,41,74,.16),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 var(--hover-glow)}
+    .panel:hover{box-shadow:0 10px 26px rgba(22,41,74,.14),0 1px 2px rgba(22,41,74,.08),inset 0 1px 0 var(--hover-glow)}
     .btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
     .msel-btn:hover{transform:translateY(-1px)}
-    .toggle-btn:not(.active):hover{background:rgba(255,255,255,.6);transform:translateY(-1px)}
+    .toggle-btn:not(.active):hover{background:var(--hover-wash);transform:translateY(-1px)}
   }
   .kpi,.panel{transition:transform .18s var(--ease-out),box-shadow .18s var(--ease-out)}
   .btn:active{transform:translateY(0)}

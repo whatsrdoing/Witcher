@@ -76,6 +76,30 @@
 
   --gut:22px;
 }
+
+/* ---------- Light theme ----------
+   Follows the Command Centre shell's own dark/light toggle -- see the
+   "parasthemechange" bridge relay injected at the bottom of this file.
+   Unlike some dashboards in this family, this console's base surface (the
+   .wrap/body/cards above) is already a bright, glassy, light-on-pale-blue
+   look -- its text tokens (--ink/--slate/--mute) and border/glass tokens
+   (--wire/--wire-soft) already read correctly against a light surface, so
+   they need no override here. The two places that are genuinely styled as
+   a *dark* bar with light text -- the sticky header rail and the table
+   header row -- are the ones that need to flip so the whole page reads as
+   one coherent light theme instead of a dark bar left floating over it. */
+:root[data-theme="light"] header{
+  background:rgba(255,255,255,.72);
+  border-bottom:1px solid rgba(16,24,38,.10);
+}
+:root[data-theme="light"] header h1{ color:var(--ink); }
+:root[data-theme="light"] header .sub{ color:var(--mute); }
+:root[data-theme="light"] header .loaded{ color:var(--mute); }
+:root[data-theme="light"] header .loaded b{ color:var(--viridian); }
+:root[data-theme="light"] th{
+  background:#E7ECF3;
+  color:var(--ink);
+}
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{

@@ -66,6 +66,48 @@
     --glass-shadow-lg: 0 20px 60px rgba(10,35,45,0.28), inset 0 1px 0 rgba(255,255,255,0.5);
     --glass-blur: blur(22px) saturate(180%);
   }
+
+  /* ---------- Light theme ----------
+     Follows the Command Centre shell's own dark/light toggle -- see the
+     "parasthemechange" bridge relay at the bottom of this file. This
+     dashboard's default palette above is already a bright clinical
+     white/teal look, so the shift here is mainly the neutral surface/text
+     tokens (ink, muted text, glass fill/border/shadow) moving from a
+     white-tinted glass to the app family's neutral dark-tinted glass, plus
+     a calmer, less saturated version of the drifting monitor-glow field.
+     Brand/status accents (teal/amber/rose scale) are unchanged: they read
+     fine on both a bright and a very bright surface, so only the neutrals
+     need a light variant. */
+  :root[data-theme="light"]{
+    --ink:#101826;
+    --muted:#4A5768;
+    --bg:#E3E9F1;
+    --panel:#FFFFFF;
+    --line:#DCE3EA;
+
+    --glass-fill: rgba(16,24,38,0.035);
+    --glass-fill-strong: rgba(16,24,38,0.065);
+    --glass-fill-tint: rgba(16,24,38,0.05);
+    --glass-border: rgba(16,24,38,0.12);
+    --glass-border-soft: rgba(16,24,38,0.08);
+    --glass-shadow: 0 8px 32px rgba(16,24,38,0.10), inset 0 1px 0 rgba(255,255,255,0.6);
+    --glass-shadow-lg: 0 20px 60px rgba(16,24,38,0.16), inset 0 1px 0 rgba(255,255,255,0.55);
+    color-scheme: light;
+  }
+  :root[data-theme="light"] body{
+    background: linear-gradient(160deg, #EDF1F6 0%, #E7ECF3 45%, #E3E9F1 100%);
+  }
+  :root[data-theme="light"] body::before{
+    background:
+      radial-gradient(900px 620px at 8% -8%, rgba(120,200,225,0.28), transparent 60%),
+      radial-gradient(800px 640px at 96% 8%, rgba(150,130,230,0.18), transparent 60%),
+      radial-gradient(1000px 700px at 30% 100%, rgba(60,195,175,0.20), transparent 60%),
+      radial-gradient(900px 700px at 90% 95%, rgba(70,150,225,0.16), transparent 60%),
+      radial-gradient(700px 520px at 50% 50%, rgba(180,235,225,0.14), transparent 65%);
+  }
+  :root[data-theme="light"] body::after{
+    background: radial-gradient(1400px 900px at 50% -10%, rgba(255,255,255,0.65), transparent 55%);
+  }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0; height:100%;}
   body{

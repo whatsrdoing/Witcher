@@ -2192,6 +2192,14 @@ for(var p=0,v=0;p!==c.length;++p)if((v=c.charCodeAt(p))===n||v===i||v===34||f.fo
  * memory, crashes the browser tab. That is refused here, before the file ever
  * reaches the dashboard's own code, in favour of the Command Centre's Data
  * Library — which streams a file this size instead of loading it whole.
+ *
+ * It also relays the shell's dark/light theme toggle: whenever the Command
+ * Centre's own theme changes (and once immediately when this dashboard first
+ * loads), it stamps data-theme="dark"|"light" on this document's <html> and
+ * fires a "parasthemechange" event, so any dashboard that defines its own
+ * :root[data-theme="light"] palette follows the shell's toggle instead of
+ * carrying a separate one of its own. A dashboard with no light palette yet
+ * simply ignores the attribute -- this is a no-op until one is added.
  */
 (function (w, d) {
   'use strict';
@@ -2273,6 +2281,15 @@ for(var p=0,v=0;p!==c.length;++p)if((v=c.charCodeAt(p))===n||v===i||v===34||f.fo
     if (!m || m.__paras !== 1 || !m.action) return;
     // Only the page that embedded this one may drive it.
     if (w.parent === w || ev.source !== w.parent) return;
+
+    if (m.action === 'theme') {
+      try {
+        var theme = m.theme === 'light' ? 'light' : 'dark';
+        d.documentElement.setAttribute('data-theme', theme);
+        d.dispatchEvent(new CustomEvent('parasthemechange', { detail: { theme: theme } }));
+      } catch (e) {}
+      return;
+    }
 
     if (m.action === 'probe') {
       reply(ev.source, m.id, {

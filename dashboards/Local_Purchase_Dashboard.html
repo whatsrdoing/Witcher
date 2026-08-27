@@ -62,6 +62,70 @@
   --ok-bg: rgba(45,212,191,0.12);
   --ok-border: rgba(45,212,191,0.45);
 }
+
+/* ---------- Light theme ----------
+   Follows the Command Centre shell's own dark/light toggle -- see the
+   "parasthemechange" bridge relay at the bottom of this file's script.
+   Accent colors (brand-blue/teal/amber/rose/violet/emerald) are unchanged:
+   they're saturated enough to read on both a near-black and a near-white
+   surface, so only the neutral surface/text tokens need a light variant. */
+:root[data-theme="light"]{
+  --bg-deep:#EDF1F6;
+  --glass-bg: rgba(16,24,38,0.045);
+  --glass-bg-strong: rgba(16,24,38,0.075);
+  --glass-border: rgba(16,24,38,0.13);
+  --glass-border-soft: rgba(16,24,38,0.08);
+  --text:#101826;
+  --text-muted:#4A5768;
+  --text-dim:#7B8792;
+  --danger-bg: rgba(192,57,46,0.08);
+  --danger-border: rgba(192,57,46,0.35);
+  --ok-bg: rgba(18,128,90,0.10);
+  --ok-border: rgba(18,128,90,0.35);
+  color-scheme: light;
+}
+:root[data-theme="light"] body{
+  background:
+    radial-gradient(circle at 12% -8%, rgba(91,141,239,0.14), transparent 42%),
+    radial-gradient(circle at 92% 6%, rgba(45,212,191,0.10), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(167,139,250,0.06), transparent 45%),
+    linear-gradient(180deg, #EDF1F6 0%, #E7ECF3 35%, #E3E9F1 100%);
+}
+:root[data-theme="light"] header{background:rgba(255,255,255,.72);}
+:root[data-theme="light"] .brand-text h1,
+:root[data-theme="light"] .upload-panel h2,
+:root[data-theme="light"] .upload-card label,
+:root[data-theme="light"] .kpi-value,
+:root[data-theme="light"] .section-head h2,
+:root[data-theme="light"] .chart-box h3,
+:root[data-theme="light"] .chart-total-stat b,
+:root[data-theme="light"] .slab-card .sc-label,
+:root[data-theme="light"] .slab-card .sc-count{ color:var(--text); }
+:root[data-theme="light"] .upload-panel .hint b{ color:var(--text) !important; }
+:root[data-theme="light"] .unit-pill{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] .unit-pill:hover{ color:var(--text); }
+:root[data-theme="light"] .upload-card{ background:rgba(16,24,38,.025); }
+:root[data-theme="light"] input[type=file]::file-selector-button{ background:rgba(16,24,38,.06); color:var(--text); }
+:root[data-theme="light"] #buildBtn{ border-color:rgba(16,24,38,.14); }
+:root[data-theme="light"] #buildBtn:disabled{ background:rgba(16,24,38,.05); }
+:root[data-theme="light"] #resetBtn{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] #resetBtn:hover{ background:rgba(16,24,38,.07); color:var(--text); }
+:root[data-theme="light"] .chart-box{ background:rgba(16,24,38,.02); }
+:root[data-theme="light"] thead th{ background:#E7ECF3; color:var(--text); }
+:root[data-theme="light"] tbody td{ border-bottom-color:rgba(16,24,38,.06); }
+:root[data-theme="light"] .select-plain{ background:rgba(16,24,38,.04); color:var(--text); }
+:root[data-theme="light"] .select-plain option{ background:#fff; color:#101826; }
+:root[data-theme="light"] .search-input{ background:rgba(16,24,38,.04); color:var(--text); }
+:root[data-theme="light"] .search-input::placeholder{ color:var(--text-dim); }
+:root[data-theme="light"] .search-input:focus{ background:rgba(16,24,38,.06); }
+:root[data-theme="light"] .metric-toggle{ background:rgba(16,24,38,.035); }
+:root[data-theme="light"] .badge-neutral{ background:rgba(16,24,38,.05); }
+:root[data-theme="light"] .slab-card{ background:rgba(16,24,38,.025); }
+:root[data-theme="light"] .ratio-bar-track{ background:rgba(16,24,38,.08); }
+:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(16,24,38,.16); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:rgba(16,24,38,.26); }
+
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
 body{
@@ -733,6 +797,12 @@ function metricLabelPart(val){
   if(unitMetric==='qty') return val+' qty';
   return val+' GRN'+(val===1?'':'s');
 }
+// Chart.js bakes colors into the chart at creation time, so unlike the rest of the page
+// (plain CSS, follows the shell's theme live) every chart is rebuilt on a theme change --
+// see the "parasthemechange" listener at the bottom of this file.
+function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
+function chartTextColor(){ return isLightTheme() ? '#3A4658' : '#D6DEE5'; }
+function chartGridColor(){ return isLightTheme() ? 'rgba(16,24,38,.08)' : 'rgba(255,255,255,.06)'; }
 function fmtDateRange(minDt, maxDt){
   if(!minDt) return '—';
   if(!maxDt || +minDt===+maxDt) return fmtDateOnly(minDt);
@@ -1139,7 +1209,7 @@ function renderUnitChart(units, unitItemAgg){
       },
       scales:{
         x:{ stacked:true, ticks:{font:{size:11}}, grid:{display:false} },
-        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
+        y:{ stacked:true, beginAtZero:true, grid:{color:chartGridColor()}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
       }
     }
   });
@@ -1195,7 +1265,7 @@ function renderTopItemsChart(units, unitItemAgg){
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
-        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        legend:{display:true, position:'bottom', labels:{color:chartTextColor(), font:{size:10.5}, boxWidth:11}},
         tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
           callbacks:{
             label: c => {
@@ -1215,7 +1285,7 @@ function renderTopItemsChart(units, unitItemAgg){
       },
       scales:{
         x:{ stacked:true, ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
-        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
+        y:{ stacked:true, beginAtZero:true, grid:{color:chartGridColor()}, ticks:{callback:v=>unitMetric==='value'?fmt(v):v} }
       }
     }
   });
@@ -1258,7 +1328,7 @@ function renderShelfLife(shelfAgg, localLines){
           callbacks:{ label: c => { const b=buckets[c.dataIndex]; return c.parsed.y+' item'+(c.parsed.y===1?'':'s')+' · EPR '+fmtINR(b.epr); } } } },
       scales:{
         x:{ ticks:{autoSkip:false, maxRotation:35, minRotation:0, font:{size:10.5}}, grid:{display:false} },
-        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+        y:{ beginAtZero:true, grid:{color:chartGridColor()}, ticks:{stepSize:1} }
       }
     }
   });
@@ -1303,7 +1373,7 @@ function renderSlabs(localGrnAgg){
           callbacks:{ label: c => fmtINR(c.parsed.y), afterLabel: c => { const g=sorted[c.dataIndex]; return g ? sopTier(g.totalValue).label : ''; } } } },
       scales:{
         x:{ ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
-        y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{callback:v=>fmt(v)} }
+        y:{ beginAtZero:true, grid:{color:chartGridColor()}, ticks:{callback:v=>fmt(v)} }
       }
     }
   });
@@ -1419,13 +1489,13 @@ function renderPOChart(crossCheck){
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
-        legend:{display:true, position:'bottom', labels:{color:'#D6DEE5', font:{size:10.5}, boxWidth:11}},
+        legend:{display:true, position:'bottom', labels:{color:chartTextColor(), font:{size:10.5}, boxWidth:11}},
         tooltip:{ backgroundColor:'rgba(14,18,26,.94)', borderColor:'rgba(255,255,255,.12)', borderWidth:1, padding:10, titleColor:'#fff', bodyColor:'#D6DEE5',
           callbacks:{ label: c => c.dataset.label+': '+c.parsed.y } }
       },
       scales:{
         x:{ stacked:true, ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
-        y:{ stacked:true, beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+        y:{ stacked:true, beginAtZero:true, grid:{color:chartGridColor()}, ticks:{stepSize:1} }
       }
     }
   });
@@ -1492,7 +1562,7 @@ function renderRepeatChart(itemAgg, unitItemAgg){
             callbacks:{ label: c => c.parsed.y+' time'+(c.parsed.y===1?'':'s')+' · EPR '+fmtINR(eprByIndex[c.dataIndex]) } } },
         scales:{
           x:{ ticks:{autoSkip:false, maxRotation:65, minRotation:45, font:{size:9.5}}, grid:{display:false} },
-          y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+          y:{ beginAtZero:true, grid:{color:chartGridColor()}, ticks:{stepSize:1} }
         }
       }
     });
@@ -1519,7 +1589,7 @@ function renderRepeatChart(itemAgg, unitItemAgg){
             callbacks:{ label: c => c.parsed.y+' item'+(c.parsed.y===1?'':'s')+' repeated · EPR '+fmtINR(eprByIndex[c.dataIndex]) } } },
         scales:{
           x:{ ticks:{font:{size:11}}, grid:{display:false} },
-          y:{ beginAtZero:true, grid:{color:'rgba(255,255,255,.06)'}, ticks:{stepSize:1} }
+          y:{ beginAtZero:true, grid:{color:chartGridColor()}, ticks:{stepSize:1} }
         }
       }
     });
@@ -1573,6 +1643,11 @@ function makeSwipable(el){
   el.addEventListener('pointerleave', stop);
 }
 document.querySelectorAll('.scroll-chart-wrap').forEach(makeSwipable);
+
+/* The rest of the page follows the shell's dark/light toggle live, through plain CSS
+   (:root[data-theme="light"] above) -- but Chart.js bakes its colors in at creation
+   time, so the charts need an explicit rebuild the moment the theme actually changes. */
+document.addEventListener('parasthemechange', () => { if(RAW) render(selectedUnits); });
 </script>
 <!-- paras-command-centre-bridge -->
 <script>
@@ -1593,6 +1668,14 @@ document.querySelectorAll('.scroll-chart-wrap').forEach(makeSwipable);
  * memory, crashes the browser tab. That is refused here, before the file ever
  * reaches the dashboard's own code, in favour of the Command Centre's Data
  * Library — which streams a file this size instead of loading it whole.
+ *
+ * It also relays the shell's dark/light theme toggle: whenever the Command
+ * Centre's own theme changes (and once immediately when this dashboard first
+ * loads), it stamps data-theme="dark"|"light" on this document's <html> and
+ * fires a "parasthemechange" event, so any dashboard that defines its own
+ * :root[data-theme="light"] palette follows the shell's toggle instead of
+ * carrying a separate one of its own. A dashboard with no light palette yet
+ * simply ignores the attribute -- this is a no-op until one is added.
  */
 (function (w, d) {
   'use strict';
@@ -1674,6 +1757,15 @@ document.querySelectorAll('.scroll-chart-wrap').forEach(makeSwipable);
     if (!m || m.__paras !== 1 || !m.action) return;
     // Only the page that embedded this one may drive it.
     if (w.parent === w || ev.source !== w.parent) return;
+
+    if (m.action === 'theme') {
+      try {
+        var theme = m.theme === 'light' ? 'light' : 'dark';
+        d.documentElement.setAttribute('data-theme', theme);
+        d.dispatchEvent(new CustomEvent('parasthemechange', { detail: { theme: theme } }));
+      } catch (e) {}
+      return;
+    }
 
     if (m.action === 'probe') {
       reply(ev.source, m.id, {

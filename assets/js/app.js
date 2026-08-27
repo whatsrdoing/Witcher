@@ -161,6 +161,26 @@
       b.title = t === 'light' ? 'Switch to dark' : 'Switch to light';
     }
     w.Store.setPref('theme', t);
+    broadcastTheme(t);
+  }
+
+  /* Every dashboard is meant to feel like part of this one console, not a
+     separate page bolted on -- so the shell's own dark/light toggle carries
+     into every dashboard iframe (open now, or opened later) via the same
+     bridge sync.py already injects for file hand-off. A dashboard with no
+     light palette of its own just ignores the attribute; this is what makes
+     it possible to add one, one dashboard at a time, without any shell-side
+     change once that palette exists. */
+  function sendThemeTo(id, t) {
+    var f = frames[id];
+    if (!f || !f.el || !f.el.contentWindow) return;
+    try { f.el.contentWindow.postMessage({ __paras: 1, action: 'theme', theme: t }, '*'); } catch (e) {}
+  }
+  function broadcastTheme(t) {
+    Object.keys(frames).forEach(function (id) { sendThemeTo(id, t); });
+  }
+  function currentTheme() {
+    return d.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   }
 
   function renderModeSwitch() {
@@ -275,6 +295,7 @@
       el.addEventListener('load', function () {
         myFrames[id].loaded = true;
         if (current === id) { $('#frameLoading').style.display = 'none'; refreshMatchBar(); }
+        sendThemeTo(id, currentTheme());
         tryAutoRun(id);
       });
       $('#frames').appendChild(el);

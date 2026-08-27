@@ -23,6 +23,7 @@ import http.server
 import json
 import os
 import re
+import secrets
 import socket
 import shutil
 import socketserver
@@ -54,12 +55,128 @@ AUTH_PATH = paths.auth_path()
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 COPY_CHUNK = 1024 * 1024
 
+# Past this, a claimed Content-Length is refused before a single byte is
+# written to disk. Generous on purpose -- registers here run into the
+# hundreds of megabytes -- but unbounded was a real hole: bound to
+# 127.0.0.1 nobody could exploit it, but the moment this sits behind a
+# reverse proxy for HTTPS access, an unbounded upload is a free way to fill
+# the disk.
+MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+
 DEFAULTS = {
     "hostname": "parashealth.internal",
     "port": 80,
     "path": "/supply-chain/command-centre/",
     "fallbackPort": 8777,
 }
+
+
+# ---------------------------------------------------------------------------
+# Sessions
+#
+# The sign-in screen (gate.js) used to be the *only* gate: it checked the
+# password in the browser and, on success, set a flag in this tab's
+# sessionStorage. That is a fine "keep this workspace tidy on my own
+# machine" lock, but it is not a security boundary -- nothing server-side
+# ever learned whether sign-in succeeded, so every /__data and /__library
+# endpoint below answered anyone who asked, gate or no gate. Harmless while
+# the server only ever answers 127.0.0.1; a real hole the moment it sits
+# behind a reverse proxy for outside access, which is exactly the plan.
+#
+# This is the fix: a real session, established by POST /__session (the
+# browser sends the login and the PBKDF2 digest it already computed to
+# verify the password locally; the server compares that digest against the
+# stored hash itself and, only on a match, hands back a random token as an
+# HttpOnly cookie). Every data-bearing endpoint below requires that cookie.
+# Sessions live in memory only -- restarting the server signs everyone out,
+# which is the right failure mode for a token that should not outlive a
+# process restart anyway.
+# ---------------------------------------------------------------------------
+SESSION_COOKIE = "paras_session"
+SESSION_TTL = 12 * 3600           # 12 hours
+SESSIONS = {}                     # token -> {"login": str, "expires": float}
+SESSION_LOCK = threading.Lock()
+
+
+def new_session(login):
+    token = secrets.token_hex(32)
+    with SESSION_LOCK:
+        SESSIONS[token] = {"login": login, "expires": time.time() + SESSION_TTL}
+    return token
+
+
+def session_login(token):
+    """The account a session token belongs to, or None if it is missing,
+    unknown, or expired."""
+    if not token:
+        return None
+    with SESSION_LOCK:
+        rec = SESSIONS.get(token)
+        if not rec:
+            return None
+        if rec["expires"] < time.time():
+            del SESSIONS[token]
+            return None
+        return rec["login"]
+
+
+def drop_session(token):
+    with SESSION_LOCK:
+        SESSIONS.pop(token, None)
+
+
+def auth_configured():
+    """False when there is no auth.json yet, or it explicitly says
+    enabled: false -- gate.js opens straight in for either, so the API
+    matches it rather than locking the owner out of a workspace that has
+    never had a password set."""
+    try:
+        with open(AUTH_PATH, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    if cfg.get("enabled") is False:
+        return False
+    return bool(cfg.get("accounts") or cfg.get("hash"))
+
+
+# ---------------------------------------------------------------------------
+# A small, in-memory rate limiter shared by sign-in and the admin key.
+#
+# gate.js already locks the sign-in form out client-side after too many
+# wrong passwords, but that state lives in sessionStorage -- meaningless to
+# anyone calling the API directly instead of clicking through the form.
+# This is the version that actually stops an offline script from just
+# trying passwords as fast as the network allows.
+# ---------------------------------------------------------------------------
+RATE_MAX = 5           # failures allowed...
+RATE_WINDOW = 60        # ...within this many seconds...
+RATE_LOCKOUT = 60       # ...before the key is locked out for this many more
+RATE_LOCK = threading.Lock()
+RATE_BUCKETS = {}       # key -> {"n": int, "first": float, "until": float}
+
+
+def rate_locked(key):
+    with RATE_LOCK:
+        b = RATE_BUCKETS.get(key)
+        return bool(b and b.get("until", 0) > time.time())
+
+
+def rate_fail(key):
+    with RATE_LOCK:
+        now = time.time()
+        b = RATE_BUCKETS.setdefault(key, {"n": 0, "first": now, "until": 0})
+        if now - b["first"] > RATE_WINDOW:
+            b["n"], b["first"] = 0, now
+        b["n"] += 1
+        if b["n"] >= RATE_MAX:
+            b["until"] = now + RATE_LOCKOUT
+            b["n"] = 0
+
+
+def rate_clear(key):
+    with RATE_LOCK:
+        RATE_BUCKETS.pop(key, None)
 
 
 def settings():
@@ -197,15 +314,19 @@ def make_handler(prefix):
             path_only = self.path.split("?")[0]
             tail = library_route(path_only)
             if tail is not None:
-                self._library_get(tail)
+                if self._require_session():
+                    self._library_get(tail)
                 return
             dtail = seg_route(path_only, "__data")
             if dtail is not None:
-                self._data_get(dtail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
+                if self._require_session():
+                    self._data_get(dtail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
                 return
             # auth.json lives with the data now, not in the app folder, so the
             # static handler would 404 it. The sign-in gate fetches it by that
             # exact name, so it is served here under the name it asks for.
+            # Reachable without a session on purpose -- it is what the sign-in
+            # screen itself loads before there is one to have.
             if path_only.rstrip("/").rsplit("/", 1)[-1] == "auth.json":
                 self._send_auth()
                 return
@@ -217,26 +338,77 @@ def make_handler(prefix):
                                  "database": DB_PATH,
                                  "inAppFolder": paths.fell_back()})
                 return
+            # A cheap way for the gate to check "is sessionStorage's unlock
+            # flag backed by a real session, or just left over from before
+            # sessions existed / since expired / since a server restart
+            # cleared them" without pulling an actual page of data to find
+            # out. No session required to ask -- the answer itself is the
+            # point, not something that needs to already be signed in.
+            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__session":
+                login = session_login(self._session_token())
+                if login:
+                    self._json(200, {"login": login})
+                else:
+                    self._json(401, {"error": "no session"})
+                return
             if self._redirect():
                 return
             super().do_GET()
 
+        def _session_token(self):
+            cookie = self.headers.get("Cookie") or ""
+            for part in cookie.split(";"):
+                part = part.strip()
+                if part.startswith(SESSION_COOKIE + "="):
+                    return part[len(SESSION_COOKIE) + 1:]
+            return None
+
+        def _require_session(self):
+            """True (and the caller may proceed) when either no sign-in is
+            configured at all -- matches gate.js opening straight in for that
+            case, rather than locking the owner out of a workspace that has
+            never had a password set -- or a valid session cookie came with
+            the request. Otherwise this answers 401 itself and returns False.
+
+            This is the actual security boundary: the sign-in screen is only
+            a door in front of it. Every /__data and /__library handler below
+            is reached through do_GET/do_POST/do_DELETE, which all call this
+            first, so none of them can be reached by skipping the browser and
+            calling the API directly -- which is exactly how they were
+            reachable before this existed, the server bound to 127.0.0.1 or
+            not."""
+            if not auth_configured():
+                return True
+            if session_login(self._session_token()):
+                return True
+            self._json(401, {"error": "sign in required"})
+            return False
+
         def _send_auth(self):
-            """auth.json, read from the data folder."""
+            """auth.json, read from the data folder -- with the password
+            hashes themselves removed. Salt and iteration count are not
+            secret (they are meaningless without the hash), and the browser
+            needs them to derive its own digest before sign-in; the hash
+            those get compared against now stays server-side, checked at
+            POST /__session, exactly like the admin key already was. Serving
+            it unauthenticated used to mean anyone who could reach this port
+            could download every account's hash and brute-force it offline,
+            with no rate limit at all -- worse than the sign-in form itself,
+            which at least locks out after a few tries."""
             try:
-                with open(AUTH_PATH, "rb") as fh:
-                    body = fh.read()
-            except OSError:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
                 # No accounts file at all is a real state, not an error: the
                 # gate treats a missing config as "no sign-in configured".
                 self.send_error(404)
                 return
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(body)
+            safe = dict(auth)
+            safe.pop("hash", None)
+            safe.pop("adminKeyHash", None)
+            if isinstance(safe.get("accounts"), list):
+                safe["accounts"] = [dict(a, hash="") for a in safe["accounts"]]
+            self._json(200, safe)
 
         def do_HEAD(self):
             if self._redirect():
@@ -244,6 +416,8 @@ def make_handler(prefix):
             super().do_HEAD()
 
         def do_DELETE(self):
+            if not self._require_session():
+                return
             path_only = self.path.split("?")[0]
             dtail = seg_route(path_only, "__data")
             if dtail:
@@ -372,6 +546,10 @@ def make_handler(prefix):
             if n <= 0:
                 self._json(400, {"error": "no file id and no body to import"})
                 return
+            if n > MAX_UPLOAD_BYTES:
+                self._json(413, {"error": "that file is larger than the %d MB limit"
+                                          % (MAX_UPLOAD_BYTES // (1024 * 1024))})
+                return
             tmp = os.path.join(LIBRARY_DIR, "import-%s.csv.part" % uuid.uuid4().hex)
             written = 0
             try:
@@ -439,6 +617,10 @@ def make_handler(prefix):
                 n = 0
             if n < 0:
                 self._json(400, {"error": "bad length"})
+                return
+            if n > MAX_UPLOAD_BYTES:
+                self._json(413, {"error": "that file is larger than the %d MB limit"
+                                          % (MAX_UPLOAD_BYTES // (1024 * 1024))})
                 return
 
             os.makedirs(LIBRARY_BLOBS, exist_ok=True)
@@ -529,20 +711,96 @@ def make_handler(prefix):
                 library_write_index(files)
             self._json(200, rec)
 
+        def _session_login_post(self):
+            """POST /__session {login, digest} -- the actual sign-in check.
+
+            The browser already derived `digest` the same way it always has
+            (PBKDF2 over the password, using the salt and iteration count
+            auth.json handed it) to compare locally; now it hands that digest
+            here instead, and this is the copy of the comparison that
+            actually matters, because only a match here hands back a session
+            cookie the rest of the API will accept. A wrong login or a login
+            this server has never heard of (a sign-up that only ever made it
+            into this browser's own storage, on a machine with nowhere to
+            write) answers 404 rather than 401, so the browser knows to fall
+            back to checking it locally instead of just failing outright."""
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 4096:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            login = str(req.get("login") or "").strip()
+            digest = str(req.get("digest") or "")
+            if not login or not digest:
+                self._json(400, {"error": "bad request"})
+                return
+
+            rate_key = "login:" + login
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                self._json(404, {"error": "no such account"})
+                return
+            accounts = auth.get("accounts")
+            if not accounts and auth.get("hash"):
+                accounts = [{"login": auth.get("email", ""), "hash": auth.get("hash", "")}]
+            acc = next((a for a in (accounts or []) if a.get("login") == login), None)
+            if not acc:
+                self._json(404, {"error": "no such account"})
+                return
+
+            if not hmac.compare_digest(digest, str(acc.get("hash") or "")):
+                rate_fail(rate_key)
+                self._json(401, {"error": "wrong password"})
+                return
+            rate_clear(rate_key)
+
+            token = new_session(login)
+            secure = (self.headers.get("X-Forwarded-Proto", "") == "https")
+            cookie = "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (
+                SESSION_COOKIE, token, SESSION_TTL)
+            if secure:
+                cookie += "; Secure"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            body = json.dumps({"ok": True}).encode("utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Set-Cookie", cookie)
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_POST(self):
-            """Handles two kinds of write from the browser: files dropped into
-            the Data Library (this machine's copy, under data/library/), and
-            password reset / sign-up from the sign-in screen (auth.json).
-            Only ever these two, only from this machine (the server binds
-            127.0.0.1), and the auth ones only once the admin key checks out."""
+            """Handles writes from the browser: files dropped into the Data
+            Library (this machine's copy, under data/library/), a session
+            being established or ended, and password reset / sign-up from
+            the sign-in screen (auth.json, gated on the admin key)."""
             path_only = self.path.split("?")[0]
             qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+
+            # __data and __library routes are matched on a whole path segment
+            # (seg_route/library_route), same as every GET/DELETE above, and
+            # checked first -- so a library file whose id happens to be the
+            # literal text "__session" (a client-generated id never actually
+            # produces that, but nothing stops it in principle) still reaches
+            # _library_put rather than being mistaken for a sign-in request.
             dtail = seg_route(path_only, "__data")
             if dtail is not None and dtail and dtail[0] == "import":
-                self._data_import(qs)
+                if self._require_session():
+                    self._data_import(qs)
                 return
             tail = library_route(path_only)
             if tail is not None:
+                if not self._require_session():
+                    return
                 if len(tail) == 1:
                     self._library_put(tail[0], qs)
                 elif len(tail) == 2 and tail[1] == "rename":
@@ -551,7 +809,16 @@ def make_handler(prefix):
                     self.send_error(404)
                 return
 
-            if self.path.rstrip("/").rsplit("/", 1)[-1] != "__auth":
+            last_seg = path_only.rstrip("/").rsplit("/", 1)[-1]
+            if last_seg == "__session":
+                self._session_login_post()
+                return
+            if last_seg == "__logout":
+                drop_session(self._session_token())
+                self._json(200, {"ok": True})
+                return
+
+            if last_seg != "__auth":
                 self.send_error(404)
                 return
             try:
@@ -571,6 +838,16 @@ def make_handler(prefix):
                 self._json(500, {"error": "auth.json unreadable"})
                 return
 
+            # The admin key grants the ability to add accounts or reset any
+            # password -- more sensitive than any one account's own password
+            # -- so guessing at it is rate-limited the same way sign-in is,
+            # server-side, regardless of what the sign-in screen's own
+            # client-only lockout thinks the state is.
+            rate_key = "admin:" + self.client_address[0]
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
             key = str(req.get("adminKey") or "")
             salt, want = auth.get("adminKeySalt"), auth.get("adminKeyHash")
             if not (salt and want):
@@ -580,8 +857,10 @@ def make_handler(prefix):
                                       bytes.fromhex(salt),
                                       int(auth.get("iterations") or 250000), 32).hex()
             if not hmac.compare_digest(got, str(want)):
+                rate_fail(rate_key)
                 self._json(403, {"error": "bad admin key"})
                 return
+            rate_clear(rate_key)
 
             new_salt, new_hash = str(req.get("salt") or ""), str(req.get("hash") or "")
             if len(new_salt) != 32 or len(new_hash) != 64:

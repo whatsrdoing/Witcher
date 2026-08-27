@@ -1090,7 +1090,10 @@
   function loadDbSummary() {
     if (!w.Store.Files.onDisk()) return Promise.resolve(null);
     return fetch('__data', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
+        return r.ok ? r.json() : null;
+      })
       .then(function (j) { dbSummary = (j && j.datasets) || []; return dbSummary; })
       .catch(function () { return null; });
   }
@@ -1490,7 +1493,10 @@
                   { method: 'POST' });
     }
     req
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (r) {
+        if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
+        return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+      })
       .then(function (res) {
         btn.classList.remove('working'); btn.disabled = false;
         if (!res.ok) throw new Error(res.j.error || 'import failed');

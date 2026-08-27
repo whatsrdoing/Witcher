@@ -98,6 +98,15 @@ def wait_up(port, tries=60):
 def main():
     global failed
     tmp = tempfile.mkdtemp(prefix="paras-selftest-")
+    # A fresh data directory otherwise gets seeded from the repo's own
+    # checked-in auth.json on first run (paths.migrate(), so a plain
+    # extract-and-run has *some* working sign-in) -- which would make every
+    # /__library call below require a session this script has no password
+    # to obtain. This test is about the Library's own file-handling
+    # promises, not sign-in, so it explicitly disables auth for its own
+    # throwaway directory rather than skip what it is actually here to check.
+    with open(os.path.join(tmp, "auth.json"), "w", encoding="utf-8") as fh:
+        json.dump({"enabled": False}, fh)
     port = free_port()
     env = dict(os.environ, PARAS_DATA_DIR=tmp)
     proc = subprocess.Popen([sys.executable, os.path.join(ROOT, "serve.py"), "--no-open", "--port", str(port)],

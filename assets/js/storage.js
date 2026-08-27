@@ -240,7 +240,15 @@
 
   function libFetch(path, opts) {
     return fetch(LIB + path, Object.assign({ cache: 'no-store' }, opts || {}))
-      .then(function (r) { if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status); return r; });
+      .then(function (r) {
+        // The session this tab thought it had is gone -- expired, or the
+        // server restarted and dropped every session it was holding. Back
+        // to the sign-in screen cleanly rather than surfacing this as a
+        // generic failed request every dashboard would have to guess at.
+        if (r.status === 401 && w.ParasGate) { w.ParasGate.lock(); }
+        if (!r.ok && r.status !== 404) throw new Error('HTTP ' + r.status);
+        return r;
+      });
   }
   function libList() {
     return libFetch('').then(function (r) { return r.json(); }).then(function (j) { return (j && j.files) || []; });

@@ -271,18 +271,116 @@ To turn sign-in off entirely, set `"enabled": false` in `auth.json` and run
 
 **What this protects, and what it does not**
 
-It closes the Command Centre to someone who opens it on this computer. It is a
-door, not a safe:
+Opened from `file://` — straight off the disk, no server — the sign-in screen
+is a door, not a safe: it closes the Command Centre to someone who opens it on
+this computer, but the check runs entirely in the browser, and the dashboard
+files themselves sit in `dashboards/` and open directly in any browser
+regardless. Anyone who copies the folder has the data regardless of the
+password.
 
-- The dashboard files sit in `dashboards/` and open directly in any browser.
-- Anyone who copies the folder has the data regardless of the password.
-- The check runs in the browser, so it can be bypassed by someone who edits the
-  files.
+Run through `serve.py` (`start.bat`, or `python3 serve.py` directly), sign-in
+is enforced a second time on the server itself: every request that reads or
+writes data — the Data Library, the month-on-month database, everything under
+`__data` and `__library` — requires a real session, issued only once the
+password has actually been verified server-side, and checked on every single
+request regardless of what the browser is showing. That is what makes it safe
+to put behind a reverse proxy for HTTPS access (see **Going over HTTPS**
+below): calling the API directly, instead of clicking through the sign-in
+screen, no longer gets you anywhere. Five wrong tries locks out for 60 seconds
+here too — enforced by the server, so it cannot be gotten around by skipping
+the browser.
 
-If the data itself needs protecting, do it at the operating-system level —
-BitLocker or FileVault on the drive, an encrypted folder, or Windows account
-permissions on the folder. The sign-in screen and those are complementary, not
+None of this is encryption at rest. If the data itself needs protecting from
+someone with access to the machine or its disk, do that at the operating-system
+level — BitLocker or FileVault on the drive, an encrypted folder, or account
+permissions on the folder. Sign-in and those are complementary, not
 substitutes.
+
+---
+
+## Going over HTTPS
+
+`serve.py` only ever speaks plain HTTP, and only ever binds to `127.0.0.1` —
+on purpose, so nothing on the network can reach it by accident. To reach it
+from another device (a phone, a laptop on the same network, or anywhere on the
+internet), put a reverse proxy in front of it. The proxy is what actually
+terminates HTTPS; `serve.py` itself never changes.
+
+**[Caddy](https://caddyserver.com) is the easiest option** — one binary, no
+config for the certificate itself. Install it, then:
+
+```
+# Caddyfile
+paras.yourdomain.com {
+    reverse_proxy 127.0.0.1:8777
+}
+```
+
+```
+caddy run
+```
+
+Point `paras.yourdomain.com`'s DNS at this machine, open ports 80 and 443 to
+it (Caddy needs 80 briefly to prove domain ownership to Let's Encrypt), and
+`caddy run` fetches and renews a real certificate automatically — nothing else
+to do. Start the Command Centre itself in plain mode so the proxy sees the
+whole site at the root of its own path:
+
+```
+python3 serve.py --plain --port 8777 --no-open
+```
+
+**No public domain — just your own network.** Caddy can still do this with a
+self-signed certificate:
+
+```
+paras.local {
+    tls internal
+    reverse_proxy 127.0.0.1:8777
+}
+```
+
+Every device that connects will show a certificate warning once (it's
+self-signed — no outside authority vouches for it) until you install Caddy's
+local root certificate on that device (`caddy trust`, or copy
+`$(caddy trust --help)`'s certificate manually to a phone that can't run the
+command itself).
+
+**Already run nginx?** — same idea:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name paras.yourdomain.com;
+    ssl_certificate     /path/to/fullchain.pem;
+    ssl_certificate_key /path/to/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8777;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+`X-Forwarded-Proto https` matters here specifically: `serve.py` reads it to
+decide whether the session cookie it hands out gets the `Secure` flag (cookie
+only ever sent back over HTTPS). Without it, sign-in still works, but the
+cookie is marked as if the connection might be plain HTTP.
+
+**Either way, once it's live:**
+
+- Change the default admin key and every password before exposing this
+  anywhere — see **Signing in** above (`set_password.py`, and the in-app
+  Sign up / Forgot password screens).
+- `serve.py` still binds to `127.0.0.1` only — the proxy is what's actually
+  reachable from outside, forwarding to a server nothing else on the network
+  can reach directly. Don't change that binding to make the proxy's job
+  "simpler"; there's no reason to and it removes a real layer.
+- A session lasts 12 hours and lives only in the server's memory — restarting
+  `serve.py` (a reboot, an update, a crash) signs everyone out. That's
+  intentional, not a bug to route around.
 
 ---
 

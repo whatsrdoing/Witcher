@@ -37,10 +37,15 @@
   /* ---- accounts ----------------------------------------------------------
      cfg.accounts is the real list. Older auth.json files (or a stale
      mirror) only have the single legacy email/salt/hash fields — synthesised
-     into a one-account list so the rest of this file never has to care. */
+     into a one-account list so the rest of this file never has to care.
+
+     Detected by cfg.salt rather than cfg.hash: served over http(s), the
+     hash itself is stripped out of what /auth.json hands back before
+     sign-in (see serve.py's _send_auth) -- salt is not, so it is what is
+     actually there to check for "is a legacy account configured at all". */
   function baseAccounts() {
     if (cfg && Array.isArray(cfg.accounts) && cfg.accounts.length) return cfg.accounts;
-    if (cfg && cfg.hash) return [{ login: cfg.email || (cfg.logins || [])[0] || '', salt: cfg.salt, hash: cfg.hash, iterations: cfg.iterations }];
+    if (cfg && cfg.salt) return [{ login: cfg.email || (cfg.logins || [])[0] || '', salt: cfg.salt, hash: cfg.hash, iterations: cfg.iterations }];
     return [];
   }
   function readExtraAccounts() {
@@ -175,6 +180,22 @@
     enterPassStep(acc);
   }
 
+  /* Whether the password actually matches is decided here in two different
+     places depending on how this page is running, and that split is load-
+     bearing, not incidental:
+
+     - file:// has no server to ask at all, so the digest this browser just
+       computed is compared to the hash sitting right here in cfg -- exactly
+       as this always worked.
+     - Served over http(s), that same comparison now also happens at
+       POST /__session, and *that* copy is the one that actually matters:
+       only a match there hands back the session cookie every /__data and
+       /__library call now requires. auth.json no longer even carries the
+       real hash to a browser that has not signed in yet (see serve.py's
+       _send_auth), so a local-only compare in this case would silently
+       accept nothing at all -- which is why this path calls the server
+       instead of trying to replicate a check it no longer has the material
+       for. */
   function verifyPassword() {
     var login = ($('#gateEmail').value || '').trim();
     var pass = $('#gatePass').value || '';
@@ -188,9 +209,7 @@
     var salt = acc ? acc.salt : (cfg.adminKeySalt || '00');   // dummy salt when unknown, so timing does not out the login
     var iters = (acc && acc.iterations) || cfg.iterations || 250000;
 
-    w.ParasCrypto.derive(pass, salt, iters).then(function (digest) {
-      var ok = !!acc && w.ParasCrypto.equal(digest, String(acc.hash || ''));
-
+    function finish(ok) {
       busy = false;
       $('#gateSubmit').classList.remove('working');
 
@@ -218,11 +237,55 @@
         shake();
         $('#gatePass').select();
       }
+    }
+
+    w.ParasCrypto.derive(pass, salt, iters).then(function (digest) {
+      if (location.protocol === 'file:') {
+        finish(!!acc && w.ParasCrypto.equal(digest, String(acc.hash || '')));
+        return;
+      }
+      serverVerify(login, digest).then(function (result) {
+        if (result === 'locked') {
+          busy = false;
+          $('#gateSubmit').classList.remove('working');
+          say('Too many failed attempts. Try again shortly.', 'err');
+          shake();
+          return;
+        }
+        if (result === 'unknown') {
+          // The server has never heard of this login -- a sign-up that
+          // only ever made it into this browser's own storage, because the
+          // server could not be reached when the account was created.
+          // Nothing server-side to check it against, so fall back to the
+          // local compare exactly as file:// mode always has.
+          finish(!!acc && w.ParasCrypto.equal(digest, String(acc.hash || '')));
+          return;
+        }
+        finish(result === 'ok');
+      });
     }).catch(function (err) {
       busy = false;
       $('#gateSubmit').classList.remove('working');
       say('Could not verify: ' + (err && err.message || err), 'err');
     });
+  }
+
+  /* POST /__session -- see verifyPassword above. Resolves to 'ok', 'fail'
+     (server reached, wrong password), 'locked' (too many recent attempts
+     for this login), or 'unknown' (server reachable but has never heard of
+     this login -- including a genuine connection failure, which gets the
+     same treatment as "nothing to check this against" rather than being
+     surfaced as an error on every keystroke of a typo'd username). */
+  function serverVerify(login, digest) {
+    return fetch('__session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: login, digest: digest })
+    }).then(function (r) {
+      if (r.ok) return 'ok';
+      if (r.status === 404) return 'unknown';
+      if (r.status === 429) return 'locked';
+      return 'fail';
+    }).catch(function () { return 'unknown'; });
   }
 
   /* ---- screens: sign in / reset / sign up --------------------------------
@@ -301,11 +364,25 @@
 
     busy = true;
     $('#resetSubmit').classList.add('working');
-    resetSay('Checking the admin key…', '');
 
     var iters = cfg.iterations || 250000;
-    w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
-      if (!w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''))) {
+    // Served over http(s), auth.json no longer carries the admin key's real
+    // hash to a browser that has not signed in yet (see serve.py's
+    // _send_auth) -- checking it here would just be comparing against an
+    // empty string. The real check happens where the admin key actually
+    // still lives: server-side, inside writeAuth's POST to /__auth. On
+    // file:// there is no server to ask, so the local check stays the only
+    // one there is.
+    var checkKeyLocally = location.protocol === 'file:';
+    resetSay(checkKeyLocally ? 'Checking the admin key…' : 'Changing the password…', '');
+
+    (checkKeyLocally
+      ? w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
+          return w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''));
+        })
+      : Promise.resolve(true)
+    ).then(function (keyOk) {
+      if (!keyOk) {
         busy = false; $('#resetSubmit').classList.remove('working');
         resetSay('That admin key is not correct.', 'err');
         $('#resetKey').select();
@@ -314,17 +391,33 @@
       var salt = randomSalt();
       return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
         return writeAuth('reset', key, target, salt, hash, iters).then(function (how) {
-          busy = false; $('#resetSubmit').classList.remove('working');
-          applyLocalAccount(target, salt, hash, iters);
-          resetSay('Password changed' + (how === 'file' ? '.' : ' on this computer.') + ' Sign in with it now.', 'ok');
-          $('#gateEmail').value = target;
-          setTimeout(showSignIn, 1700);
+          return establishSession(target, hash, salt, iters).then(function () {
+            busy = false; $('#resetSubmit').classList.remove('working');
+            applyLocalAccount(target, salt, hash, iters);
+            resetSay('Password changed' + (how === 'file' ? '.' : ' on this computer.') + ' Sign in with it now.', 'ok');
+            $('#gateEmail').value = target;
+            setTimeout(showSignIn, 1700);
+          });
         });
       });
     }).catch(function (err) {
       busy = false; $('#resetSubmit').classList.remove('working');
       resetSay('Could not change the password: ' + (err && err.message || err), 'err');
     });
+  }
+
+  /* Best-effort: after a password reset or a new sign-up, ask the server
+     for a real session using the digest just written, so the person is
+     actually signed in rather than only looking signed in in this tab. If
+     this does not land (the server is momentarily unreachable, say) the
+     write itself already succeeded -- verifyPassword will simply ask again,
+     for real, the next time this account tries to sign in. */
+  function establishSession(login, digest) {
+    if (location.protocol === 'file:') return Promise.resolve();
+    return fetch('__session', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: login, digest: digest })
+    }).catch(function () {});
   }
 
   /* ---- admin-key sign-up ---------------------------------------------------
@@ -454,11 +547,21 @@
     var req = pendingSignup;
     busy = true;
     $('#signupKeyConfirm').classList.add('working');
-    signupKeySay('Checking the admin key…', '');
 
     var iters = cfg.iterations || 250000;
-    w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
-      if (!w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''))) {
+    // See the matching comment in doReset -- served over http(s), the real
+    // admin-key check happens server-side in writeAuth's POST to /__auth,
+    // because auth.json no longer carries the hash needed to check it here.
+    var checkKeyLocally = location.protocol === 'file:';
+    signupKeySay(checkKeyLocally ? 'Checking the admin key…' : 'Creating the account…', '');
+
+    (checkKeyLocally
+      ? w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
+          return w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''));
+        })
+      : Promise.resolve(true)
+    ).then(function (keyOk) {
+      if (!keyOk) {
         busy = false; $('#signupKeyConfirm').classList.remove('working');
         signupKeySay('That admin key is not correct.', 'err');
         $('#signupKeyModalInput').select();
@@ -467,22 +570,22 @@
       var salt = randomSalt();
       return w.ParasCrypto.derive(req.password, salt, iters).then(function (hash) {
         return writeAuth('register', key, req.login, salt, hash, iters, req.profile).then(function (how) {
-          busy = false; $('#signupKeyConfirm').classList.remove('working');
-          applyLocalAccount(req.login, salt, hash, iters, req.profile);
-          clearFails();
-          try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
-          setCurrentUser(req.login);
-          $('#signupKeyScrim').classList.remove('open');
-          pendingSignup = null;
-          signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
-          // The photo is stored against the account that now exists. A photo
-          // that fails to save must not block the sign-in it was attached to.
-          savePhotoFor(req.login).then(function () { setTimeout(open_, 900); });
+          return establishSession(req.login, hash).then(function () {
+            busy = false; $('#signupKeyConfirm').classList.remove('working');
+            applyLocalAccount(req.login, salt, hash, iters, req.profile);
+            clearFails();
+            try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
+            setCurrentUser(req.login);
+            $('#signupKeyScrim').classList.remove('open');
+            pendingSignup = null;
+            signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
+            // The photo is stored against the account that now exists. A photo
+            // that fails to save must not block the sign-in it was attached to.
+            savePhotoFor(req.login).then(function () { setTimeout(open_, 900); });
+          });
         }).catch(function (err) {
           busy = false; $('#signupKeyConfirm').classList.remove('working');
-          signupKeySay(err && err.message === 'taken'
-            ? 'That username was just taken — choose another.'
-            : 'Could not create the account: ' + (err && err.message || err), 'err');
+          signupKeySay((err && err.message) || 'Could not create the account.', 'err');
         });
       });
     }).catch(function (err) {
@@ -519,11 +622,22 @@
   }
 
   /* Writes through the local server when there is one, so the change
-     survives a browser reset. On file:// — or if the write fails for any
-     other reason — there is nothing to write to, so it is kept in this
-     browser instead and the caller says so. A 409 (username taken, caught by
-     someone else a moment earlier) is surfaced as a real error rather than
-     silently falling back to a local-only account of the same name. */
+     survives a browser reset. Only a genuine "there is nothing to write
+     to" -- file://, or the server not answering at all -- falls back to
+     keeping it in this browser instead, and the caller is told that is
+     what happened.
+
+     A response from a *reachable* server, on the other hand, is always the
+     real answer, not a reason to improvise: a wrong admin key (403), too
+     many recent attempts (429) or a username just taken by someone else
+     (409) are every bit as final as "it worked" -- silently saving a
+     local-only account of the same name in any of those cases used to mean
+     this screen could say "Password changed" for an admin key that was
+     never actually right, while the real account on the server sat
+     untouched. fetch() itself only rejects (a TypeError) for a connection
+     that never happened; anything the server did answer resolves normally
+     and is turned into a real rejection here, which is what actually
+     distinguishes the two. */
   function writeAuth(action, adminKey, login, salt, hash, iterations, profile) {
     var body = JSON.stringify(Object.assign({ action: action, adminKey: adminKey, login: login,
                                 salt: salt, hash: hash, iterations: iterations }, profile || {}));
@@ -531,12 +645,13 @@
     return fetch('__auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
       .then(function (r) {
         if (r.ok) return 'file';
-        if (r.status === 409) return Promise.reject(new Error('taken'));
-        return Promise.reject(new Error('HTTP ' + r.status));
+        return r.json().catch(function () { return {}; }).then(function (payload) {
+          return Promise.reject(new Error((payload && payload.error) || ('HTTP ' + r.status)));
+        });
       })
       .catch(function (err) {
-        if (err && err.message === 'taken') return Promise.reject(err);
-        return saveLocal(action, login, salt, hash, iterations, profile);
+        if (err instanceof TypeError) return saveLocal(action, login, salt, hash, iterations, profile);
+        return Promise.reject(err);
       });
   }
   function saveLocal(action, login, salt, hash, iterations, profile) {
@@ -564,6 +679,13 @@
   function lock() {
     try { sessionStorage.removeItem(UNLOCK_KEY); sessionStorage.removeItem(WHOAMI_KEY); } catch (e) {}
     currentProfile = null;
+    // Best-effort: the reload right after this is what actually locks the
+    // workspace back up (it re-shows the gate regardless), so a request
+    // that does not land -- server already gone, say -- is not worth
+    // waiting on or worth blocking the reload for. This only makes the
+    // difference between the session ending now versus at its normal
+    // 12-hour expiry, not between locked and unlocked.
+    if (location.protocol !== 'file:') { try { fetch('__logout', { method: 'POST' }); } catch (e) {} }
     location.reload();
   }
 
@@ -599,12 +721,20 @@
     });
     $('#gateForgot').addEventListener('click', function (e) {
       e.preventDefault();
-      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
+      // cfg.adminKeySalt (not adminKeyHash) is the right thing to check here:
+      // served over http(s), the hash is stripped from what /auth.json
+      // hands back before sign-in (see serve.py's _send_auth) -- salt is
+      // not, so it is what is actually there to say "an admin key exists".
+      if (!cfg.adminKeySalt) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showReset();
     });
     $('#gateSignupLink').addEventListener('click', function (e) {
       e.preventDefault();
-      if (!cfg.adminKeyHash) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
+      // cfg.adminKeySalt (not adminKeyHash) is the right thing to check here:
+      // served over http(s), the hash is stripped from what /auth.json
+      // hands back before sign-in (see serve.py's _send_auth) -- salt is
+      // not, so it is what is actually there to say "an admin key exists".
+      if (!cfg.adminKeySalt) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showSignup();
     });
     $('#resetBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
@@ -651,6 +781,18 @@
   }
 
   /* Runs the app only once access is granted. */
+  /* Served over http(s), sessionStorage's unlock flag is a claim, not proof
+     -- the thing that actually matters is whether the server still holds a
+     live session for it (it will not, the first time this runs after this
+     version shipped, or any time the server has been restarted since, or
+     past 12 hours). A GET here is cheap and needs no session of its own to
+     ask. On file:// there is no server session at all, so the flag is
+     trusted on its own exactly as it always was. */
+  function liveSessionOk() {
+    if (location.protocol === 'file:') return Promise.resolve(true);
+    return fetch('__session', { cache: 'no-store' }).then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+
   w.ParasGate = {
     currentUser: function () { return currentProfile; },
     guard: function (start) {
@@ -662,7 +804,7 @@
           if (ov.login) applyLocalAccount(ov.login, ov.salt, ov.hash, ov.iterations);
           else { cfg.salt = ov.salt; cfg.hash = ov.hash; cfg.iterations = ov.iterations || cfg.iterations; }
         }
-        if (!cfg || cfg.enabled === false || (!cfg.hash && !(Array.isArray(cfg.accounts) && cfg.accounts.length))) {
+        if (!cfg || cfg.enabled === false || (!cfg.salt && !(Array.isArray(cfg.accounts) && cfg.accounts.length))) {
           // No credentials configured — open normally rather than locking the
           // owner out of their own workspace.
           $('#gate').style.display = 'none';
@@ -672,9 +814,20 @@
           return;
         }
         if (unlockedThisSession()) {
-          $('#gate').style.display = 'none';
-          d.documentElement.removeAttribute('data-locked');
-          start();
+          liveSessionOk().then(function (ok) {
+            if (ok) {
+              $('#gate').style.display = 'none';
+              d.documentElement.removeAttribute('data-locked');
+              start();
+              return;
+            }
+            // The flag says unlocked, the server disagrees -- back to the
+            // gate rather than into an app that will 401 on its first
+            // real request.
+            try { sessionStorage.removeItem(UNLOCK_KEY); } catch (e) {}
+            onUnlock = start;
+            showGate();
+          });
           return;
         }
         onUnlock = start;

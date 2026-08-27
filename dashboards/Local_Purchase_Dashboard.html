@@ -70,14 +70,14 @@
    they're saturated enough to read on both a near-black and a near-white
    surface, so only the neutral surface/text tokens need a light variant. */
 :root[data-theme="light"]{
-  --bg-deep:#EDF1F6;
-  --glass-bg: rgba(16,24,38,0.045);
-  --glass-bg-strong: rgba(16,24,38,0.075);
-  --glass-border: rgba(16,24,38,0.13);
-  --glass-border-soft: rgba(16,24,38,0.08);
-  --text:#101826;
-  --text-muted:#4A5768;
-  --text-dim:#7B8792;
+  --bg-deep:#F4F5F7;
+  --glass-bg: rgba(20,22,28,0.04);
+  --glass-bg-strong: rgba(20,22,28,0.07);
+  --glass-border: rgba(20,22,28,0.12);
+  --glass-border-soft: rgba(20,22,28,0.075);
+  --text:#16181D;
+  --text-muted:#585C64;
+  --text-dim:#84878E;
   --danger-bg: rgba(192,57,46,0.08);
   --danger-border: rgba(192,57,46,0.35);
   --ok-bg: rgba(18,128,90,0.10);
@@ -85,11 +85,11 @@
   color-scheme: light;
 }
 :root[data-theme="light"] body{
-  background:
-    radial-gradient(circle at 12% -8%, rgba(91,141,239,0.14), transparent 42%),
-    radial-gradient(circle at 92% 6%, rgba(45,212,191,0.10), transparent 40%),
-    radial-gradient(circle at 50% 100%, rgba(167,139,250,0.06), transparent 45%),
-    linear-gradient(180deg, #EDF1F6 0%, #E7ECF3 35%, #E3E9F1 100%);
+  /* Flat and neutral on purpose -- the colored radial blooms used in dark
+     mode (where they read as ambient glow on near-black) turned this into a
+     visibly blue-tinted page on a light background, which is what this
+     overrides. */
+  background:#F4F5F7;
 }
 :root[data-theme="light"] header{background:rgba(255,255,255,.72);}
 :root[data-theme="light"] .brand-text h1,
@@ -102,29 +102,29 @@
 :root[data-theme="light"] .slab-card .sc-label,
 :root[data-theme="light"] .slab-card .sc-count{ color:var(--text); }
 :root[data-theme="light"] .upload-panel .hint b{ color:var(--text) !important; }
-:root[data-theme="light"] .unit-pill{ background:rgba(16,24,38,.04); }
+:root[data-theme="light"] .unit-pill{ background:rgba(20,22,28,.04); }
 :root[data-theme="light"] .unit-pill:hover{ color:var(--text); }
-:root[data-theme="light"] .upload-card{ background:rgba(16,24,38,.025); }
-:root[data-theme="light"] input[type=file]::file-selector-button{ background:rgba(16,24,38,.06); color:var(--text); }
-:root[data-theme="light"] #buildBtn{ border-color:rgba(16,24,38,.14); }
-:root[data-theme="light"] #buildBtn:disabled{ background:rgba(16,24,38,.05); }
-:root[data-theme="light"] #resetBtn{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] #resetBtn:hover{ background:rgba(16,24,38,.07); color:var(--text); }
-:root[data-theme="light"] .chart-box{ background:rgba(16,24,38,.02); }
-:root[data-theme="light"] thead th{ background:#E7ECF3; color:var(--text); }
-:root[data-theme="light"] tbody td{ border-bottom-color:rgba(16,24,38,.06); }
-:root[data-theme="light"] .select-plain{ background:rgba(16,24,38,.04); color:var(--text); }
-:root[data-theme="light"] .select-plain option{ background:#fff; color:#101826; }
-:root[data-theme="light"] .search-input{ background:rgba(16,24,38,.04); color:var(--text); }
+:root[data-theme="light"] .upload-card{ background:rgba(20,22,28,.025); }
+:root[data-theme="light"] input[type=file]::file-selector-button{ background:rgba(20,22,28,.06); color:var(--text); }
+:root[data-theme="light"] #buildBtn{ border-color:rgba(20,22,28,.14); }
+:root[data-theme="light"] #buildBtn:disabled{ background:rgba(20,22,28,.05); }
+:root[data-theme="light"] #resetBtn{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] #resetBtn:hover{ background:rgba(20,22,28,.07); color:var(--text); }
+:root[data-theme="light"] .chart-box{ background:rgba(20,22,28,.02); }
+:root[data-theme="light"] thead th{ background:#EBECEF; color:var(--text); }
+:root[data-theme="light"] tbody td{ border-bottom-color:rgba(20,22,28,.06); }
+:root[data-theme="light"] .select-plain{ background:rgba(20,22,28,.04); color:var(--text); }
+:root[data-theme="light"] .select-plain option{ background:#fff; color:#16181D; }
+:root[data-theme="light"] .search-input{ background:rgba(20,22,28,.04); color:var(--text); }
 :root[data-theme="light"] .search-input::placeholder{ color:var(--text-dim); }
-:root[data-theme="light"] .search-input:focus{ background:rgba(16,24,38,.06); }
-:root[data-theme="light"] .metric-toggle{ background:rgba(16,24,38,.035); }
-:root[data-theme="light"] .badge-neutral{ background:rgba(16,24,38,.05); }
-:root[data-theme="light"] .slab-card{ background:rgba(16,24,38,.025); }
-:root[data-theme="light"] .ratio-bar-track{ background:rgba(16,24,38,.08); }
-:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(16,24,38,.04); }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(16,24,38,.16); }
-:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:rgba(16,24,38,.26); }
+:root[data-theme="light"] .search-input:focus{ background:rgba(20,22,28,.06); }
+:root[data-theme="light"] .metric-toggle{ background:rgba(20,22,28,.035); }
+:root[data-theme="light"] .badge-neutral{ background:rgba(20,22,28,.05); }
+:root[data-theme="light"] .slab-card{ background:rgba(20,22,28,.025); }
+:root[data-theme="light"] .ratio-bar-track{ background:rgba(20,22,28,.08); }
+:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(20,22,28,.16); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:rgba(20,22,28,.26); }
 
 *{box-sizing:border-box;}
 html{scroll-behavior:smooth;}
@@ -187,7 +187,8 @@ header{
 .unit-pill.all-pill.active{background:linear-gradient(135deg, var(--teal), #22B8A8);box-shadow:0 4px 14px rgba(45,212,191,.35);}
 
 /* ---------- Upload panel ---------- */
-.upload-panel{padding:26px;margin-bottom:26px;}
+.upload-panel{padding:26px;margin:0 auto 26px;max-width:820px;}
+@media (max-width:900px){.upload-panel{max-width:none;}}
 .upload-panel h2{margin:0 0 4px;font-size:17px;color:#fff;font-weight:700;}
 .upload-panel .hint{color:var(--text-muted);font-size:13px;margin:0 0 20px;line-height:1.5;}
 .upload-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:20px;}
@@ -237,7 +238,7 @@ header{
 .section-desc{color:var(--text-muted);font-size:13px;margin:2px 0 16px;line-height:1.5;}
 .section-desc b{color:var(--text);}
 
-.chart-box{border:1px solid var(--glass-border-soft);border-radius:14px;padding:17px;background:rgba(255,255,255,.025);margin-bottom:18px;}
+.chart-box{border:1px solid var(--glass-border-soft);border-radius:14px;padding:17px;background:rgba(255,255,255,.025);margin-bottom:18px;overflow:hidden;}
 .chart-box h3{margin:0 0 10px;font-size:12.5px;color:#fff;font-weight:700;letter-spacing:.2px;}
 .chart-hint{margin:-4px 0 12px;font-size:11px;color:var(--text-dim);}
 .chart-box canvas{max-height:320px;}
@@ -380,6 +381,7 @@ footer b{color:var(--text-muted);}
         </div>
         <div class="chart-box">
           <h3>Top Items Procured Locally</h3>
+          <p class="chart-hint">Top 40 by the metric selected above — see Item Ranking below for every item. Drag to scroll.</p>
           <div class="chart-total-stat">Total Qty Procured: <b id="topItemsTotalQty">0</b></div>
           <div class="scroll-chart-wrap"><div class="scroll-chart-inner" id="topItemsChartInner"><canvas id="chartTopItems"></canvas></div></div>
         </div>
@@ -713,10 +715,10 @@ function parseAnyDate(v){
   return null;
 }
 function daysBetween(d1, d2){ return Math.round((d2 - d1) / (1000*60*60*24)); }
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function fmtDateOnly(d){
   if(!d) return '';
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${String(d.getDate()).padStart(2,'0')}-${months[d.getMonth()]}-${d.getFullYear()}`;
+  return `${String(d.getDate()).padStart(2,'0')}-${MONTH_ABBR[d.getMonth()]}-${d.getFullYear()}`;
 }
 function fmt(n){
   n = Number(n)||0;
@@ -802,7 +804,7 @@ function metricLabelPart(val){
 // see the "parasthemechange" listener at the bottom of this file.
 function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
 function chartTextColor(){ return isLightTheme() ? '#3A4658' : '#D6DEE5'; }
-function chartGridColor(){ return isLightTheme() ? 'rgba(16,24,38,.08)' : 'rgba(255,255,255,.06)'; }
+function chartGridColor(){ return isLightTheme() ? 'rgba(20,22,28,.08)' : 'rgba(255,255,255,.06)'; }
 function fmtDateRange(minDt, maxDt){
   if(!minDt) return '—';
   if(!maxDt || +minDt===+maxDt) return fmtDateOnly(minDt);
@@ -987,6 +989,14 @@ function buildUnitPills(units){
 /* ============================================================
    RENDER — master
    ============================================================ */
+// Every chart here is torn down and rebuilt from scratch on each unit-filter
+// click or metric toggle (see killChart below) rather than updated in place,
+// so Chart.js's default entrance animation replayed on all six of them at
+// once, every click -- the main cause of the UI feeling slow to respond.
+// Nothing here reads data any differently; it only draws instantly instead
+// of animating in.
+Chart.defaults.animation = false;
+Chart.defaults.transitions.active.animation.duration = 0;
 let charts = {};
 function killChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
 let unitMetric = 'count';
@@ -1215,8 +1225,16 @@ function renderUnitChart(units, unitItemAgg){
   });
 }
 
-/* ---------- Top items procured, stacked by unit -- every item, none capped ---------- */
+/* ---------- Top items procured, stacked by unit ----------
+   Ranked, highest first, and capped to the top 40 -- with every item bought
+   locally (often 200-300+ once real GRN data is loaded) this chart used to
+   plot every single one, which made for a canvas tens of thousands of
+   pixels wide: almost the entire chart sat off past the edge of the card
+   needing a very long drag to ever see, and rebuilding a canvas that size
+   from scratch on every click was itself slow. "Top items" only needs the
+   top items -- the Item Ranking table below still lists every item. */
 function renderTopItemsChart(units, unitItemAgg){
+  const TOP_N = 40;
   const rows = unitItemAgg.filter(a=>units.includes(a.unit));
 
   const itemTotals = new Map(); // key -> total (current metric) across selected units
@@ -1226,7 +1244,7 @@ function renderTopItemsChart(units, unitItemAgg){
     itemTotals.set(k, (itemTotals.get(k)||0) + metricValue(a));
     if(!itemNameByKey[k]) itemNameByKey[k] = a.itemName;
   });
-  const itemKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]);
+  const itemKeys = Array.from(itemTotals.entries()).sort((a,b)=>b[1]-a[1]).map(e=>e[0]).slice(0, TOP_N);
   const labels = itemKeys.map(k=>{
     const name = itemNameByKey[k] || k;
     return name.length>22 ? name.slice(0,20)+'…' : name;
@@ -1676,6 +1694,11 @@ document.addEventListener('parasthemechange', () => { if(RAW) render(selectedUni
  * :root[data-theme="light"] palette follows the shell's toggle instead of
  * carrying a separate one of its own. A dashboard with no light palette yet
  * simply ignores the attribute -- this is a no-op until one is added.
+ *
+ * It also reports which way this dashboard's own page is being scrolled, so
+ * the Command Centre can tuck its "Back to Command Centre" bar away while
+ * reading and bring it back the moment the scroll direction reverses. This
+ * dashboard's markup and behaviour are otherwise untouched by it.
  */
 (function (w, d) {
   'use strict';
@@ -1794,6 +1817,27 @@ document.addEventListener('parasthemechange', () => { if(RAW) render(selectedUni
       }
     }
   }, false);
+
+  // Scroll-direction relay -- see header comment. Skipped entirely when this
+  // page is not embedded (opened on its own), since there is no parent to
+  // tell and nothing here changes how the page behaves either way.
+  if (w.parent !== w) {
+    var lastY = 0, dir = 'up', ticking = false;
+    function sendScroll() {
+      var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
+      if (y <= 0) dir = 'up';
+      else if (y > lastY + 4) dir = 'down';
+      else if (y < lastY - 4) dir = 'up';
+      lastY = y;
+      try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      ticking = false;
+    }
+    w.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      (w.requestAnimationFrame || w.setTimeout)(sendScroll);
+    }, { passive: true });
+  }
 })(window, document);
 </script>
 <!-- /paras-command-centre-bridge -->

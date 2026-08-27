@@ -2260,6 +2260,11 @@ els.demo.addEventListener('click',function(){
  * :root[data-theme="light"] palette follows the shell's toggle instead of
  * carrying a separate one of its own. A dashboard with no light palette yet
  * simply ignores the attribute -- this is a no-op until one is added.
+ *
+ * It also reports which way this dashboard's own page is being scrolled, so
+ * the Command Centre can tuck its "Back to Command Centre" bar away while
+ * reading and bring it back the moment the scroll direction reverses. This
+ * dashboard's markup and behaviour are otherwise untouched by it.
  */
 (function (w, d) {
   'use strict';
@@ -2378,6 +2383,27 @@ els.demo.addEventListener('click',function(){
       }
     }
   }, false);
+
+  // Scroll-direction relay -- see header comment. Skipped entirely when this
+  // page is not embedded (opened on its own), since there is no parent to
+  // tell and nothing here changes how the page behaves either way.
+  if (w.parent !== w) {
+    var lastY = 0, dir = 'up', ticking = false;
+    function sendScroll() {
+      var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
+      if (y <= 0) dir = 'up';
+      else if (y > lastY + 4) dir = 'down';
+      else if (y < lastY - 4) dir = 'up';
+      lastY = y;
+      try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      ticking = false;
+    }
+    w.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      (w.requestAnimationFrame || w.setTimeout)(sendScroll);
+    }, { passive: true });
+  }
 })(window, document);
 </script>
 <!-- /paras-command-centre-bridge -->

@@ -263,6 +263,7 @@
     $$('.frames iframe').forEach(function (f) { f.classList.remove('active'); });
     $('#frameLoading').style.display = 'none';
     $('#matchBar').style.display = 'none';
+    $('.dash-bar').classList.remove('collapsed');
     renderCrumbs();
     renderLiveCount();
     if (!silent) location.hash = '#/';
@@ -277,6 +278,12 @@
     current = id;
     $('#viewHome').classList.remove('active');
     $('#viewDash').classList.add('active');
+    // Each dashboard starts pinned open, as if newly loaded; refreshMatchBar
+    // below decides within a beat whether this one gets to autohide (and, if
+    // so, tucks it away right then -- see setChromeLoaded). The bar is one
+    // shared element reused across every dashboard, so both classes must be
+    // reset here or the previous dashboard's state would leak into this one.
+    $('.dash-bar').classList.remove('collapsed', 'autohide');
 
     // Snapshotted so the load handler below still updates the right mode's
     // frame set even if the mode is switched again before it fires -- Local
@@ -1678,6 +1685,25 @@
     waiter.resolve(m);
   }, false);
 
+  /* Unsolicited push from the open dashboard's own page (no `id` to match a
+     pending request, unlike everything above) reporting which way it is
+     being scrolled. Only acted on for the frame actually on screen, and only
+     once that dashboard has nothing left needing the toolbar pinned -- see
+     setChromeLoaded. */
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || m.action !== 'scroll') return;
+    var srcId = null;
+    Object.keys(frames).some(function (id) {
+      if (frames[id].el && frames[id].el.contentWindow === ev.source) { srcId = id; return true; }
+      return false;
+    });
+    if (!srcId || srcId !== current) return;
+    var tb = $('.dash-bar');
+    if (!tb || !tb.classList.contains('autohide')) return;
+    tb.classList.toggle('collapsed', m.dir === 'down');
+  }, false);
+
   function ask(id, payload, timeoutMs) {
     var f = frames[id];
     if (!f || !f.el.contentWindow) return Promise.reject(new Error('dashboard is not open'));
@@ -1848,15 +1874,40 @@
   /* Which library files suit the dashboard that is open right now. */
   function matchesForOpen() { return matchesFor(current); }
 
+  /* Whether the top "Back to Command Centre" bar is allowed to tuck itself
+     away as the dashboard is scrolled. Only true once there is nothing left
+     needing the user's attention up here -- see refreshMatchBar, the only
+     caller. Forcing it back to pinned+visible whenever it isn't true means an
+     error never leaves the bar stuck off-screen: the moment something needs
+     fixing, both rows are back and stay put. */
+  function setChromeLoaded(loaded) {
+    var tb = $('.dash-bar');
+    if (!tb) return;
+    var wasLoaded = tb.classList.contains('autohide');
+    tb.classList.toggle('autohide', !!loaded);
+    if (!loaded) tb.classList.remove('collapsed');
+    // The moment this dashboard first has nothing left needing attention,
+    // tuck the bar away right then rather than waiting for a scroll --
+    // scrolling up brings it back, scrolling down (or another glance at this
+    // once it's already tucked away) hides it again.
+    else if (!wasLoaded) tb.classList.add('collapsed');
+  }
+
   function refreshMatchBar() {
     var bar = $('#matchBar');
     if (!bar) return;
     if (!current) { bar.style.display = 'none'; return; }
     matchesForOpen().then(function (m) {
       if (!m || m.dashId !== current) { bar.style.display = 'none'; return; }
-      if (!m.pairs.length && !m.blocked.length) { bar.style.display = 'none'; return; }
-      bar.style.display = 'flex';
       var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
+      var nothingToDo = !m.pairs.length && !m.blocked.length;
+      var complete = !nothingToDo && m.pairs.length >= required && !m.blocked.length;
+      if (nothingToDo || complete) { bar.style.display = 'none'; setChromeLoaded(true); return; }
+      // A required box is still unmatched, or something is too large to
+      // auto-fill -- that is the one case this bar (and the toolbar above
+      // it) must stay put for, so the user can fix it by hand.
+      setChromeLoaded(false);
+      bar.style.display = 'flex';
       $('#matchText').innerHTML = '<b>' + m.pairs.length + ' of ' + required + '</b> required file' +
         (required === 1 ? '' : 's') + ' matched in the Data Library' +
         (m.blocked.length ? ' — ' + m.blocked.length + ' too large to auto-fill' : '');

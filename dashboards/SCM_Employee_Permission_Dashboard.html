@@ -48,6 +48,54 @@
     --ok-bg:rgba(40,180,110,0.16); --ok-text:#7fdcac;
     --radius:14px;
   }
+  /* ---------- Light theme ----------
+     Follows the Command Centre shell's own dark/light toggle -- see the
+     "parasthemechange" bridge relay near the bottom of this file's script.
+     Accent hues (accent/accent-2/report) are unchanged: saturated enough to
+     read on both a near-black and a near-white surface, so only the neutral
+     surface/text/tint tokens need a light variant, plus a few corrective
+     rules below for literal colors that don't route through a var. */
+  :root[data-theme="light"]{
+    --bg:#EDF1F6; --surface:#E7ECF3; --glass:rgba(255,255,255,0.55);
+    --text-primary:#101826; --text-secondary:#4A5768; --text-muted:#7B8792;
+    --border:rgba(16,24,38,0.08); --border-strong:rgba(16,24,38,0.16);
+    --accent:#4f7cc4; --accent-2:#78a2e6; --accent-bg:rgba(79,124,196,0.14); --accent-text:#2f5ca2;
+    --report:#a883d9; --report-bg:rgba(138,92,201,0.14); --report-text:#6b3fa0;
+    --warn-bg:rgba(230,170,40,0.16); --warn-text:#8a5a00;
+    --danger-bg:rgba(226,75,75,0.12); --danger-text:#c0392b;
+    --ok-bg:rgba(40,180,110,0.12); --ok-text:#12805a;
+    color-scheme: light;
+  }
+  :root[data-theme="light"] body{
+    background:
+      radial-gradient(circle at 15% 0%, rgba(120,162,230,.14) 0%, transparent 42%),
+      radial-gradient(circle at 85% 15%, rgba(168,131,217,.10) 0%, transparent 44%),
+      linear-gradient(180deg, #EDF1F6 0%, #E7ECF3 45%, #E3E9F1 100%);
+  }
+  :root[data-theme="light"] body::before{
+    background:
+      radial-gradient(circle at 18% 22%, rgba(79,124,196,.14), transparent 42%),
+      radial-gradient(circle at 82% 28%, rgba(168,131,217,.10), transparent 44%),
+      radial-gradient(circle at 55% 92%, rgba(120,162,230,.08), transparent 48%);
+  }
+  :root[data-theme="light"] body::after{
+    background-image:radial-gradient(rgba(16,24,38,.05) 1px, transparent 1px);
+  }
+  :root[data-theme="light"] .topbar{ background:rgba(255,255,255,.72); border-bottom-color:rgba(16,24,38,.08); }
+  :root[data-theme="light"] .card{
+    background:linear-gradient(160deg, rgba(255,255,255,.85), rgba(255,255,255,.62));
+    border-color:rgba(16,24,38,.08); border-top-color:rgba(255,255,255,.9);
+    box-shadow:0 8px 26px rgba(16,24,38,.10), inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  :root[data-theme="light"] .card:hover{
+    box-shadow:0 16px 36px rgba(16,24,38,.14), 0 0 0 1px rgba(79,124,196,.18), inset 0 1px 0 rgba(255,255,255,.7);
+  }
+  :root[data-theme="light"] .metric-value{ color:var(--text-primary) !important; text-shadow:none !important; }
+  :root[data-theme="light"] .orgtable .colhead{ background:rgba(16,24,38,.04); }
+  :root[data-theme="light"] .rutable thead th,
+  :root[data-theme="light"] .rutable tr:first-child th{ background:rgba(16,24,38,.04); }
+  :root[data-theme="light"] .rutable th.rutable-group-clinic{ background:rgba(230,170,40,.14)!important; }
+  :root[data-theme="light"] .rutooltip{ color:#eef1f7; }
   *{box-sizing:border-box;}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
     background:radial-gradient(circle at 15% 0%, #1b2740 0%, #0e1420 45%, #0e1420 100%);color:var(--text-primary);
@@ -593,6 +641,15 @@ function renderAll(){
   renderCapacity();
 }
 
+// Theme-aware chrome colors for Chart.js -- Chart.js bakes colors in at
+// creation time so (unlike CSS, which just follows a var) the chart itself
+// must be torn down and redrawn on a theme change; see the
+// "parasthemechange" listener right after renderOverview() below.
+function isLightTheme(){ return document.documentElement.getAttribute('data-theme') === 'light'; }
+function chartTextColor(){ return isLightTheme() ? '#3A4658' : '#a7afc4'; }
+function chartTitleColor(){ return isLightTheme() ? '#101826' : '#eef1f7'; }
+function chartGridColor(darkAlpha){ return isLightTheme() ? 'rgba(16,24,38,.08)' : 'rgba(255,255,255,'+(darkAlpha!=null?darkAlpha:0.06)+')'; }
+
 // ---------------- OVERVIEW ----------------
 function renderOverview(){
   var roles = D.roles, units = D.units, unitNames = D.unitNames;
@@ -666,10 +723,10 @@ function renderOverview(){
         var bar1 = meta1.data[i], bar0 = meta0.data[i];
         var topY = Math.min(bar1.y, bar0.y);
         ctx.font = '700 13px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif';
-        ctx.fillStyle = '#eef1f7';
+        ctx.fillStyle = chartTitleColor();
         ctx.fillText(String(total), bar1.x, topY - 20);
         ctx.font = '600 11px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif';
-        ctx.fillStyle = '#a7afc4';
+        ctx.fillStyle = chartTextColor();
         ctx.fillText(pharmCounts[i] + ' | ' + purchCounts[i], bar1.x, topY - 6);
       });
       ctx.restore();
@@ -686,12 +743,12 @@ function renderOverview(){
     options:{responsive:true, maintainAspectRatio:false, layout:{padding:{top:28}},
       animation:{duration:850, easing:'easeOutQuint'},
       plugins:{
-        legend:{display:true, position:'top', labels:{color:'#a7afc4', boxWidth:12, font:{size:12}}},
-        title:{display:true, text:'Tagged employees per unit', color:'#eef1f7', font:{size:13,weight:'600'}}
+        legend:{display:true, position:'top', labels:{color:chartTextColor(), boxWidth:12, font:{size:12}}},
+        title:{display:true, text:'Tagged employees per unit', color:chartTitleColor(), font:{size:13,weight:'600'}}
       },
       scales:{
-        x:{stacked:true, ticks:{color:'#a7afc4'}, grid:{color:'rgba(255,255,255,0.05)'}},
-        y:{stacked:true, beginAtZero:true, ticks:{precision:0, color:'#a7afc4'}, grid:{color:'rgba(255,255,255,0.07)'}}
+        x:{stacked:true, ticks:{color:chartTextColor()}, grid:{color:chartGridColor(0.05)}},
+        y:{stacked:true, beginAtZero:true, ticks:{precision:0, color:chartTextColor()}, grid:{color:chartGridColor(0.07)}}
       }
     }
   });
@@ -724,6 +781,7 @@ function renderOverview(){
   animateCounters(ov);
   wireTilt(ov);
 }
+document.addEventListener('parasthemechange', function(){ if(D.roles && D.roles.length) renderOverview(); });
 
 // ---------------- RIGHTS PER ROLE ----------------
 function renderRights(){

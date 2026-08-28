@@ -13,22 +13,8 @@
 <div class="bg-field" aria-hidden="true"><i></i><i></i><i></i></div>
 <!-- ============================== SIGN IN =============================== -->
 <div class="gate" id="gate">
-  <div class="gate-bg" aria-hidden="true">
-    <!-- Ambient backdrop only -- dimmed well below the blobs and card in
-         front of it, and never labelled: just the units themselves,
-         filling the page behind the sign-in form. -->
-    <div class="gate-photos">
-      <img src="assets/img/units/ggn.jpg" alt="">
-      <img src="assets/img/units/pat.jpg" alt="">
-      <img src="assets/img/units/pkl.jpg" alt="">
-      <img src="assets/img/units/dbg.jpg" alt="">
-      <img src="assets/img/units/udp.jpg" alt="">
-      <img src="assets/img/units/ran.jpg" alt="">
-      <img src="assets/img/units/srn.jpg" alt="">
-      <img src="assets/img/units/knp.jpg" alt="">
-    </div>
-    <i></i><i></i>
-  </div>
+ <div class="gate-form-pane">
+  <div class="gate-bg" aria-hidden="true"><i></i><i></i></div>
 
   <div class="gate-inner" id="gateInner">
     <header class="gate-head">
@@ -283,6 +269,25 @@
       Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
     </p>
   </div>
+ </div>
+
+ <!-- Photography only -- no names, no captions on top of a photo. One unit
+      at a time, slowly cross-fading through all 8, filling this whole pane
+      so each photo can be shown close to its own aspect ratio instead of
+      forced into a small cropped tile. Hidden on narrow screens (see the
+      CSS) rather than shrunk, so a phone never pays for loading it. -->
+ <div class="gate-photo-pane" aria-hidden="true">
+   <div class="gate-photo-stack">
+     <img src="assets/img/units/ggn.jpg" alt="">
+     <img src="assets/img/units/pat.jpg" alt="">
+     <img src="assets/img/units/pkl.jpg" alt="">
+     <img src="assets/img/units/dbg.jpg" alt="">
+     <img src="assets/img/units/udp.jpg" alt="">
+     <img src="assets/img/units/ran.jpg" alt="">
+     <img src="assets/img/units/srn.jpg" alt="">
+     <img src="assets/img/units/knp.jpg" alt="">
+   </div>
+ </div>
 
   <!-- Asked for once, at the moment the account is actually created --
        not sitting filled in on the sign-up screen the whole time someone is

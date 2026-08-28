@@ -653,9 +653,17 @@ a{color:var(--brand-soft); text-decoration:none;}
 :root[data-locked] body{overflow:hidden;}
 :root[data-locked] .app{visibility:hidden; pointer-events:none;}
 
+/* Split screen: sign-in form on one side, one large unit photo on the
+   other -- the standard pattern for an enterprise sign-in page's brand
+   panel. Replaces an earlier attempt at tiling all 8 photos in a grid
+   behind the form: a grid divides the viewport into cells far narrower
+   than these photos' own landscape shape, so object-fit:cover had to zoom
+   in hard and cropped away most of each building. One photo filling one
+   whole (roughly half-width, full-height) pane keeps far more of the shot
+   intact, and reads as considered brand photography rather than a busy
+   collage competing with the form. */
 .gate{
   position:fixed; inset:0; z-index:200; display:none;
-  align-items:center; justify-content:center; padding:28px 20px; overflow:auto;
   transition:opacity .4s var(--ease);
   /* Lighter than the workspace behind it: the sign-in screen is the first
      thing seen, and the reversed logo needs a ground to sit on. */
@@ -669,30 +677,71 @@ a{color:var(--brand-soft); text-decoration:none;}
     #E8EEF6;
 }
 .gate.gone{opacity:0; pointer-events:none;}
+
+.gate-form-pane{
+  position:relative; flex:1 1 50%; min-width:0; height:100%;
+  display:flex; align-items:center; justify-content:center;
+  padding:28px 20px; overflow:auto;
+}
 .gate-bg{position:absolute; inset:0; overflow:hidden; pointer-events:none;}
-
-/* The units themselves, filling the page behind the sign-in form -- dimmed
-   well below the color blobs and glass card in front of them (painted
-   after, in DOM order below), and never labelled: no names, no captions,
-   just the buildings as ambient texture. Faded further under the blobs'
-   own glow rather than sharp, so it reads as atmosphere, not a photo wall
-   competing with the form. */
-.gate-photos{
-  position:absolute; inset:0; display:grid;
-  grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(2,1fr);
-  opacity:.30; filter:saturate(78%) blur(1px);
-}
-.gate-photos img{width:100%; height:100%; object-fit:cover; display:block;}
-:root[data-theme="light"] .gate-photos{opacity:.16;}
-@media (max-width:700px){
-  .gate-photos{grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(4,1fr);}
-}
-
 .gate-bg i{position:absolute; border-radius:50%; filter:blur(90px); display:block;}
 .gate-bg i:nth-child(1){width:680px;height:680px;top:-260px;left:-190px;background:radial-gradient(circle,#4E86E0,transparent 70%);opacity:.30;animation:drift1 26s ease-in-out infinite;}
 .gate-bg i:nth-child(2){width:600px;height:600px;bottom:-240px;right:-170px;background:radial-gradient(circle,#1FB3A8,transparent 70%);opacity:.18;animation:drift2 32s ease-in-out infinite;}
 :root[data-theme="light"] .gate-bg i:nth-child(1){opacity:.18;}
 :root[data-theme="light"] .gate-bg i:nth-child(2){opacity:.10;}
+
+/* Brand panel: one unit's photo at a time, slowly cross-fading through all
+   8 with a slight continuous zoom (a "Ken Burns" pan/zoom, the standard
+   move for a single still photo held on screen for several seconds --
+   without it the same shot would just look frozen/stock). Each image
+   shares one animation, staggered by -1x its slot length so, at any
+   moment, exactly one is mid-visible while the rest sit at opacity 0 --
+   cheap (CSS only, nothing waits on JS) and never shows two photos
+   cross-faded into a muddy double-exposure. */
+.gate-photo-pane{position:relative; flex:1 1 50%; overflow:hidden;}
+.gate-photo-stack{position:absolute; inset:0;}
+.gate-photo-stack img{
+  position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+  opacity:0; transform:scale(1.04);
+  filter:saturate(122%) contrast(1.05);
+  animation:gatePhotoCycle 48s ease-in-out infinite;
+}
+.gate-photo-stack img:nth-child(1){animation-delay:0s;}
+.gate-photo-stack img:nth-child(2){animation-delay:-6s;}
+.gate-photo-stack img:nth-child(3){animation-delay:-12s;}
+.gate-photo-stack img:nth-child(4){animation-delay:-18s;}
+.gate-photo-stack img:nth-child(5){animation-delay:-24s;}
+.gate-photo-stack img:nth-child(6){animation-delay:-30s;}
+.gate-photo-stack img:nth-child(7){animation-delay:-36s;}
+.gate-photo-stack img:nth-child(8){animation-delay:-42s;}
+@keyframes gatePhotoCycle{
+  0%{opacity:0; transform:scale(1.0);}
+  3%{opacity:1;}
+  10%{opacity:1; transform:scale(1.07);}
+  14%{opacity:0;}
+  100%{opacity:0; transform:scale(1.1);}
+}
+/* A diagonal brand wash, not a flat scrim -- ties the photo back to the
+   Paras palette instead of it just looking like generic stock photography,
+   while still darkening the bottom edge enough for the (currently empty)
+   caption area a future build might add there. */
+.gate-photo-stack::after{
+  content:""; position:absolute; inset:0;
+  background:linear-gradient(200deg, rgba(20,38,74,.14) 0%, rgba(21,128,128,.22) 45%, rgba(9,16,32,.62) 100%);
+}
+:root[data-theme="light"] .gate-photo-stack::after{
+  background:linear-gradient(200deg, rgba(255,255,255,.06) 0%, rgba(214,232,248,.16) 45%, rgba(20,38,74,.30) 100%);
+}
+@media (prefers-reduced-motion:reduce){
+  .gate-photo-stack img{animation:none; opacity:0; transform:none;}
+  .gate-photo-stack img:first-child{opacity:1;}
+}
+@media (max-width:860px){
+  /* A phone pays for loading 8 photos it will never usefully see at this
+     width -- hidden outright, not just shrunk, same reasoning the SaaS
+     login research above gives for keeping mobile sign-in lean. */
+  .gate-photo-pane{display:none;}
+}
 
 .gate-inner{position:relative; width:100%; max-width:492px; display:flex; flex-direction:column; align-items:center; transition:max-width .25s var(--ease);}
 .gate-inner.wide{max-width:600px;}

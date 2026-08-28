@@ -675,20 +675,34 @@ a{color:var(--brand-soft); text-decoration:none;}
    banner's own two halves filling the middle row either side of where the
    sign-in card sits -- sized like every other cell in that row, not
    stretched to the page's full height. Never labelled, no names or
-   captions on top of any photo. Every cell (banner halves included, save
-   one) is a sharp, fully-visible contain-fit copy over a blurred,
-   darkened cover-fit copy of the very same image (.gate-photo-blur)
-   filling whatever the sharp one doesn't reach -- earlier attempts here
-   cover-cropped a whole grid of unit photos (lost real buildings, worst
-   on Panchkula and Srinagar) and separately cover-cropped the banner's
-   tagline into unreadable letters; this is what fixed both. The one
-   exception is the banner's photo half (.gate-photo-cover) -- cropping
-   into a photo of hands is harmless, so it stays cover-fit for a fuller,
-   more photographic look than a small contained rectangle would give. */
+   captions on top of any photo.
+
+   Row heights are 1fr : 2fr : 1fr, not an even 1fr : minmax() : 1fr --
+   the middle row's cells are twice as WIDE as the outer rows' (they span
+   2 grid columns each), so giving it twice the HEIGHT too keeps every
+   cell's aspect ratio the same rather than making the outer cells nearly
+   square. That match matters because most cells are cover-fit
+   (.gate-photo-cover): a photo this much wider than its cell needs
+   cropping regardless, and the closer the cell's aspect already is to the
+   photo's own, the less of it that crop has to remove. Getting this ratio
+   wrong was a real trap either way -- square-ish cells with a contain-fit
+   photo (the version before this one) left large plain letterboxed bands
+   above and below every photo that read as broken/blank space, while the
+   very first attempt at a full-bleed grid used cells so much MORE
+   square/narrow than this that cover-fit cropped whole buildings out of
+   the shot (worst on Panchkula and Srinagar). This ratio is the middle
+   ground: still cover-fit (no blank bands) but cropping only a modest,
+   safe margin off each photo, not the buildings themselves.
+
+   The one cell that stays contain-fit is the banner's TEXT half -- cropping
+   words is never fine the way cropping a building's edge is, so it keeps
+   the sharp-over-blurred-fill technique instead: a fully-visible
+   contain-fit copy over a blurred, darkened cover-fit copy of the very
+   same image filling whatever the sharp one doesn't reach. */
 .gate-photos{
   position:absolute; inset:0; display:grid;
-  grid-template-columns:repeat(4,1fr); grid-template-rows:1fr minmax(90px,150px) 1fr;
-  gap:3px; opacity:.6;
+  grid-template-columns:repeat(4,1fr); grid-template-rows:1fr 2fr 1fr;
+  gap:0; opacity:.6;
 }
 .gate-photo-cell{position:relative; overflow:hidden;}
 .gate-photo-blur{
@@ -699,7 +713,7 @@ a{color:var(--brand-soft); text-decoration:none;}
   position:relative; z-index:1; width:100%; height:100%; object-fit:contain; display:block;
   filter:saturate(122%) contrast(1.05);
 }
-.gate-photo-cover{object-fit:cover;}
+.gate-photo-cover{object-fit:cover; object-position:center;}
 .gate-banner-left, .gate-banner-right{grid-column:span 2;}
 .gate-photos::after{
   content:""; position:absolute; inset:0;
@@ -712,7 +726,10 @@ a{color:var(--brand-soft); text-decoration:none;}
 @media (max-width:700px){
   .gate-photos{
     grid-template-columns:repeat(2,1fr);
-    grid-template-rows:repeat(2,1fr) minmax(70px,110px) repeat(2,1fr);
+    /* Every cell is 1 of 2 columns wide here (the banner halves included --
+       see the span rule right below), so unlike the desktop layout above,
+       equal row heights are what keeps every cell's aspect ratio matched. */
+    grid-template-rows:repeat(5,1fr);
   }
   .gate-banner-left, .gate-banner-right{grid-column:span 1;}
 }
@@ -726,10 +743,18 @@ a{color:var(--brand-soft); text-decoration:none;}
 .gate-inner{position:relative; width:100%; max-width:492px; display:flex; flex-direction:column; align-items:center; transition:max-width .25s var(--ease);}
 .gate-inner.wide{max-width:600px;}
 
-.gate-head{text-align:center; margin-bottom:30px; animation:gateIn .5s var(--ease) both;}
-
-/* The logo sits straight on the background — no plate. The dark theme uses a
-   reversed lockup so it can, rather than a white card floating on the page. */
+/* Used to sit straight on a plain gradient with no plate of its own -- the
+   busy unit-photo grid behind it now needs one, or the logo and title
+   blend into whatever photo happens to be there. Same glass treatment as
+   the sign-in card below it. */
+.gate-head{
+  text-align:center; margin-bottom:30px; animation:gateIn .5s var(--ease) both;
+  padding:22px 28px; border-radius:var(--r-lg);
+  background:rgba(23,34,58,.68); border:1px solid rgba(255,255,255,.13);
+  backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
+  box-shadow:var(--shadow-lg);
+}
+:root[data-theme="light"] .gate-head{background:rgba(255,255,255,.86); border-color:var(--wire);}
 .gate-logo{height:62px; width:auto; display:block; margin:0 auto 18px;}
 :root:not([data-theme="light"]) .gate-logo.on-light{display:none;}
 :root[data-theme="light"] .gate-logo.on-dark{display:none;}

@@ -776,6 +776,13 @@
       var clean = (this.value || '').replace(/[^0-9]/g, '').slice(0, 10);
       if (clean !== this.value) this.value = clean;
     });
+    // Decorative unit strip: each <img> starts at opacity:0 (see the CSS) so
+    // a missing drop-in photo never flashes the browser's broken-image icon
+    // over the letter-mark fallback sitting behind it -- it only fades in
+    // once it has actually, successfully loaded.
+    Array.prototype.forEach.call(d.querySelectorAll('.gate-unit-pic img'), function (img) {
+      img.addEventListener('load', function () { img.classList.add('loaded'); });
+    });
     tickLockout();
     setTimeout(function () { $('#gateEmail').focus(); }, 120);
   }

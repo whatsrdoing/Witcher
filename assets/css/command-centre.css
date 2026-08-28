@@ -807,9 +807,45 @@ a{color:var(--brand-soft); text-decoration:none;}
   max-width:40ch; animation:gateIn .5s var(--ease) .14s both;
 }
 
+/* Decorative only -- see the comment on the markup itself. Sized and paced
+   so it reads as a quiet footer strip, not a second card competing with
+   the sign-in form above it. */
+.gate-units{
+  margin:26px 0 0; width:100%; max-width:600px; text-align:center;
+  animation:gateIn .5s var(--ease) .2s both;
+}
+.gate-units-label{
+  margin:0 0 14px; font-size:10.5px; font-weight:700; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-3);
+}
+.gate-units-row{
+  display:flex; flex-wrap:wrap; justify-content:center; gap:18px 22px;
+}
+.gate-unit{display:flex; flex-direction:column; align-items:center; gap:7px; width:64px;}
+.gate-unit-pic{
+  position:relative; width:52px; height:52px; border-radius:50%; overflow:hidden; flex:0 0 auto;
+  background:var(--glass); border:1px solid var(--wire);
+  display:flex; align-items:center; justify-content:center;
+}
+.gate-unit-pic img{
+  position:absolute; inset:0; width:100%; height:100%; object-fit:cover;
+  /* Hidden until it actually loads -- a broken/missing drop-in photo (the
+     default state, until a real one is dropped in) must never show as a
+     browser broken-image icon over the letter-mark fallback. */
+  opacity:0;
+}
+.gate-unit-pic img.loaded{opacity:1;}
+.gate-unit-pic b{
+  font-size:11px; font-weight:800; letter-spacing:.02em; color:var(--brand-soft);
+}
+.gate-unit-name{font-size:11px; font-weight:600; color:var(--ink-2); line-height:1.3;}
+
 @media (max-width:520px){
   .gate{padding:20px 14px;}
   .gate-card{padding:20px;}
+  .gate-units-row{gap:14px 16px;}
+  .gate-unit{width:56px;}
+  .gate-unit-pic{width:46px; height:46px;}
 }
 
 /* ---------- Hand a file to the dashboard's own upload box ---------------- */

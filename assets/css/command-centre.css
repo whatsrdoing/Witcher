@@ -702,7 +702,7 @@ a{color:var(--brand-soft); text-decoration:none;}
 .gate-photos{
   position:absolute; inset:0; display:grid;
   grid-template-columns:repeat(4,1fr); grid-template-rows:1fr 2fr 1fr;
-  gap:0; opacity:.6;
+  gap:0; opacity:.78;
 }
 .gate-photo-cell{position:relative; overflow:hidden;}
 .gate-photo-blur{
@@ -717,7 +717,11 @@ a{color:var(--brand-soft); text-decoration:none;}
 .gate-banner-left, .gate-banner-right{grid-column:span 2;}
 .gate-photos::after{
   content:""; position:absolute; inset:0;
-  background:linear-gradient(150deg, rgba(20,38,74,.5) 0%, rgba(21,128,128,.28) 48%, rgba(9,16,32,.6) 100%);
+  /* Kept deliberately gentle -- an earlier, much darker version of this
+     wash landed its darkest stop right around the banner-photo cell and
+     made a real photo there look like an unfilled black gap, not a wash
+     over a photo. */
+  background:linear-gradient(150deg, rgba(20,38,74,.28) 0%, rgba(21,128,128,.16) 48%, rgba(9,16,32,.32) 100%);
 }
 :root[data-theme="light"] .gate-photos{opacity:.42;}
 :root[data-theme="light"] .gate-photos::after{

@@ -754,19 +754,10 @@ a{color:var(--brand-soft); text-decoration:none;}
 :root:not([data-theme="light"]) .gate-logo.on-light{display:none;}
 :root[data-theme="light"] .gate-logo.on-dark{display:none;}
 
-/* Both lines share one size; the first is set apart by weight, colour and
-   tracking rather than by being smaller. */
-.gate-dept,
-.gate-title{
-  font-size:clamp(19px,3.1vw,25px);
-  line-height:1.2;
-}
 .gate-dept{
-  margin:0 0 2px; font-weight:500; letter-spacing:.12em; text-transform:uppercase;
+  font-size:clamp(19px,3.1vw,25px); line-height:1.2;
+  margin:0; font-weight:500; letter-spacing:.12em; text-transform:uppercase;
   color:var(--brand-soft); opacity:.95;
-}
-.gate-title{
-  margin:0; font-weight:800; letter-spacing:-.015em; color:var(--ink);
 }
 
 .gate-card{

@@ -690,7 +690,7 @@ a{color:var(--brand-soft); text-decoration:none;}
    of just looking like faded stock photography. */
 .gate-photos{
   position:absolute; inset:0; display:grid;
-  grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(2,1fr);
+  grid-template-columns:repeat(4,1fr); grid-template-rows:1fr minmax(90px,150px) 1fr;
   gap:3px; opacity:.6;
 }
 .gate-photo-cell{position:relative; overflow:hidden;}
@@ -702,6 +702,12 @@ a{color:var(--brand-soft); text-decoration:none;}
   position:relative; z-index:1; width:100%; height:100%; object-fit:contain; display:block;
   filter:saturate(122%) contrast(1.05);
 }
+/* The brand banner, centered where the unit grid would otherwise leave the
+   middle of the page looking like a gap once the sign-in card floats over
+   it -- same no-crop technique as every other cell (contain-fit sharp copy
+   over a blurred cover-fit fill), just spanning the full row width instead
+   of one column. */
+.gate-banner-cell{grid-column:1 / -1;}
 .gate-photos::after{
   content:""; position:absolute; inset:0;
   background:linear-gradient(150deg, rgba(20,38,74,.5) 0%, rgba(21,128,128,.28) 48%, rgba(9,16,32,.6) 100%);
@@ -711,7 +717,10 @@ a{color:var(--brand-soft); text-decoration:none;}
   background:linear-gradient(150deg, rgba(255,255,255,.5) 0%, rgba(214,232,248,.24) 48%, rgba(20,38,74,.26) 100%);
 }
 @media (max-width:700px){
-  .gate-photos{grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(4,1fr);}
+  .gate-photos{
+    grid-template-columns:repeat(2,1fr);
+    grid-template-rows:repeat(2,1fr) minmax(70px,110px) repeat(2,1fr);
+  }
 }
 
 .gate-bg i{position:absolute; border-radius:50%; filter:blur(90px); display:block;}

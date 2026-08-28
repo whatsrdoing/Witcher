@@ -14,50 +14,16 @@
 <!-- ============================== SIGN IN =============================== -->
 <div class="gate" id="gate">
   <div class="gate-bg" aria-hidden="true">
-    <!-- Photography only -- no names, no captions on top of any photo.
-         All 8 shown at once, each one contain-fit (never cropped) over a
-         blurred, darkened copy of itself filling the rest of its cell --
-         see the CSS for why: a grid cell's shape rarely matches these
-         photos' own landscape aspect ratio, and cover-cropping to fill a
-         mismatched cell was cutting real buildings out of the shot. -->
-    <div class="gate-photos">
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/ggn.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/ggn.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/pat.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/pat.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/pkl.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/pkl.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/dbg.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/dbg.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell gate-banner-cell">
-        <img class="gate-photo-blur" src="assets/img/brand-banner.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/brand-banner.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/udp.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/udp.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/ran.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/ran.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/srn.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/srn.jpg" alt="">
-      </div>
-      <div class="gate-photo-cell">
-        <img class="gate-photo-blur" src="assets/img/units/knp.jpg" alt="">
-        <img class="gate-photo-sharp" src="assets/img/units/knp.jpg" alt="">
-      </div>
+    <!-- The brand banner, split into its two halves and run full-height
+         edge to edge on either side of the sign-in form -- the tagline on
+         the left, the photo on the right. (The 8-unit photo grid this
+         replaced is still in assets/img/units/ if a later build wants it
+         back alongside this.) -->
+    <div class="gate-side gate-side-left">
+      <img class="gate-side-blur" src="assets/img/brand-banner-left.jpg" alt="">
+      <img class="gate-side-text" src="assets/img/brand-banner-left.jpg" alt="">
     </div>
+    <div class="gate-side gate-side-right"><img src="assets/img/brand-banner-right.jpg" alt=""></div>
     <i></i><i></i>
   </div>
 

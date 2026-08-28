@@ -13,7 +13,22 @@
 <div class="bg-field" aria-hidden="true"><i></i><i></i><i></i></div>
 <!-- ============================== SIGN IN =============================== -->
 <div class="gate" id="gate">
-  <div class="gate-bg" aria-hidden="true"><i></i><i></i></div>
+  <div class="gate-bg" aria-hidden="true">
+    <!-- Ambient backdrop only -- dimmed well below the blobs and card in
+         front of it, and never labelled: just the units themselves,
+         filling the page behind the sign-in form. -->
+    <div class="gate-photos">
+      <img src="assets/img/units/ggn.jpg" alt="">
+      <img src="assets/img/units/pat.jpg" alt="">
+      <img src="assets/img/units/pkl.jpg" alt="">
+      <img src="assets/img/units/dbg.jpg" alt="">
+      <img src="assets/img/units/udp.jpg" alt="">
+      <img src="assets/img/units/ran.jpg" alt="">
+      <img src="assets/img/units/srn.jpg" alt="">
+      <img src="assets/img/units/knp.jpg" alt="">
+    </div>
+    <i></i><i></i>
+  </div>
 
   <div class="gate-inner" id="gateInner">
     <header class="gate-head">
@@ -267,48 +282,6 @@
     <p class="gate-foot">
       Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
     </p>
-
-    <!-- Purely decorative -- these do not affect sign-in or which units an
-         account can see. Each tile shows a dropped-in photo if one exists at
-         assets/img/units/<code>.jpg (see the README in that folder); until
-         then it falls back to the unit's code as a plain letter-mark. -->
-    <div class="gate-units" aria-hidden="true">
-      <p class="gate-units-label">Serving units across India</p>
-      <div class="gate-units-row">
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/ggn.jpg" alt=""><b>GGN</b></span>
-          <span class="gate-unit-name">GGN</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/pat.jpg" alt=""><b>PAT</b></span>
-          <span class="gate-unit-name">Patna</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/pkl.jpg" alt=""><b>PKL</b></span>
-          <span class="gate-unit-name">Panchkula</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/dbg.jpg" alt=""><b>DBG</b></span>
-          <span class="gate-unit-name">Darbhanga</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/udp.jpg" alt=""><b>UDP</b></span>
-          <span class="gate-unit-name">Udaipur</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/ran.jpg" alt=""><b>RAN</b></span>
-          <span class="gate-unit-name">Ranchi</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/srn.jpg" alt=""><b>SRN</b></span>
-          <span class="gate-unit-name">Srinagar</span>
-        </div>
-        <div class="gate-unit">
-          <span class="gate-unit-pic"><img src="assets/img/units/knp.jpg" alt=""><b>KNP</b></span>
-          <span class="gate-unit-name">Kanpur</span>
-        </div>
-      </div>
-    </div>
   </div>
 
   <!-- Asked for once, at the moment the account is actually created --

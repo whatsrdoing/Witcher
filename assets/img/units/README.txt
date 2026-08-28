@@ -1,14 +1,14 @@
-UNIT PHOTOS (login-screen only)
-================================
+UNIT PHOTOS (login-screen backdrop only)
+=========================================
 
-The sign-in screen shows a quiet strip of your 8 units near the bottom --
-purely decorative, it has no effect on sign-in or on what any account can
-see. Until a photo is dropped in here, each one shows its unit code as a
-plain letter-mark instead.
+The sign-in screen uses these 8 photos as a dimmed, full-page backdrop
+behind the sign-in card -- purely decorative, it has no effect on sign-in
+or on what any account can see, and it never shows a name or caption on
+top of a photo.
 
-To add a real photo for a unit, save it as a JPG named exactly:
+Filenames, one per unit:
 
-    ggn.jpg   (GGN)
+    ggn.jpg   (Gurugram)
     pat.jpg   (Patna)
     pkl.jpg   (Panchkula)
     dbg.jpg   (Darbhanga)
@@ -17,9 +17,7 @@ To add a real photo for a unit, save it as a JPG named exactly:
     srn.jpg   (Srinagar)
     knp.jpg   (Kanpur)
 
-drop it into this folder, and it's picked up on the next page load -- no
-other change needed. Square photos look best; anything else is
-centre-cropped to a circle. JPG only for now (unlike the account-photo
-drop-in, this one does not also try .png/.webp).
-
-With no photo, that unit's tile just shows its 3-letter code.
+Replace any of these with a new JPG of the same name to swap that unit's
+photo -- picked up on the next page load, no other change needed. Landscape
+building photos work best; they are cropped to fill their cell in the grid
+(object-fit: cover), so keep the important part of the shot centred.

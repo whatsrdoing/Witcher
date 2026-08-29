@@ -6,9 +6,18 @@
     python3 serve.py --port 8777      use a different port
     python3 serve.py --plain          skip the friendly path, serve at the root
     python3 serve.py --no-open        do not launch a browser
+    python3 serve.py --lan            also answer on this PC's network address,
+                                       so other computers on the same office/WiFi
+                                       network can reach it (see below)
 
-The server binds to 127.0.0.1 only, so nothing is reachable from the network,
-and no internet connection is used or required.
+By default the server binds to 127.0.0.1 only, so nothing is reachable from
+the network, and no internet connection is used or required. --lan opts into
+the opposite: it binds to every network interface on this machine, so any
+other device on the same LAN can open it at this PC's local IP address (the
+one printed on startup) -- no internet, no domain, no HTTPS involved, just
+plain http:// over the office/home network. Windows will likely prompt to
+allow Python through its firewall the first time this runs with --lan;
+"Private networks" is enough, no need for "Public".
 
 The friendly hostname is real, not cosmetic: setup_hostname.py points
 parashealth.internal at 127.0.0.1 in this computer's hosts file, so the browser
@@ -1064,14 +1073,28 @@ class LocalServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
     daemon_threads = True                  # never keep the process alive on Ctrl+C
 
 
-def bind(port, prefix):
+def bind(port, prefix, lan=False):
     handler = functools.partial(make_handler(prefix), directory=ROOT)
-    return LocalServer(("127.0.0.1", port), handler)
+    return LocalServer(("0.0.0.0" if lan else "127.0.0.1", port), handler)
+
+
+def lan_ip():
+    """This machine's address on the local network, for the --lan banner.
+    Opens no connection -- UDP sockets pick a route without sending a packet --
+    so it works offline too, falling back to loopback if even that fails."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+    finally:
+        s.close()
 
 
 def main(argv):
     cfg = settings()
-    port, auto_open, prefix, app_mode = int(cfg["port"]), True, cfg["path"], False
+    port, auto_open, prefix, app_mode, lan = int(cfg["port"]), True, cfg["path"], False, False
 
     i = 0
     while i < len(argv):
@@ -1082,6 +1105,8 @@ def main(argv):
             app_mode = True
         elif a == "--plain":
             prefix = "/"
+        elif a == "--lan":
+            lan = True
         elif a == "--port" and i + 1 < len(argv):
             i += 1
             port = int(argv[i])
@@ -1106,14 +1131,14 @@ def main(argv):
         print("sync skipped: %s" % exc)
 
     try:
-        httpd = bind(port, prefix)
+        httpd = bind(port, prefix, lan)
     except OSError as exc:
         alt = int(cfg["fallbackPort"])
         if port == alt:
             sys.exit("Could not bind port %d (%s)." % (port, exc))
         print("Port %d is not available (%s) - using %d instead." % (port, exc, alt))
         try:
-            httpd = bind(alt, prefix)
+            httpd = bind(alt, prefix, lan)
         except OSError as exc2:
             sys.exit("Could not bind port %d either (%s)." % (alt, exc2))
         port = alt
@@ -1129,7 +1154,11 @@ def main(argv):
     print("  %s" % url)
     if host == "127.0.0.1" and cfg["hostname"]:
         print("  (run setup_hostname.py as Administrator to use %s instead)" % cfg["hostname"])
-    print("  Local only. Press Ctrl+C to stop.")
+    if lan:
+        lan_netloc = lan_ip() if port == 80 else "%s:%d" % (lan_ip(), port)
+        print("  From other computers on this network: http://%s%s" % (lan_netloc, prefix))
+        print("  (the friendly name above only resolves on this PC -- other computers must use that address)")
+    print("  Local only. Press Ctrl+C to stop." if not lan else "  Reachable from this network. Press Ctrl+C to stop.")
     # Printed every run, not just the first: "where is my data" should never
     # need a search.
     print("  Data: %s" % paths.data_dir())

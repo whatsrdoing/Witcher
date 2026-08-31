@@ -135,20 +135,14 @@
 
       <div id="gateReset" style="display:none">
         <form id="resetForm" novalidate>
-          <p class="reset-lede">Type the exact username of the account to reset,
-            then the admin key. Do not have the key?
-            Contact <a id="resetAdmin" href="#" target="_blank" rel="noopener">Ritik Nagar</a>.</p>
+          <p class="reset-lede">Type the exact username of the account and the password
+            you'd like to use. This is sent to <a id="resetAdmin" href="#" target="_blank" rel="noopener">Ritik Nagar</a>
+            as a request -- it takes effect once approved, not immediately.</p>
 
           <label class="gate-label" for="resetUser">Username</label>
           <div class="gate-field">
             <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
             <input id="resetUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
-          </div>
-
-          <label class="gate-label" for="resetKey">Admin key</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
-            <input id="resetKey" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
           </div>
 
           <label class="gate-label" for="resetPass">New password</label>
@@ -167,7 +161,7 @@
 
           <button class="gate-submit" id="resetSubmit" type="submit">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10H15"/></svg>
-            <span>Set new password</span>
+            <span>Request password reset</span>
           </button>
           <div class="gate-row" style="justify-content:center;margin:14px 0 0">
             <a href="#" id="resetBack">Back to sign in</a>
@@ -191,9 +185,9 @@
 
       <div id="gateSignup" style="display:none">
         <form id="signupForm" novalidate>
-          <p class="reset-lede">Register a new account. You'll be asked for the
-            admin key when you create it — anyone without it cannot create an
-            account here.</p>
+          <p class="reset-lede">Request a new account. This is sent to the admin
+            for approval — you'll be able to sign in once it's approved, not
+            immediately.</p>
 
           <div class="signup-photo">
             <button type="button" class="signup-photo-btn" id="signupPhotoBtn" title="Add a profile photo">
@@ -322,7 +316,7 @@
 
           <button class="gate-submit" id="signupSubmit" type="submit">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.8"/><circle cx="12" cy="12" r="8.5"/></svg>
-            <span>Create account</span>
+            <span>Request account</span>
           </button>
           <div class="gate-row" style="justify-content:center;margin:14px 0 0">
             <a href="#" id="signupBack">Back to sign in</a>
@@ -333,31 +327,6 @@
       <p class="gate-foot">
         Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
       </p>
-    </div>
-  </div>
-
-  <!-- Asked for once, at the moment the account is actually created --
-       not sitting filled in on the sign-up screen the whole time someone is
-       typing their designation and phone number. -->
-  <div class="modal-scrim" id="signupKeyScrim">
-    <div class="modal" id="signupKeyModal" style="width:min(380px,100%)">
-      <form id="signupKeyForm" novalidate>
-        <h3>Admin key required</h3>
-        <p>Enter the admin key to finish creating this account.</p>
-        <label class="gate-label" for="signupKeyModalInput">Admin key</label>
-        <div class="gate-field">
-          <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="12" r="3.5"/><path d="M12 12h9M18 12v3.5M15.5 12v2.5"/></svg>
-          <input id="signupKeyModalInput" type="password" autocomplete="off" spellcheck="false" placeholder="Admin key" required>
-        </div>
-        <div class="gate-msg" id="signupKeyModalMsg" style="display:none"></div>
-        <div class="acts gate-modal-acts">
-          <button class="gate-submit ghost" id="signupKeyCancel" type="button">Cancel</button>
-          <button class="gate-submit" id="signupKeyConfirm" type="submit">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.8"/><circle cx="12" cy="12" r="8.5"/></svg>
-            <span>Create account</span>
-          </button>
-        </div>
-      </form>
     </div>
   </div>
 </div>
@@ -540,6 +509,11 @@
           <section class="admin-card">
             <h2>Accounts</h2>
             <div id="adminAccounts" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Pending requests</h2>
+            <div id="adminRequests" class="admin-list"></div>
           </section>
 
           <section class="admin-card">

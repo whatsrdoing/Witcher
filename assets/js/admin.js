@@ -59,9 +59,54 @@
   function refreshAll() {
     renderSessions();
     renderAccounts();
+    renderRequests();
     renderDashboardVisibility();
     renderStorage();
     renderHistory();
+  }
+
+  var REQUEST_LABEL = { signup: 'New account', password_reset: 'Password reset', id_change: 'Sign-in name change' };
+
+  function renderRequests() {
+    var box = $('#adminRequests');
+    if (!box) return;
+    box.textContent = 'Loading…';
+    api('__admin/requests').then(function (r) {
+      if (!r.ok) { box.textContent = 'Could not load.'; return; }
+      var rows = (r.body.requests || []).filter(function (q) { return q.status === 'pending'; })
+        .sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+      if (!rows.length) { box.innerHTML = '<p class="admin-empty">Nothing waiting on approval.</p>'; return; }
+      box.innerHTML = rows.map(function (q) {
+        var detail = q.type === 'id_change' ? ('Wants to become "' + esc((q.payload || {}).newLogin) + '"')
+          : q.type === 'signup' ? esc(((q.payload || {}).profile || {}).name || 'No name given')
+          : 'Requesting a new password';
+        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(q.login) + '</b>' +
+          ' <span class="admin-badge">' + esc(REQUEST_LABEL[q.type] || q.type) + '</span>' +
+          '<span class="admin-row-sub">' + detail + ' · ' + fmtWhen(q.createdAt) + '</span></div>' +
+          '<div class="admin-row-acts">' +
+          '<button class="btn sm" data-reject="' + esc(q.id) + '">Reject</button>' +
+          '<button class="btn sm primary" data-approve="' + esc(q.id) + '">Approve</button></div></div>';
+      }).join('');
+
+      $$('[data-approve]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () { resolveRequest(btn.dataset.approve, 'approve'); });
+      });
+      $$('[data-reject]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () { resolveRequest(btn.dataset.reject, 'reject'); });
+      });
+    });
+  }
+
+  function resolveRequest(id, action) {
+    var remark = prompt(action === 'approve' ? 'Approve this request. Add a remark (optional):'
+      : 'Reject this request. Add a remark (optional):') || '';
+    api('__admin/requests/' + encodeURIComponent(id) + '/resolve', {
+      method: 'POST', body: JSON.stringify({ action: action, remark: remark })
+    }).then(function (r) {
+      if (!r.ok) { alert(r.body.error || 'Could not resolve it.'); return; }
+      renderRequests();
+      if (action === 'approve') renderAccounts();
+    });
   }
 
   function renderDashboardVisibility() {

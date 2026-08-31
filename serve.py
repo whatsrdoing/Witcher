@@ -291,6 +291,27 @@ def history_stats():
     return stats
 
 
+REQUESTS_PATH = os.path.join(paths.data_dir(), "pending_requests.json")
+REQUESTS_LOCK = threading.Lock()
+
+
+def read_requests():
+    try:
+        with open(REQUESTS_PATH, encoding="utf-8") as fh:
+            return json.load(fh).get("requests") or []
+    except (OSError, ValueError):
+        return []
+
+
+def write_requests(requests):
+    os.makedirs(os.path.dirname(REQUESTS_PATH), exist_ok=True)
+    tmp = REQUESTS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"requests": requests}, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, REQUESTS_PATH)
+
+
 def admin_login():
     """The primary account's login, or None if auth.json has none yet.
 
@@ -1082,6 +1103,9 @@ def make_handler(prefix):
                 files = library_read_index()
                 self._json(200, {"files": files, "totalBytes": sum(f.get("size", 0) for f in files)})
                 return
+            if tail == ["requests"]:
+                self._json(200, {"requests": read_requests()})
+                return
             if tail == ["dashboards"]:
                 try:
                     with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
@@ -1135,7 +1159,107 @@ def make_handler(prefix):
             if len(tail) == 3 and tail[0] == "dashboards" and tail[2] == "visibility":
                 self._admin_dashboard_visibility(tail[1], body)
                 return
+            if len(tail) == 3 and tail[0] == "requests" and tail[2] == "resolve":
+                self._admin_requests_resolve(tail[1], body)
+                return
             self.send_error(404)
+
+        def _admin_requests_resolve(self, request_id, body):
+            """POST /__admin/requests/<id>/resolve {action, remark} -- the
+            only place a pending signup/password-reset/id-change request
+            actually applies to auth.json. action "approve" applies the
+            change (creating the account, updating the password hash, or
+            renaming the login) exactly as the old admin-key-gated /__auth
+            used to, just gated on an admin session now instead of a shared
+            secret; "reject" only records the remark, no account changes."""
+            action = body.get("action")
+            if action not in ("approve", "reject"):
+                self._json(400, {"error": "bad request"})
+                return
+
+            with REQUESTS_LOCK:
+                requests_ = read_requests()
+                entry = next((r for r in requests_ if r.get("id") == request_id), None)
+                if entry is None:
+                    self._json(404, {"error": "no such request"})
+                    return
+                if entry.get("status") != "pending":
+                    self._json(409, {"error": "already resolved"})
+                    return
+
+                if action == "reject":
+                    entry["status"] = "rejected"
+                    entry["resolvedAt"] = int(time.time() * 1000)
+                    entry["remark"] = str(body.get("remark") or "")[:500]
+                    write_requests(requests_)
+                    self._json(200, {"ok": True})
+                    return
+
+                try:
+                    with open(AUTH_PATH, encoding="utf-8") as fh:
+                        auth = json.load(fh)
+                except (OSError, ValueError):
+                    self._json(500, {"error": "auth.json unreadable"})
+                    return
+                accounts = auth.get("accounts") or []
+                payload = entry.get("payload") or {}
+                login = entry.get("login")
+
+                if entry["type"] == "signup":
+                    if any(a.get("login") == login for a in accounts):
+                        self._json(409, {"error": "that username was taken in the meantime"})
+                        return
+                    new_acc = {"login": login, "salt": payload.get("salt"), "hash": payload.get("hash"),
+                              "iterations": payload.get("iterations", 250000),
+                              "createdAt": int(time.time() * 1000)}
+                    new_acc.update(payload.get("profile") or {})
+                    accounts.append(new_acc)
+                    logmsg = "Signup approved: %s" % login
+                elif entry["type"] == "password_reset":
+                    idx = next((i for i, a in enumerate(accounts) if a.get("login") == login), None)
+                    if idx is None:
+                        self._json(404, {"error": "that account no longer exists"})
+                        return
+                    accounts[idx]["salt"] = payload.get("salt")
+                    accounts[idx]["hash"] = payload.get("hash")
+                    accounts[idx]["iterations"] = payload.get("iterations", 250000)
+                    logmsg = "Password-reset approved: %s" % login
+                else:  # id_change
+                    idx = next((i for i, a in enumerate(accounts) if a.get("login") == login), None)
+                    new_login = payload.get("newLogin")
+                    if idx is None:
+                        self._json(404, {"error": "that account no longer exists"})
+                        return
+                    if any(a.get("login") == new_login for a in accounts):
+                        self._json(409, {"error": "that sign-in name was taken in the meantime"})
+                        return
+                    accounts[idx]["login"] = new_login
+                    if auth.get("email") == login:
+                        auth["email"] = new_login
+                    drop_sessions_for(login)
+                    log_history(login, "force_logout")
+                    logmsg = "ID change approved: %s -> %s" % (login, new_login)
+
+                auth["accounts"] = accounts
+                if accounts and auth.get("email") == accounts[0].get("login"):
+                    auth["salt"], auth["hash"], auth["iterations"] = (
+                        accounts[0]["salt"], accounts[0]["hash"], accounts[0]["iterations"])
+                try:
+                    with open(AUTH_PATH, "w", encoding="utf-8") as fh:
+                        json.dump(auth, fh, indent=2, ensure_ascii=False)
+                        fh.write("\n")
+                    import sync
+                    sync.mirror_auth()
+                except (OSError, ImportError) as exc:
+                    self._json(500, {"error": str(exc)})
+                    return
+
+                entry["status"] = "approved"
+                entry["resolvedAt"] = int(time.time() * 1000)
+                entry["remark"] = str(body.get("remark") or "")[:500]
+                write_requests(requests_)
+            print("  " + logmsg)
+            self._json(200, {"ok": True})
 
         def _admin_dashboard_visibility(self, dashboard_id, body):
             try:
@@ -1235,8 +1359,9 @@ def make_handler(prefix):
         def do_POST(self):
             """Handles writes from the browser: files dropped into the Data
             Library (this machine's copy, under data/library/), a session
-            being established or ended, and password reset / sign-up from
-            the sign-in screen (auth.json, gated on the admin key)."""
+            being established or ended, and password-reset / sign-up /
+            id-change requests from the sign-in screen -- queued for admin
+            approval (see _request_post), not applied here."""
             path_only = self.path.split("?")[0]
             qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
 
@@ -1295,9 +1420,20 @@ def make_handler(prefix):
                 self._json(200, {"ok": True})
                 return
 
-            if last_seg != "__auth":
+            if last_seg != "__request":
                 self.send_error(404)
                 return
+            self._request_post()
+
+        def _request_post(self):
+            """POST /__request -- signup, password-reset, or id-change,
+            submitted by anyone, admin key or no. This used to be the
+            admin-key-gated POST /__auth: creating an account or resetting a
+            password used to take effect immediately once that one shared
+            secret was typed correctly. It now takes effect only once the
+            admin approves it from the Pending Requests queue (see
+            _admin_requests_resolve below) -- this endpoint only ever queues
+            the request, never touches auth.json itself."""
             try:
                 n = int(self.headers.get("Content-Length") or 0)
                 if n <= 0 or n > 8192:
@@ -1307,115 +1443,81 @@ def make_handler(prefix):
                 self._json(400, {"error": "bad request"})
                 return
 
-            path = AUTH_PATH
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
-                self._json(500, {"error": "auth.json unreadable"})
+            rtype = req.get("type")
+            if rtype not in ("signup", "password_reset", "id_change"):
+                self._json(400, {"error": "bad request"})
                 return
 
-            # The admin key grants the ability to add accounts or reset any
-            # password -- more sensitive than any one account's own password
-            # -- so guessing at it is rate-limited the same way sign-in is,
-            # server-side, regardless of what the sign-in screen's own
-            # client-only lockout thinks the state is.
-            rate_key = "admin:" + self.client_address[0]
+            # Submitting a request is rate-limited the same way sign-in is --
+            # nothing here can change an account on its own, but it should
+            # still not be a free way to flood the admin's queue.
+            rate_key = "request:" + self.client_address[0]
             if rate_locked(rate_key):
                 self._json(429, {"error": "too many attempts -- try again shortly"})
                 return
 
-            key = str(req.get("adminKey") or "")
-            salt, want = auth.get("adminKeySalt"), auth.get("adminKeyHash")
-            if not (salt and want):
-                self._json(403, {"error": "no admin key configured"})
-                return
-            got = hashlib.pbkdf2_hmac("sha256", key.encode("utf-8"),
-                                      bytes.fromhex(salt),
-                                      int(auth.get("iterations") or 250000), 32).hex()
-            if not hmac.compare_digest(got, str(want)):
-                rate_fail(rate_key)
-                self._json(403, {"error": "bad admin key"})
-                return
-            rate_clear(rate_key)
-
-            new_salt, new_hash = str(req.get("salt") or ""), str(req.get("hash") or "")
-            if len(new_salt) != 32 or len(new_hash) != 64:
-                self._json(400, {"error": "bad payload"})
-                return
             try:
-                bytes.fromhex(new_salt); bytes.fromhex(new_hash)
-            except ValueError:
-                self._json(400, {"error": "bad payload"})
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                auth = {}
+            accounts = auth.get("accounts") or []
+            login = str(req.get("login") or "").strip()
+            if not login:
+                self._json(400, {"error": "a username is required"})
                 return
-            iterations = int(req.get("iterations") or auth.get("iterations") or 250000)
 
-            action = req.get("action") or "reset"
-            accounts = auth.get("accounts")
-            if accounts is None:
-                # Pre-multi-account file: treat the single legacy credential
-                # as the one existing account, so both actions below have a
-                # real accounts list to work against from here on.
-                accounts = [{"login": auth.get("email", ""), "salt": auth.get("salt", ""),
-                            "hash": auth.get("hash", ""), "iterations": auth.get("iterations", 250000)}]
+            entry = {"id": secrets.token_hex(12), "type": rtype, "login": login,
+                     "status": "pending", "createdAt": int(time.time() * 1000),
+                     "resolvedAt": None, "remark": ""}
 
-            if action == "register":
-                login = str(req.get("login") or "").strip()
-                if not login:
-                    self._json(400, {"error": "a username is required"})
-                    return
+            if rtype == "signup":
                 if any(a.get("login") == login for a in accounts):
+                    rate_fail(rate_key)
                     self._json(409, {"error": "that username is already taken"})
                     return
-                new_acc = {"login": login, "salt": new_salt, "hash": new_hash,
-                          "iterations": iterations, "createdAt": int(time.time() * 1000)}
-                for field in ("name", "designation", "department", "category",
-                              "phone", "email", "parasId"):
-                    val = str(req.get(field) or "").strip()[:200]
+                salt, hash_ = str(req.get("salt") or ""), str(req.get("hash") or "")
+                if len(salt) != 32 or len(hash_) != 64:
+                    self._json(400, {"error": "bad payload"})
+                    return
+                profile = {}
+                for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
+                    val = str((req.get("profile") or {}).get(field) or "").strip()[:200]
                     if val:
-                        new_acc[field] = val
-                accounts.append(new_acc)
-                auth["accounts"] = accounts
-                logmsg = "New account registered from the sign-in screen: %s" % login
-            else:
-                # "reset": update one existing account (named by "login"), or
-                # the first/primary one when none is named.
-                login = req.get("login")
-                idx = 0
-                if login:
-                    for i, a in enumerate(accounts):
-                        if a.get("login") == login:
-                            idx = i
-                            break
-                    else:
-                        self._json(404, {"error": "no such account"})
-                        return
-                accounts[idx]["salt"] = new_salt
-                accounts[idx]["hash"] = new_hash
-                accounts[idx]["iterations"] = iterations
-                auth["accounts"] = accounts
-                logmsg = "Password changed from the sign-in screen: %s" % accounts[idx].get("login", "?")
+                        profile[field] = val
+                entry["payload"] = {"salt": salt, "hash": hash_,
+                                    "iterations": int(req.get("iterations") or 250000), "profile": profile}
+            elif rtype == "password_reset":
+                if not any(a.get("login") == login for a in accounts):
+                    rate_fail(rate_key)
+                    self._json(404, {"error": "no such account"})
+                    return
+                salt, hash_ = str(req.get("salt") or ""), str(req.get("hash") or "")
+                if len(salt) != 32 or len(hash_) != 64:
+                    self._json(400, {"error": "bad payload"})
+                    return
+                entry["payload"] = {"salt": salt, "hash": hash_, "iterations": int(req.get("iterations") or 250000)}
+            else:  # id_change
+                if not any(a.get("login") == login for a in accounts):
+                    rate_fail(rate_key)
+                    self._json(404, {"error": "no such account"})
+                    return
+                new_login = str(req.get("newLogin") or "").strip()
+                if not new_login:
+                    self._json(400, {"error": "a new sign-in name is required"})
+                    return
+                if any(a.get("login") == new_login for a in accounts):
+                    self._json(409, {"error": "that sign-in name is already taken"})
+                    return
+                entry["payload"] = {"newLogin": new_login}
 
-            # Legacy top-level fields mirror the primary account, for any code
-            # still reading them directly.
-            if accounts:
-                auth["email"] = accounts[0].get("login", "")
-                auth["logins"] = [accounts[0].get("login", "")]
-                auth["salt"] = accounts[0].get("salt", "")
-                auth["hash"] = accounts[0].get("hash", "")
-                auth["iterations"] = accounts[0].get("iterations", iterations)
-
-            try:
-                with open(path, "w", encoding="utf-8") as fh:
-                    json.dump(auth, fh, indent=2, ensure_ascii=False)
-                    fh.write("\n")
-                import sync
-                sync.mirror_auth()
-            except (OSError, ImportError) as exc:
-                self._json(500, {"error": str(exc)})
-                return
-            print("  " + logmsg)
-            self._json(200, {"ok": True})
+            rate_clear(rate_key)
+            with REQUESTS_LOCK:
+                requests_ = read_requests()
+                requests_.append(entry)
+                write_requests(requests_)
+            print("  New %s request: %s" % (rtype, login))
+            self._json(200, {"ok": True, "id": entry["id"]})
 
         def _json(self, code, payload):
             body = json.dumps(payload).encode("utf-8")

@@ -21,7 +21,6 @@
   var cfg = null, busy = false, onUnlock = null, currentProfile = null;
   var signInStep = 'user';    // 'user' | 'pass' -- which half of the two-step sign-in shows
   var signupPhotoFile = null; // chosen on the sign-up screen, applied once the account exists
-  var pendingSignup = null;   // validated sign-up fields, waiting on the admin-key popup
 
   var $ = function (s) { return d.querySelector(s); };
 
@@ -51,11 +50,6 @@
   function readExtraAccounts() {
     try { var v = JSON.parse(localStorage.getItem(EXTRA_KEY) || '[]'); return Array.isArray(v) ? v : []; }
     catch (e) { return []; }
-  }
-  function addExtraAccount(acc) {
-    var list = readExtraAccounts().filter(function (a) { return a.login !== acc.login; });
-    list.push(acc);
-    try { localStorage.setItem(EXTRA_KEY, JSON.stringify(list)); } catch (e) {}
   }
   /* Every account this browser knows about: the ones in auth.json, plus any
      added from Sign up that never made it to the file (file:// with nothing
@@ -421,7 +415,7 @@
     $('#resetAdmin').textContent = cfg.admin || 'Ritik Nagar';
     if (cfg.adminEmail) $('#resetAdmin').href = 'mailto:' + cfg.adminEmail;
     else $('#resetAdmin').removeAttribute('href');
-    ['resetUser', 'resetKey', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
+    ['resetUser', 'resetPass', 'resetPass2'].forEach(function (id) { $('#' + id).value = ''; });
 
     var typed = ($('#gateEmail').value || '').trim();
     if (typed) $('#resetUser').value = typed;
@@ -439,11 +433,9 @@
     e.preventDefault();
     if (busy) return;
     var target = ($('#resetUser').value || '').trim();
-    var key = ($('#resetKey').value || '').trim();
     var p1 = $('#resetPass').value || '', p2 = $('#resetPass2').value || '';
     if (!target) return resetSay('Enter the exact username to reset.', 'err');
     if (!findAccount(target)) return resetSay('No account named "' + target + '".', 'err');
-    if (!key) return resetSay('Enter the admin key.', 'err');
     if (p1.length < 6) return resetSay('Use at least 6 characters for the new password.', 'err');
     if (p1 !== p2) return resetSay('The two new passwords do not match.', 'err');
 
@@ -451,65 +443,21 @@
     $('#resetSubmit').classList.add('working');
 
     var iters = cfg.iterations || 250000;
-    // Served over http(s), auth.json no longer carries the admin key's real
-    // hash to a browser that has not signed in yet (see serve.py's
-    // _send_auth) -- checking it here would just be comparing against an
-    // empty string. The real check happens where the admin key actually
-    // still lives: server-side, inside writeAuth's POST to /__auth. On
-    // file:// there is no server to ask, so the local check stays the only
-    // one there is.
-    var checkKeyLocally = location.protocol === 'file:';
-    resetSay(checkKeyLocally ? 'Checking the admin key…' : 'Changing the password…', '');
+    resetSay('Sending the request…', '');
 
-    (checkKeyLocally
-      ? w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
-          return w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''));
-        })
-      : Promise.resolve(true)
-    ).then(function (keyOk) {
-      if (!keyOk) {
-        busy = false; $('#resetSubmit').classList.remove('working');
-        resetSay('That admin key is not correct.', 'err');
-        $('#resetKey').select();
-        return;
-      }
-      var salt = randomSalt();
-      return w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
-        return writeAuth('reset', key, target, salt, hash, iters).then(function (how) {
-          return establishSession(target, hash, salt, iters).then(function () {
-            busy = false; $('#resetSubmit').classList.remove('working');
-            applyLocalAccount(target, salt, hash, iters);
-            resetSay('Password changed' + (how === 'file' ? '.' : ' on this computer.') + ' Sign in with it now.', 'ok');
-            $('#gateEmail').value = target;
-            setTimeout(showSignIn, 1700);
-          });
-        });
-      });
+    var salt = randomSalt();
+    w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
+      return submitRequest('password_reset', { login: target, salt: salt, hash: hash, iterations: iters });
+    }).then(function () {
+      busy = false; $('#resetSubmit').classList.remove('working');
+      resetSay('Request sent. Your password changes once an admin approves it -- try signing in with it after that.', 'ok');
+      $('#resetPass').value = ''; $('#resetPass2').value = '';
     }).catch(function (err) {
       busy = false; $('#resetSubmit').classList.remove('working');
-      resetSay('Could not change the password: ' + (err && err.message || err), 'err');
+      resetSay((err && err.message) || 'Could not send the request.', 'err');
     });
   }
 
-  /* Best-effort: after a password reset or a new sign-up, ask the server
-     for a real session using the digest just written, so the person is
-     actually signed in rather than only looking signed in in this tab. If
-     this does not land (the server is momentarily unreachable, say) the
-     write itself already succeeded -- verifyPassword will simply ask again,
-     for real, the next time this account tries to sign in. */
-  function establishSession(login, digest) {
-    if (location.protocol === 'file:') return Promise.resolve();
-    return fetch('__session', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ login: login, digest: digest })
-    }).catch(function () {});
-  }
-
-  /* ---- admin-key sign-up ---------------------------------------------------
-     Same admin key, different outcome: instead of changing an existing
-     account's password, this creates a brand new one. Whoever knows the
-     admin key can register a username of their choice with its own
-     password; there is no self-serve sign-up without it. */
   function showSignup() {
     showScreen('gateSignup');
     $('#signupMsg').style.display = 'none';
@@ -517,7 +465,6 @@
      'signupPhone', 'signupEmail', 'signupParasId', 'signupPass', 'signupPass2']
       .forEach(function (id) { $('#' + id).value = ''; });
     signupPhotoFile = null;
-    pendingSignup = null;
     clearSignupPhotoPreview();
     setTimeout(function () { $('#signupUser').focus(); }, 60);
   }
@@ -592,100 +539,22 @@
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
 
-    // Everything the form can check is good. The admin key is the last gate,
-    // and it is asked for in its own popup rather than sitting filled in on
-    // screen for the whole time the rest of the form is being typed.
-    pendingSignup = {
-      login: login, password: p1,
-      profile: { name: name, designation: designation, department: department, category: category,
-                 phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId }
-    };
-    signupSay('');
-    openSignupKey();
-  }
-
-  /* ---- admin-key popup ---------------------------------------------------- */
-  function openSignupKey() {
-    $('#signupKeyModalInput').value = '';
-    signupKeySay('');
-    $('#signupKeyScrim').classList.add('open');
-    setTimeout(function () { $('#signupKeyModalInput').focus(); }, 60);
-  }
-  function closeSignupKey() {
-    $('#signupKeyScrim').classList.remove('open');
-    $('#signupKeyModalInput').value = '';
-    pendingSignup = null;
-  }
-  function signupKeySay(msg, kind) {
-    var el = $('#signupKeyModalMsg');
-    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
-    el.textContent = msg || '';
-    el.style.display = msg ? 'flex' : 'none';
-  }
-
-  function confirmSignupKey(e) {
-    if (e) e.preventDefault();
-    if (busy || !pendingSignup) return;
-    var key = ($('#signupKeyModalInput').value || '').trim();
-    if (!key) return signupKeySay('Enter the admin key.', 'err');
-
-    var req = pendingSignup;
     busy = true;
-    $('#signupKeyConfirm').classList.add('working');
+    $('#signupSubmit').classList.add('working');
+    signupSay('Sending the request…', '');
 
     var iters = cfg.iterations || 250000;
-    // See the matching comment in doReset -- served over http(s), the real
-    // admin-key check happens server-side in writeAuth's POST to /__auth,
-    // because auth.json no longer carries the hash needed to check it here.
-    var checkKeyLocally = location.protocol === 'file:';
-    signupKeySay(checkKeyLocally ? 'Checking the admin key…' : 'Creating the account…', '');
-
-    (checkKeyLocally
-      ? w.ParasCrypto.derive(key, cfg.adminKeySalt, iters).then(function (digest) {
-          return w.ParasCrypto.equal(digest, String(cfg.adminKeyHash || ''));
-        })
-      : Promise.resolve(true)
-    ).then(function (keyOk) {
-      if (!keyOk) {
-        busy = false; $('#signupKeyConfirm').classList.remove('working');
-        signupKeySay('That admin key is not correct.', 'err');
-        $('#signupKeyModalInput').select();
-        return;
-      }
-      var salt = randomSalt();
-      return w.ParasCrypto.derive(req.password, salt, iters).then(function (hash) {
-        return writeAuth('register', key, req.login, salt, hash, iters, req.profile).then(function (how) {
-          return establishSession(req.login, hash).then(function () {
-            busy = false; $('#signupKeyConfirm').classList.remove('working');
-            applyLocalAccount(req.login, salt, hash, iters, req.profile);
-            clearFails();
-            try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
-            setCurrentUser(req.login);
-            $('#signupKeyScrim').classList.remove('open');
-            pendingSignup = null;
-            signupSay('Account created' + (how === 'file' ? '.' : ' on this computer.') + ' Signing you in…', 'ok');
-            // The photo is stored against the account that now exists. A photo
-            // that fails to save must not block the sign-in it was attached to.
-            savePhotoFor(req.login).then(function () { setTimeout(open_, 900); });
-          });
-        }).catch(function (err) {
-          busy = false; $('#signupKeyConfirm').classList.remove('working');
-          signupKeySay((err && err.message) || 'Could not create the account.', 'err');
-        });
-      });
+    var salt = randomSalt();
+    var profile = { name: name, designation: designation, department: department, category: category,
+                     phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId };
+    w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
+      return submitRequest('signup', { login: login, salt: salt, hash: hash, iterations: iters, profile: profile });
+    }).then(function () {
+      busy = false; $('#signupSubmit').classList.remove('working');
+      signupSay('Request sent. You can sign in once an admin approves it -- add a photo then, from the account menu.', 'ok');
     }).catch(function (err) {
-      busy = false; $('#signupKeyConfirm').classList.remove('working');
-      signupKeySay('Could not verify the admin key: ' + (err && err.message || err), 'err');
-    });
-  }
-
-  function savePhotoFor(login) {
-    if (!signupPhotoFile || !w.Avatar) return Promise.resolve();
-    return w.Avatar.set(login, signupPhotoFile).then(function () {
-      signupPhotoFile = null;
-    }).catch(function () {
-      // Deliberately soft: the account is already created and the person is
-      // about to be signed in. They can set a photo from the account menu.
+      busy = false; $('#signupSubmit').classList.remove('working');
+      signupSay((err && err.message) || 'Could not send the request.', 'err');
     });
   }
 
@@ -706,44 +575,25 @@
     else cfg.accounts.push(Object.assign({ login: login, salt: salt, hash: hash, iterations: iterations }, profile || {}));
   }
 
-  /* Writes through the local server when there is one, so the change
-     survives a browser reset. Only a genuine "there is nothing to write
-     to" -- file://, or the server not answering at all -- falls back to
-     keeping it in this browser instead, and the caller is told that is
-     what happened.
-
-     A response from a *reachable* server, on the other hand, is always the
-     real answer, not a reason to improvise: a wrong admin key (403), too
-     many recent attempts (429) or a username just taken by someone else
-     (409) are every bit as final as "it worked" -- silently saving a
-     local-only account of the same name in any of those cases used to mean
-     this screen could say "Password changed" for an admin key that was
-     never actually right, while the real account on the server sat
-     untouched. fetch() itself only rejects (a TypeError) for a connection
-     that never happened; anything the server did answer resolves normally
-     and is turned into a real rejection here, which is what actually
-     distinguishes the two. */
-  function writeAuth(action, adminKey, login, salt, hash, iterations, profile) {
-    var body = JSON.stringify(Object.assign({ action: action, adminKey: adminKey, login: login,
-                                salt: salt, hash: hash, iterations: iterations }, profile || {}));
-    if (location.protocol === 'file:') return Promise.resolve(saveLocal(action, login, salt, hash, iterations, profile));
-    return fetch('__auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
+  /* Sends a signup / password-reset / id-change request to the admin's
+     Pending Requests queue -- nothing here takes effect on its own; see
+     serve.py's POST /__request and the admin panel's own resolve action.
+     Needs a real server to hold that queue at all, so file:// (opened
+     directly, not through start.bat) cannot support this -- there is
+     nowhere for the request to land or anyone to approve it from. */
+  function submitRequest(type, payload) {
+    if (location.protocol === 'file:') {
+      return Promise.reject(new Error(
+        'This needs the app running through start.bat, not opened directly, so the request can reach an admin.'));
+    }
+    var body = JSON.stringify(Object.assign({ type: type }, payload));
+    return fetch('__request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body })
       .then(function (r) {
-        if (r.ok) return 'file';
-        return r.json().catch(function () { return {}; }).then(function (payload) {
-          return Promise.reject(new Error((payload && payload.error) || ('HTTP ' + r.status)));
+        if (r.ok) return r.json().catch(function () { return {}; });
+        return r.json().catch(function () { return {}; }).then(function (payload2) {
+          return Promise.reject(new Error((payload2 && payload2.error) || ('HTTP ' + r.status)));
         });
-      })
-      .catch(function (err) {
-        if (err instanceof TypeError) return saveLocal(action, login, salt, hash, iterations, profile);
-        return Promise.reject(err);
       });
-  }
-  function saveLocal(action, login, salt, hash, iterations, profile) {
-    var next = { salt: salt, hash: hash, iterations: iterations };
-    if (action === 'register') addExtraAccount(Object.assign({ login: login }, next, profile || {}));
-    else try { localStorage.setItem(OVERRIDE_KEY, JSON.stringify(Object.assign({ login: login }, next))); } catch (e) {}
-    return 'browser';
   }
   function readOverride() {
     try { return JSON.parse(localStorage.getItem(OVERRIDE_KEY) || 'null'); }
@@ -806,36 +656,16 @@
     });
     $('#gateForgot').addEventListener('click', function (e) {
       e.preventDefault();
-      // cfg.adminKeySalt (not adminKeyHash) is the right thing to check here:
-      // served over http(s), the hash is stripped from what /auth.json
-      // hands back before sign-in (see serve.py's _send_auth) -- salt is
-      // not, so it is what is actually there to say "an admin key exists".
-      if (!cfg.adminKeySalt) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showReset();
     });
     $('#gateSignupLink').addEventListener('click', function (e) {
       e.preventDefault();
-      // cfg.adminKeySalt (not adminKeyHash) is the right thing to check here:
-      // served over http(s), the hash is stripped from what /auth.json
-      // hands back before sign-in (see serve.py's _send_auth) -- salt is
-      // not, so it is what is actually there to say "an admin key exists".
-      if (!cfg.adminKeySalt) { say('Contact Admin — ' + (cfg.admin || 'Ritik Nagar') + (cfg.adminEmail ? ' (' + cfg.adminEmail + ')' : ''), ''); return; }
       showSignup();
     });
     $('#resetBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
     $('#signupBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
     $('#resetForm').addEventListener('submit', doReset);
     $('#signupForm').addEventListener('submit', doSignup);
-
-    /* ---- admin-key popup ---- */
-    $('#signupKeyForm').addEventListener('submit', confirmSignupKey);
-    $('#signupKeyCancel').addEventListener('click', closeSignupKey);
-    $('#signupKeyScrim').addEventListener('click', function (ev) {
-      if (ev.target === ev.currentTarget) closeSignupKey();
-    });
-    d.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Escape' && $('#signupKeyScrim').classList.contains('open')) closeSignupKey();
-    });
 
     /* ---- sign-up photo ---- */
     $('#signupPhotoBtn').addEventListener('click', function () {

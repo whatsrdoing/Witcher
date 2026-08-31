@@ -59,8 +59,36 @@
   function refreshAll() {
     renderSessions();
     renderAccounts();
+    renderDashboardVisibility();
     renderStorage();
     renderHistory();
+  }
+
+  function renderDashboardVisibility() {
+    var box = $('#adminDashboards');
+    if (!box) return;
+    box.textContent = 'Loading…';
+    api('__admin/dashboards').then(function (r) {
+      if (!r.ok) { box.textContent = 'Could not load.'; return; }
+      var rows = (r.body.dashboards || []).filter(function (d) { return d.status !== 'planned' && d.status !== 'archived'; });
+      if (!rows.length) { box.innerHTML = '<p class="admin-empty">No live dashboards yet.</p>'; return; }
+      box.innerHTML = rows.map(function (d) {
+        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(d.name) + '</b>' +
+          '<span class="admin-row-sub">' + (d.adminOnly ? 'Admin only -- hidden from everyone else' : 'Visible to everyone') +
+          '</span></div><button class="btn sm" data-vis="' + esc(d.id) + '" data-admin-only="' + (d.adminOnly ? '1' : '0') + '">' +
+          (d.adminOnly ? 'Make visible to all' : 'Make admin-only') + '</button></div>';
+      }).join('');
+      $$('[data-vis]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var makeAdminOnly = btn.dataset.adminOnly === '0';
+          api('__admin/dashboards/' + encodeURIComponent(btn.dataset.vis) + '/visibility', {
+            method: 'POST', body: JSON.stringify({ adminOnly: makeAdminOnly })
+          }).then(function (r2) {
+            if (r2.ok) renderDashboardVisibility(); else alert(r2.body.error || 'Could not update it.');
+          });
+        });
+      });
+    });
   }
 
   function renderSessions() {
@@ -183,14 +211,27 @@
     });
   }
 
-  function checkAccess() {
-    fetch('__session', { cache: 'no-store' }).then(function (r) {
+  var isAdminPromise = null;
+
+  /* Memoised: app.js's boot() calls this once to decide whether to filter
+     admin-only dashboards out of the registry before anything renders;
+     checkAccess() below reuses the same result rather than asking twice. */
+  function isAdmin() {
+    if (isAdminPromise) return isAdminPromise;
+    isAdminPromise = fetch('__session', { cache: 'no-store' }).then(function (r) {
       return r.ok ? r.json() : null;
     }).then(function (who) {
       isAdminCached = !!(who && who.isAdmin);
+      return isAdminCached;
+    }).catch(function () { isAdminCached = false; return false; });
+    return isAdminPromise;
+  }
+
+  function checkAccess() {
+    isAdmin().then(function (v) {
       var btn = $('#adminBtn');
-      if (btn) btn.style.display = isAdminCached ? '' : 'none';
-    }).catch(function () {});
+      if (btn) btn.style.display = v ? '' : 'none';
+    });
   }
 
   var lastViewing = undefined;
@@ -210,5 +251,5 @@
     if (btn) btn.addEventListener('click', function () { location.hash = '#/admin'; });
   });
 
-  w.ParasAdmin = { checkAccess: checkAccess, reportViewing: reportViewing, showIfAllowed: showIfAllowed };
+  w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };
 })(window, document);

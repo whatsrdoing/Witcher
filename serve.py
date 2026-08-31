@@ -46,6 +46,7 @@ import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(ROOT, "site.json")
+DASHBOARDS_JSON = os.path.join(ROOT, "dashboards.json")
 
 # Everything dropped into the Data Library (or pinned to a dashboard) lands
 # here as real files -- not in the browser's IndexedDB -- so it shows up as
@@ -1081,6 +1082,17 @@ def make_handler(prefix):
                 files = library_read_index()
                 self._json(200, {"files": files, "totalBytes": sum(f.get("size", 0) for f in files)})
                 return
+            if tail == ["dashboards"]:
+                try:
+                    with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
+                        reg = json.load(fh)
+                except (OSError, ValueError):
+                    reg = {}
+                out = [{"id": d.get("id"), "name": d.get("name"), "status": d.get("status"),
+                        "adminOnly": bool(d.get("adminOnly"))}
+                       for d in reg.get("dashboards", []) if d.get("id")]
+                self._json(200, {"dashboards": out})
+                return
             self.send_error(404)
 
         def _admin_account_list(self):
@@ -1120,7 +1132,42 @@ def make_handler(prefix):
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable"):
                 self._admin_account_action(tail[1], tail[2], body)
                 return
+            if len(tail) == 3 and tail[0] == "dashboards" and tail[2] == "visibility":
+                self._admin_dashboard_visibility(tail[1], body)
+                return
             self.send_error(404)
+
+        def _admin_dashboard_visibility(self, dashboard_id, body):
+            try:
+                with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
+                    reg = json.load(fh)
+            except (OSError, ValueError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            dashboards = reg.get("dashboards") or []
+            entry = next((d for d in dashboards if d.get("id") == dashboard_id), None)
+            if entry is None:
+                self._json(404, {"error": "no such dashboard"})
+                return
+            if body.get("adminOnly"):
+                entry["adminOnly"] = True
+            else:
+                entry.pop("adminOnly", None)
+            try:
+                with open(DASHBOARDS_JSON, "w", encoding="utf-8") as fh:
+                    json.dump(reg, fh, indent=2, ensure_ascii=False)
+                    fh.write("\n")
+                # Regenerates dashboards.js (the file:// mirror every dashboard
+                # page's own bridge/session-guard/idle-timeout blocks also come
+                # from) so the change is picked up immediately, not just on the
+                # next server restart.
+                sys.path.insert(0, ROOT)
+                import sync
+                sync.main()
+            except (OSError, ImportError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True})
 
         def _admin_account_action(self, login, action, body):
             try:

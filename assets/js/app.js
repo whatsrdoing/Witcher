@@ -32,6 +32,11 @@
   /* ===================== boot =========================================== */
   function boot() {
     w.Registry.load().then(function (reg) {
+      return (w.ParasAdmin ? w.ParasAdmin.isAdmin() : Promise.resolve(true)).then(function (isAdmin) {
+        if (!isAdmin) reg.dashboards = reg.dashboards.filter(function (x) { return !x.adminOnly; });
+        return reg;
+      });
+    }).then(function (reg) {
       REG = reg;
 
       var mode = w.Store.readStoredMode(reg.app.defaultMode);

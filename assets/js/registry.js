@@ -79,6 +79,12 @@
         order: typeof d.order === 'number' ? d.order : i + 1,
         tags: Array.isArray(d.tags) ? d.tags : [],
         owner: d.owner || '',
+        // Hidden from the grid entirely for every account except admin --
+        // toggled from the admin panel, never a raw file edit. Filtered out
+        // of REG.dashboards itself in app.js's boot() for a non-admin
+        // session, before anything renders, rather than merely hidden with
+        // CSS -- so it never lands in the DOM for a regular account at all.
+        adminOnly: !!d.adminOnly,
         // What this dashboard's own upload boxes expect, used to route files
         // out of the shared Data Library. Optional — matching falls back to
         // the labels read live from the dashboard itself.

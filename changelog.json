@@ -1,0 +1,17 @@
+{
+  "entries": [
+    {
+      "date": "2026-08-31",
+      "title": "Two-factor authentication, request approvals, and more",
+      "notes": [
+        "Sign-in can now ask for a code from an authenticator app (or a one-time backup code) as a second step -- turn it on from the account menu, under Security.",
+        "New accounts, password resets, and sign-in name changes now go to the admin for approval instead of taking effect immediately.",
+        "\"Raise a request\" in the topbar sends a feature idea, a bug, or a question straight to the admin, and shows you its status.",
+        "The data folder now backs itself up automatically once a day, with a manual \"Back up now\" and downloadable backups in the admin panel.",
+        "New passwords need at least 8 characters with a letter and a number, and can't be the sign-in name or a common password.",
+        "Each dashboard card now shows when its data was last updated.",
+        "A new admin panel: live sessions, accounts, login history (with IP), pending requests, suggestions, backups, and per-dashboard visibility."
+      ]
+    }
+  ]
+}

@@ -52,6 +52,7 @@
       wire();
       if (w.ParasAdmin) w.ParasAdmin.checkAccess();
       if (w.ParasTwoFactor) w.ParasTwoFactor.refreshStatus();
+      if (w.ParasChangelog) w.ParasChangelog.refreshDot();
 
       w.Store.checkPersistence().then(function () {
         renderModeSwitch();
@@ -2432,6 +2433,7 @@
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();
         if (w.ParasFeedback && w.ParasFeedback.closeIfOpen()) return;
         if (w.ParasTwoFactor && w.ParasTwoFactor.closeIfOpen()) return;
+        if (w.ParasChangelog && w.ParasChangelog.closeIfOpen()) return;
         if ($('#drawer').classList.contains('open')) return closeDrawer();
         if (current) return goHome();
       }

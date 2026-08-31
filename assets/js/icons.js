@@ -42,7 +42,8 @@
     check:     '<circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.6"/>',
     warn:      '<path d="M12 4 2.5 20.5h19z"/><path d="M12 10v4.5M12 17.6v.4"/>',
     inbox:     '<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.6 5.2 3.5 13.5v4A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-4l-2.1-8.3A1.5 1.5 0 0 0 16.9 4H7.1a1.5 1.5 0 0 0-1.5 1.2z"/>',
-    clock:     '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>'
+    clock:     '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+    bell:      '<path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10z"/><path d="M10.3 19.5a1.9 1.9 0 0 0 3.4 0"/>'
   };
   function svg(name, cls) {
     var d = P[name] || P.grid;

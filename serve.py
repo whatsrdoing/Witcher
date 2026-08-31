@@ -685,10 +685,13 @@ def totp_code(secret, for_time, period=30, digits=6):
     return str(chunk % (10 ** digits)).zfill(digits)
 
 
-def totp_verify(secret, code, window=1, period=30):
-    """window=1 accepts the previous/next 30s step too, tolerating ordinary
-    clock drift between this machine and the phone without widening the
-    guessable window much."""
+def totp_verify(secret, code, window=2, period=30):
+    """window=2 accepts the current step plus two either side (a couple of
+    minutes either way), tolerating the clock drift a real phone or laptop
+    accumulates in practice -- window=1 (30s either way) turned out too
+    tight and was the single most common "2FA isn't working" complaint,
+    for an accepted-codes cost that stays negligible next to the rate
+    limit already in place on both the setup-confirm and sign-in steps."""
     code = re.sub(r"\s+", "", str(code or ""))
     if not code.isdigit() or not secret:
         return False
@@ -1585,7 +1588,7 @@ def make_handler(prefix):
 
             if not ok:
                 rate_fail(rate_key)
-                self._json(401, {"error": "wrong code"})
+                self._json(401, {"error": "wrong code -- check the time on your phone and try again"})
                 return
             rate_clear(rate_key)
             drop_totp_pending(pending_token)

@@ -694,6 +694,13 @@ COMMON_PASSWORDS = {
 }
 
 
+# Two letters, a dash, three letters, a dash, five digits -- e.g. GG-COR-07365.
+# Same pattern gate.js enforces client-side at signup; kept here too for the
+# admin panel's "Edit profile" action, which writes straight to auth.json
+# with nothing else standing between it and a malformed value.
+PARAS_ID_RE = re.compile(r"^[A-Z]{2}-[A-Z]{3}-[0-9]{5}$")
+
+
 def password_policy_problem(pw, login):
     """Same policy gate.js enforces client-side for signup/reset (where the
     server never sees the plaintext, only its hash) -- applied here too for
@@ -1893,6 +1900,7 @@ def make_handler(prefix):
                     accounts[idx]["salt"] = payload.get("salt")
                     accounts[idx]["hash"] = payload.get("hash")
                     accounts[idx]["iterations"] = payload.get("iterations", 250000)
+                    log_history(login, "password_reset_by_admin")
                     logmsg = "Password-reset approved: %s" % login
                 else:  # id_change
                     idx = next((i for i, a in enumerate(accounts) if a.get("login") == login), None)
@@ -1988,6 +1996,7 @@ def make_handler(prefix):
                 accounts[idx]["hash"] = hashlib.pbkdf2_hmac(
                     "sha256", new_password.encode("utf-8"), bytes.fromhex(salt), iters, 32).hex()
                 accounts[idx]["iterations"] = iters
+                log_history(login, "password_reset_by_admin")
 
             elif action == "rename":
                 new_login = clean_login(body.get("newLogin"))
@@ -2018,7 +2027,15 @@ def make_handler(prefix):
                 # the sign-up form itself these are not constrained to a fixed
                 # dropdown list, since the admin is trusted to enter something
                 # sensible and a hard-coded option list here would just be one
-                # more place to keep in sync with index.html's.
+                # more place to keep in sync with index.html's. The employee
+                # ID is the one exception: it is a structured identifier, not
+                # free text, so the same format signup enforces applies here.
+                if "parasId" in body:
+                    paras_id = str(body.get("parasId") or "").strip().upper()
+                    if paras_id and not PARAS_ID_RE.match(paras_id):
+                        self._json(400, {"error": "employee ID must look like AA-BBB-12345"})
+                        return
+                    body = dict(body, parasId=paras_id)
                 for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
                     if field in body:
                         accounts[idx][field] = str(body.get(field) or "").strip()[:200]

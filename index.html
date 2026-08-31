@@ -222,19 +222,25 @@
             <input type="file" id="signupPhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
           </div>
 
+          <label class="gate-label" for="signupUser">New username</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
+
           <div class="gate-2col">
             <div class="gate-col">
-              <label class="gate-label" for="signupUser">New username</label>
+              <label class="gate-label" for="signupFirstName">First name</label>
               <div class="gate-field">
-                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
-                <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+                <input id="signupFirstName" type="text" autocomplete="given-name" placeholder="First name" required>
               </div>
             </div>
             <div class="gate-col">
-              <label class="gate-label" for="signupName">Full name</label>
+              <label class="gate-label" for="signupLastName">Last name</label>
               <div class="gate-field">
                 <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
-                <input id="signupName" type="text" autocomplete="name" placeholder="Shown once signed in" required>
+                <input id="signupLastName" type="text" autocomplete="family-name" placeholder="Last name" required>
               </div>
             </div>
           </div>
@@ -292,28 +298,33 @@
             </div>
           </div>
 
-          <label class="gate-label" for="signupPhone">Phone number</label>
-          <div class="gate-field">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
-            <!-- No maxlength: it counts raw characters, so pasting
-                 "93557-51137" would be cut to 10 characters and then lose
-                 digits to the separator strip. The input handler clamps to
-                 10 actual digits instead. -->
-            <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
-                   placeholder="10-digit number" required>
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupPhone">Phone number</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
+                <!-- No maxlength: it counts raw characters, so pasting
+                     "93557-51137" would be cut to 10 characters and then lose
+                     digits to the separator strip. The input handler clamps to
+                     10 actual digits instead. -->
+                <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
+                       placeholder="10-digit number" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupEmail">Email</label>
+              <div class="gate-field gate-field-email">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+                <input id="signupEmail" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="firstname.lastname" required>
+                <span class="gate-suffix">@parashealth.com</span>
+              </div>
+            </div>
           </div>
 
-          <label class="gate-label" for="signupEmail">Email</label>
-          <div class="gate-field gate-field-email">
-            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
-            <input id="signupEmail" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="firstname.lastname" required>
-            <span class="gate-suffix">@parashealth.com</span>
-          </div>
-
-          <label class="gate-label" for="signupParasId">Paras ID</label>
+          <label class="gate-label" for="signupParasId">Employee ID</label>
           <div class="gate-field">
             <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="10.5" r="2"/><path d="M6.5 16c.5-1.8 1.9-2.7 2.5-2.7s2 .9 2.5 2.7M14 9.5h4M14 12.5h4"/></svg>
-            <input id="signupParasId" type="text" autocomplete="off" placeholder="Employee ID" required>
+            <input id="signupParasId" type="text" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="AA-BBB-12345" required>
           </div>
 
           <div class="gate-2col">
@@ -875,9 +886,9 @@
         <input id="editProfileEmail" type="text" autocomplete="off">
       </div>
 
-      <label class="gate-label" for="editProfileParasId">Paras ID</label>
+      <label class="gate-label" for="editProfileParasId">Employee ID</label>
       <div class="gate-field">
-        <input id="editProfileParasId" type="text" autocomplete="off">
+        <input id="editProfileParasId" type="text" autocomplete="off" spellcheck="false" placeholder="AA-BBB-12345">
       </div>
 
       <div class="gate-msg" id="editProfileMsg" style="display:none"></div>

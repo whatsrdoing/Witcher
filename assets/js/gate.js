@@ -582,7 +582,7 @@
   function showSignup() {
     showScreen('gateSignup');
     $('#signupMsg').style.display = 'none';
-    ['signupUser', 'signupName', 'signupDesignation', 'signupDepartment', 'signupCategory',
+    ['signupUser', 'signupFirstName', 'signupLastName', 'signupDesignation', 'signupDepartment', 'signupCategory',
      'signupPhone', 'signupEmail', 'signupParasId', 'signupPass', 'signupPass2']
       .forEach(function (id) { $('#' + id).value = ''; });
     signupPhotoFile = null;
@@ -617,7 +617,7 @@
   function signupInitialsPreview() {
     var el = $('#signupPhotoPreview');
     if (!el || signupPhotoFile) return;
-    var name = ($('#signupName').value || '').trim();
+    var name = (($('#signupFirstName').value || '') + ' ' + ($('#signupLastName').value || '')).trim();
     el.textContent = (name && w.Avatar) ? w.Avatar.initials({ name: name }) : '';
   }
   function signupSay(msg, kind) {
@@ -628,21 +628,26 @@
   }
 
   var EMAIL_DOMAIN = '@parashealth.com';
+  // Two letters, a dash, three letters, a dash, five digits -- e.g. GG-COR-07365.
+  var PARAS_ID_RE = /^[A-Z]{2}-[A-Z]{3}-[0-9]{5}$/;
 
   function doSignup(e) {
     e.preventDefault();
     if (busy) return;
     var login = ($('#signupUser').value || '').trim();
-    var name = ($('#signupName').value || '').trim();
+    var firstName = ($('#signupFirstName').value || '').trim();
+    var lastName = ($('#signupLastName').value || '').trim();
+    var name = (firstName + ' ' + lastName).trim();
     var designation = ($('#signupDesignation').value || '').trim();
     var department = ($('#signupDepartment').value || '').trim();
     var category = ($('#signupCategory').value || '').trim();
     var phone = ($('#signupPhone').value || '').trim();
     var emailLocal = ($('#signupEmail').value || '').trim().split('@')[0];
-    var parasId = ($('#signupParasId').value || '').trim();
+    var parasId = ($('#signupParasId').value || '').trim().toUpperCase();
     var p1 = $('#signupPass').value || '', p2 = $('#signupPass2').value || '';
     if (!login) return signupSay('Choose a username.', 'err');
-    if (!name) return signupSay('Enter the full name.', 'err');
+    if (!firstName) return signupSay('Enter the first name.', 'err');
+    if (!lastName) return signupSay('Enter the last name.', 'err');
     if (!designation) return signupSay('Select a designation.', 'err');
     if (!department) return signupSay('Select a department.', 'err');
     if (!category) return signupSay('Select a category.', 'err');
@@ -655,7 +660,10 @@
         : 'Enter the 10-digit phone number.', 'err');
     }
     if (!emailLocal) return signupSay('Enter the email.', 'err');
-    if (!parasId) return signupSay('Enter the Paras ID.', 'err');
+    if (!parasId) return signupSay('Enter the employee ID.', 'err');
+    if (!PARAS_ID_RE.test(parasId)) {
+      return signupSay('The employee ID must be in the format AA-BBB-12345 (two letters, three letters, five digits) -- like GG-COR-07365.', 'err');
+    }
     var pwProblem = passwordProblem(p1, login);
     if (pwProblem) return signupSay(pwProblem, 'err');
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
@@ -808,7 +816,15 @@
       previewSignupPhoto(f);
       signupSay('');
     });
-    $('#signupName').addEventListener('input', signupInitialsPreview);
+    $('#signupFirstName').addEventListener('input', signupInitialsPreview);
+    $('#signupLastName').addEventListener('input', signupInitialsPreview);
+    /* Typed as lower or mixed case, always compared and stored upper --
+       the format itself (two letters, a dash, three letters, a dash, five
+       digits) is what's actually being enforced, not the casing. */
+    $('#signupParasId').addEventListener('input', function () {
+      var up = (this.value || '').toUpperCase();
+      if (up !== this.value) this.value = up;
+    });
 
     /* Digits only, and never more than ten. Stopping the wrong character
        from ever appearing beats explaining it afterwards. */

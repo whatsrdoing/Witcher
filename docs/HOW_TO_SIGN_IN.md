@@ -44,7 +44,7 @@ nothing is emailed, since there's no mail server wired in yet.
 ## Signing up for a new account
 
 Use the **Sign up** link on the sign-in screen, fill in your name,
-designation, department, category, phone number, email, Paras ID and a
+designation, department, category, phone number, email, Employee ID and a
 password (at least 10 characters), and submit. Like a password reset, this
 goes to the admin as a request -- you can sign in once it's approved, not
 immediately.

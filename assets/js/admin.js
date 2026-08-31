@@ -140,25 +140,41 @@
 
   var REQUEST_LABEL = { signup: 'New account', password_reset: 'Password reset', id_change: 'Sign-in name change' };
 
+  var REQUEST_STATUS_BADGE = {
+    pending: '<span class="admin-badge">Pending</span>',
+    approved: '<span class="admin-badge admin-badge-ok">Approved</span>',
+    rejected: '<span class="admin-badge admin-badge-bad">Rejected</span>'
+  };
+
+  /* Pending first (oldest business first inside that), then resolved ones
+     below -- same "still shows what already happened" convention as
+     Suggestions & issues, rather than a request vanishing the moment it's
+     acted on. */
   function renderRequests() {
     var box = $('#adminRequests');
     if (!box) return;
     box.textContent = 'Loading…';
     api('__admin/requests').then(function (r) {
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
-      var rows = (r.body.requests || []).filter(function (q) { return q.status === 'pending'; })
-        .sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
-      if (!rows.length) { box.innerHTML = '<p class="admin-empty">Nothing waiting on approval.</p>'; return; }
+      var rows = (r.body.requests || []).slice().sort(function (a, b) {
+        var openDiff = (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1);
+        return openDiff || (b.createdAt || 0) - (a.createdAt || 0);
+      });
+      if (!rows.length) { box.innerHTML = '<p class="admin-empty">Nothing raised yet.</p>'; return; }
       box.innerHTML = rows.map(function (q) {
         var detail = q.type === 'id_change' ? ('Wants to become "' + esc((q.payload || {}).newLogin) + '"')
           : q.type === 'signup' ? esc(((q.payload || {}).profile || {}).name || 'No name given')
           : 'Requesting a new password';
+        var remark = q.remark ? '<span class="admin-row-sub">Remark: ' + esc(q.remark) + '</span>' : '';
+        var acts = q.status === 'pending'
+          ? '<div class="admin-row-acts">' +
+            '<button class="btn sm" data-reject="' + esc(q.id) + '">Reject</button>' +
+            '<button class="btn sm primary" data-approve="' + esc(q.id) + '">Approve</button></div>'
+          : '';
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(q.login) + '</b>' +
-          ' <span class="admin-badge">' + esc(REQUEST_LABEL[q.type] || q.type) + '</span>' +
-          '<span class="admin-row-sub">' + detail + ' · ' + fmtWhen(q.createdAt) + '</span></div>' +
-          '<div class="admin-row-acts">' +
-          '<button class="btn sm" data-reject="' + esc(q.id) + '">Reject</button>' +
-          '<button class="btn sm primary" data-approve="' + esc(q.id) + '">Approve</button></div></div>';
+          ' <span class="admin-badge">' + esc(REQUEST_LABEL[q.type] || q.type) + '</span> ' +
+          (REQUEST_STATUS_BADGE[q.status] || '') +
+          '<span class="admin-row-sub">' + detail + ' · ' + fmtWhen(q.createdAt) + '</span>' + remark + '</div>' + acts + '</div>';
       }).join('');
 
       $$('[data-approve]', box).forEach(function (btn) {
@@ -253,18 +269,18 @@
         var live = Object.prototype.hasOwnProperty.call(viewing, a.login)
           ? '<span class="admin-badge admin-badge-ok">' + (viewing[a.login] ? 'viewing ' + esc(viewing[a.login]) : 'on the hub') + ' now</span> '
           : '';
-        var profileBits = [a.designation, a.department, a.category].filter(Boolean).join(' · ');
-        var contactBits = [a.phone, a.email, a.parasId].filter(Boolean).join(' · ');
+        // Just the name and employee ID here -- everything else (designation,
+        // department, category, phone, email) crowded the row and pushed it
+        // out of alignment; the full profile is one click away in Edit profile.
+        var nameLine = [a.name || 'No name on file', a.parasId].filter(Boolean).join(' · ');
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(a.login) + '</b>' +
           (a.isAdmin ? ' <span class="admin-badge">admin</span>' : '') +
           (a.totpEnabled ? ' <span class="admin-badge admin-badge-ok">2FA on</span>' : '') +
           (a.disabled ? ' <span class="admin-badge admin-badge-bad">disabled</span>' : '') +
           ' ' + live +
-          '<span class="admin-row-sub">' + esc(a.name || 'No name on file') +
+          '<span class="admin-row-sub">' + esc(nameLine) +
           ' · signed in ' + a.sessionCount + ' time' + (a.sessionCount === 1 ? '' : 's') +
           ' · ' + fmtMs(a.totalTimeMs) + ' total</span>' +
-          (profileBits ? '<span class="admin-row-sub">' + esc(profileBits) + '</span>' : '') +
-          (contactBits ? '<span class="admin-row-sub">' + esc(contactBits) + '</span>' : '') +
           '</div>' +
           '<div class="admin-row-acts">' +
           '<button class="btn sm" data-usage="' + esc(a.login) + '">Usage</button>' +
@@ -343,9 +359,19 @@
     $('#editProfileModal').classList.add('open');
   }
 
+  // Two letters, a dash, three letters, a dash, five digits -- e.g. GG-COR-07365.
+  var PARAS_ID_RE = /^[A-Z]{2}-[A-Z]{3}-[0-9]{5}$/;
+
   function saveEditProfile() {
     var login = $('#editProfileModal').dataset.login;
     if (!login) return;
+    var parasId = $('#editProfileParasId').value.trim().toUpperCase();
+    if (parasId && !PARAS_ID_RE.test(parasId)) {
+      var msg = $('#editProfileMsg');
+      msg.textContent = 'The employee ID must be in the format AA-BBB-12345 (two letters, three letters, five digits).';
+      msg.className = 'gate-msg err'; msg.style.display = 'flex';
+      return;
+    }
     var body = {
       name: $('#editProfileName').value.trim(),
       designation: $('#editProfileDesignation').value,
@@ -353,7 +379,7 @@
       category: $('#editProfileCategory').value,
       phone: $('#editProfilePhone').value.trim(),
       email: $('#editProfileEmail').value.trim(),
-      parasId: $('#editProfileParasId').value.trim()
+      parasId: parasId
     };
     var btn = $('#editProfileSave');
     btn.disabled = true;
@@ -485,7 +511,8 @@
   var HISTORY_LABEL = {
     login_ok: 'Signed in', login_fail: 'Wrong password',
     logout: 'Signed out', force_logout: 'Signed out (forced)',
-    totp_enabled: '2FA turned on', totp_disabled: '2FA turned off'
+    totp_enabled: '2FA turned on', totp_disabled: '2FA turned off',
+    password_reset_by_admin: 'Password reset (by admin)'
   };
 
   var historyLimit = 300;
@@ -598,6 +625,11 @@
     if (editCancel) editCancel.addEventListener('click', function () { $('#editProfileModal').classList.remove('open'); });
     var editSave = $('#editProfileSave');
     if (editSave) editSave.addEventListener('click', saveEditProfile);
+    var editParasId = $('#editProfileParasId');
+    if (editParasId) editParasId.addEventListener('input', function () {
+      var up = (this.value || '').toUpperCase();
+      if (up !== this.value) this.value = up;
+    });
     var editModal = $('#editProfileModal');
     if (editModal) editModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) editModal.classList.remove('open'); });
 

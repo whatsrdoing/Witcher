@@ -104,7 +104,7 @@
       ['Category', who.category],
       ['Phone', who.phone],
       ['Email', who.email],
-      ['Paras ID', who.parasId],
+      ['Employee ID', who.parasId],
     ].filter(function (r) { return r[1]; });
     $('#profilePopBody').innerHTML = rows.length
       ? rows.map(function (r) {

@@ -218,15 +218,21 @@ HISTORY_PATH = os.path.join(paths.data_dir(), "login_history.jsonl")
 HISTORY_LOCK = threading.Lock()
 
 
-def log_history(login, event):
+def log_history(login, event, ip=None):
     """Append one line to the persistent login/session history log -- the
     admin panel's audit trail. Separate from SESSIONS (in-memory, forgets
     everything on restart, on purpose -- see the block above); this is
     meant to survive restarts and keep growing. Best-effort: a write
-    failure here must never break the sign-in flow itself."""
+    failure here must never break the sign-in flow itself.
+
+    ip is recorded only for login_ok/login_fail -- the events where "which
+    machine tried this" is actually useful for spotting misuse; the caller
+    passes it in since only it has self.client_address."""
     if not login:
         return
     entry = {"ts": int(time.time() * 1000), "login": login, "event": event}
+    if ip:
+        entry["ip"] = ip
     try:
         with HISTORY_LOCK:
             with open(HISTORY_PATH, "a", encoding="utf-8") as fh:
@@ -331,6 +337,30 @@ def write_feedback(items):
         json.dump({"items": items}, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     os.replace(tmp, FEEDBACK_PATH)
+
+
+COMMON_PASSWORDS = {
+    "password", "password1", "password123", "12345678", "123456789", "1234567890",
+    "qwerty123", "qwertyuiop", "letmein123", "welcome123", "admin1234", "iloveyou1",
+}
+
+
+def password_policy_problem(pw, login):
+    """Same policy gate.js enforces client-side for signup/reset (where the
+    server never sees the plaintext, only its hash) -- applied here too for
+    the one path that does see a plaintext password: the admin panel's
+    direct "reset this account's password" action, which sends it over an
+    already-authenticated admin session rather than hashing it client-side
+    first."""
+    if len(pw) < 8:
+        return "use at least 8 characters"
+    if not any(c.isalpha() for c in pw) or not any(c.isdigit() for c in pw):
+        return "mix in at least one letter and one number"
+    if login and pw.lower() == login.lower():
+        return "don't use the sign-in name as the password"
+    if pw.lower() in COMMON_PASSWORDS:
+        return "that password is too easy to guess"
+    return None
 
 
 def admin_login():
@@ -1032,7 +1062,7 @@ def make_handler(prefix):
 
             if not hmac.compare_digest(digest, str(acc.get("hash") or "")):
                 rate_fail(rate_key)
-                log_history(login, "login_fail")
+                log_history(login, "login_fail", self.client_address[0])
                 self._json(401, {"error": "wrong password"})
                 return
             rate_clear(rate_key)
@@ -1050,7 +1080,7 @@ def make_handler(prefix):
             self._start_session(login)
 
         def _start_session(self, login):
-            log_history(login, "login_ok")
+            log_history(login, "login_ok", self.client_address[0])
             token = new_session(login)
             secure = (self.headers.get("X-Forwarded-Proto", "") == "https")
             cookie = "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (
@@ -1366,8 +1396,9 @@ def make_handler(prefix):
 
             if action == "reset-password":
                 new_password = str(body.get("newPassword") or "")
-                if len(new_password) < 6:
-                    self._json(400, {"error": "use at least 6 characters"})
+                problem = password_policy_problem(new_password, login)
+                if problem:
+                    self._json(400, {"error": problem})
                     return
                 salt = secrets.token_hex(16)
                 iters = accounts[idx].get("iterations") or 250000

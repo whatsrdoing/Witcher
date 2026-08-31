@@ -226,7 +226,7 @@
 
       $$('[data-reset]', box).forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var pw = prompt('New password for ' + btn.dataset.reset + ' (at least 6 characters):');
+          var pw = prompt('New password for ' + btn.dataset.reset + ' (at least 8 characters, with a letter and a number):');
           if (!pw) return;
           api('__admin/accounts/' + encodeURIComponent(btn.dataset.reset) + '/reset-password', {
             method: 'POST', body: JSON.stringify({ newPassword: pw })
@@ -292,9 +292,10 @@
       if (!rows.length) { box.innerHTML = '<p class="admin-empty">No activity recorded yet.</p>'; return; }
       box.innerHTML = rows.map(function (e) {
         var bad = e.event === 'login_fail' ? ' admin-badge-bad' : '';
+        var ip = e.ip ? ' · ' + esc(e.ip) : '';
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(e.login) + '</b>' +
           ' <span class="admin-badge' + bad + '">' + esc(HISTORY_LABEL[e.event] || e.event) + '</span>' +
-          '<span class="admin-row-sub">' + fmtWhen(e.ts) + '</span></div></div>';
+          '<span class="admin-row-sub">' + fmtWhen(e.ts) + ip + '</span></div></div>';
       }).join('');
     });
   }

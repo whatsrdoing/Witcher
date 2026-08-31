@@ -67,6 +67,24 @@
     return null;
   }
 
+  /* A weak password here is worse than usual: since #14, a signup or reset
+     is not applied until an admin approves it, so a rejected-for-weakness
+     password costs the person a full extra round trip through that queue,
+     not just an instant "try again" -- worth catching here, before it is
+     ever sent. Checked client-side because that is the only place a plain
+     password ever exists: the server sees only a PBKDF2 hash. */
+  var COMMON_PASSWORDS = [
+    'password', 'password1', 'password123', '12345678', '123456789', '1234567890',
+    'qwerty123', 'qwertyuiop', 'letmein123', 'welcome123', 'admin1234', 'iloveyou1'
+  ];
+  function passwordProblem(pw, login) {
+    if (pw.length < 8) return 'Use at least 8 characters.';
+    if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'Mix in at least one letter and one number.';
+    if (login && pw.toLowerCase() === String(login).toLowerCase()) return "Don't use the sign-in name as the password.";
+    if (COMMON_PASSWORDS.indexOf(pw.toLowerCase()) !== -1) return 'That password is too easy to guess -- pick another.';
+    return null;
+  }
+
   /* Which account unlocked this tab -- survives a reload (sessionStorage),
      gone once the tab closes, same as the rest of what "signed in" means
      here. Re-resolved against the account list on load so a reload always
@@ -401,14 +419,13 @@
     setTimeout(function () { $('#gateEmail').focus(); }, 60);
   }
 
-  /* ---- admin-key reset ----------------------------------------------------
-     Forgot password does not mail anyone — there is no server to mail from.
-     It asks for the admin key, and only then lets that account's password be
-     changed on this machine. With more than one account on file, guessing
-     which one to reset from whatever happened to be typed on the sign-in
-     screen is not reliable -- so the exact username is typed here instead,
-     and has to match an existing account before the admin key is even
-     checked. */
+  /* ---- password reset ------------------------------------------------------
+     Forgot password does not mail anyone -- there is no server to mail from.
+     It queues a request the admin approves (see submitRequest/_request_post).
+     With more than one account on file, guessing which one to reset from
+     whatever happened to be typed on the sign-in screen is not reliable --
+     so the exact username is typed here instead, and has to match an
+     existing account before the request is even sent. */
   function showReset() {
     showScreen('gateReset');
     $('#resetMsg').style.display = 'none';
@@ -436,7 +453,8 @@
     var p1 = $('#resetPass').value || '', p2 = $('#resetPass2').value || '';
     if (!target) return resetSay('Enter the exact username to reset.', 'err');
     if (!findAccount(target)) return resetSay('No account named "' + target + '".', 'err');
-    if (p1.length < 6) return resetSay('Use at least 6 characters for the new password.', 'err');
+    var pwProblem = passwordProblem(p1, target);
+    if (pwProblem) return resetSay(pwProblem, 'err');
     if (p1 !== p2) return resetSay('The two new passwords do not match.', 'err');
 
     busy = true;
@@ -535,7 +553,8 @@
     }
     if (!emailLocal) return signupSay('Enter the email.', 'err');
     if (!parasId) return signupSay('Enter the Paras ID.', 'err');
-    if (p1.length < 6) return signupSay('Use at least 6 characters for the password.', 'err');
+    var pwProblem = passwordProblem(p1, login);
+    if (pwProblem) return signupSay(pwProblem, 'err');
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
 

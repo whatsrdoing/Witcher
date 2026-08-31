@@ -30,6 +30,9 @@ BRIDGE_CLOSE = "<!-- /paras-command-centre-bridge -->"
 GUARD_SRC = os.path.join(ROOT, "assets", "js", "dashboard-session-guard.js")
 GUARD_OPEN = "<!-- paras-command-centre-session-guard -->"
 GUARD_CLOSE = "<!-- /paras-command-centre-session-guard -->"
+IDLE_SRC = os.path.join(ROOT, "assets", "js", "idle-timeout.js")
+IDLE_OPEN = "<!-- paras-command-centre-idle-timeout -->"
+IDLE_CLOSE = "<!-- /paras-command-centre-idle-timeout -->"
 
 BANNER = (
     "/* GENERATED FILE — do not edit.\n"
@@ -165,6 +168,22 @@ def ensure_session_guard(reg):
     _apply_marked_block(reg, GUARD_SRC, GUARD_OPEN, GUARD_CLOSE, _place_after_head_open, "session guard")
 
 
+def ensure_idle_timeout(reg):
+    """Make every dashboard relay its own activity up to the hub page.
+
+    Dashboards load in an iframe inside the hub (see app.js's
+    openDashboard), a separate browsing context of its own, so moving the
+    mouse or typing inside one never reaches the hub's own idle-timeout
+    listeners. This adds the same idle-timeout.js used by the hub itself to
+    every dashboard too -- running inside an iframe it only relays "something
+    happened" up to the parent (see the file's own top comment), it does not
+    show a competing prompt of its own.
+
+    Runs every sync, so a dashboard added later is covered automatically.
+    """
+    _apply_marked_block(reg, IDLE_SRC, IDLE_OPEN, IDLE_CLOSE, _place_after_head_open, "idle timeout")
+
+
 def mirror_auth():
     """Mirror auth.json into auth.js so the sign-in gate also works on file://."""
     if not os.path.exists(AUTH_SRC):
@@ -203,6 +222,7 @@ def main():
         print("  ! " + p)
     ensure_session_guard(reg)
     ensure_bridge(reg)
+    ensure_idle_timeout(reg)
     mirror_auth()
     return 0
 

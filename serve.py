@@ -27,6 +27,7 @@ is not actually serving the page, and none should.
 """
 import base64
 import binascii
+import bisect
 import functools
 import hashlib
 import hmac
@@ -299,6 +300,127 @@ def history_stats():
         stats.setdefault(login, {"totalMs": 0, "sessions": 0})
         stats[login]["totalMs"] += max(0, now_ms - start)
     return stats
+
+
+VIEW_HISTORY_PATH = os.path.join(paths.data_dir(), "view_history.jsonl")
+VIEW_HISTORY_LOCK = threading.Lock()
+
+
+def log_view(login, dashboard_id):
+    """Append one line every time a session's self-reported "what am I
+    looking at" changes (see set_viewing / __session/viewing) -- unlike
+    SESSIONS' in-memory "viewing" field, which only ever answers "right
+    now", this is what usage_report() below replays to work out which
+    dashboard a login actually spent time on, per day. Best-effort, same
+    as log_history: a write failure here must never break navigation."""
+    if not login:
+        return
+    entry = {"ts": int(time.time() * 1000), "login": login, "dashboardId": dashboard_id}
+    try:
+        with VIEW_HISTORY_LOCK:
+            with open(VIEW_HISTORY_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def _day_str(ms):
+    return time.strftime("%Y-%m-%d", time.localtime(ms / 1000.0))
+
+
+def _split_ms_by_day(start_ms, end_ms):
+    """Yield (day_str, ms) pairs splitting [start_ms, end_ms) at local
+    midnight boundaries, so a session (or a dashboard left open) spanning
+    more than one day is credited to each day proportionally rather than
+    dumped entirely on the day it started."""
+    cur = start_ms
+    while cur < end_ms:
+        t = time.localtime(cur / 1000.0)
+        next_midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)) * 1000 + 86400000
+        seg_end = min(end_ms, next_midnight)
+        if seg_end > cur:
+            yield (_day_str(cur), seg_end - cur)
+        cur = seg_end
+
+
+def usage_report():
+    """Per-login, per-day: total signed-in time and time spent on each
+    dashboard -- the admin panel's usage report. Built by replaying
+    login_history.jsonl for session start/end times and view_history.jsonl
+    for which dashboard was open within those sessions, rather than kept
+    live, since it is only ever asked for occasionally from the admin panel
+    and both logs are small text files. A session (or the admin's own tab)
+    left open counts up to right now."""
+    try:
+        with open(HISTORY_PATH, encoding="utf-8") as fh:
+            hist_lines = fh.readlines()
+    except OSError:
+        hist_lines = []
+    try:
+        with open(VIEW_HISTORY_PATH, encoding="utf-8") as fh:
+            view_lines = fh.readlines()
+    except OSError:
+        view_lines = []
+
+    views_by_login = {}
+    for line in view_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        login, ts = e.get("login"), e.get("ts")
+        if not login or ts is None:
+            continue
+        views_by_login.setdefault(login, []).append(e)
+    for v in views_by_login.values():
+        v.sort(key=lambda e: e["ts"])
+
+    now_ms = int(time.time() * 1000)
+    days = {}   # login -> day -> {"totalMs": int, "dashboards": {id: ms}}
+
+    def credit(login, start_ms, end_ms):
+        if end_ms <= start_ms:
+            return
+        by_day = days.setdefault(login, {})
+        vlist = views_by_login.get(login) or []
+        ts_list = [e["ts"] for e in vlist]
+        idx = bisect.bisect_right(ts_list, start_ms) - 1
+        cur = start_ms
+        while cur < end_ms:
+            dash = vlist[idx]["dashboardId"] if idx >= 0 else None
+            nxt = vlist[idx + 1]["ts"] if idx + 1 < len(vlist) else end_ms
+            seg_end = min(end_ms, nxt)
+            for day, ms in _split_ms_by_day(cur, seg_end):
+                d = by_day.setdefault(day, {"totalMs": 0, "dashboards": {}})
+                d["totalMs"] += ms
+                if dash:
+                    d["dashboards"][dash] = d["dashboards"].get(dash, 0) + ms
+            cur = seg_end
+            idx += 1
+
+    open_since = {}
+    for line in hist_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        login, event, ts = e.get("login"), e.get("event"), e.get("ts")
+        if not login or ts is None:
+            continue
+        if event == "login_ok":
+            open_since[login] = ts
+        elif event in ("logout", "force_logout") and login in open_since:
+            credit(login, open_since.pop(login), ts)
+    for login, start in open_since.items():
+        credit(login, start, now_ms)
+
+    return days
 
 
 REQUESTS_PATH = os.path.join(paths.data_dir(), "pending_requests.json")
@@ -579,10 +701,8 @@ def password_policy_problem(pw, login):
     direct "reset this account's password" action, which sends it over an
     already-authenticated admin session rather than hashing it client-side
     first."""
-    if len(pw) < 8:
-        return "use at least 8 characters"
-    if not any(c.isalpha() for c in pw) or not any(c.isdigit() for c in pw):
-        return "mix in at least one letter and one number"
+    if len(pw) < 10:
+        return "use at least 10 characters"
     if login and pw.lower() == login.lower():
         return "don't use the sign-in name as the password"
     if pw.lower() in COMMON_PASSWORDS:
@@ -735,11 +855,15 @@ def store():
 
 
 def seg_route(path, name):
-    """Whatever follows /<name>/ in the path, or None if this is not one."""
+    """Whatever follows /<name>/ in the path, or None if this is not one.
+    self.path arrives percent-encoded and never decoded upstream, so each
+    segment is unquoted here -- after splitting, not before, so an
+    encodeURIComponent'd "/" inside one segment (a login like "admin/ritik",
+    say) stays that one segment rather than getting split again."""
     segs = [s for s in path.split("/") if s]
     if name not in segs:
         return None
-    return segs[segs.index(name) + 1:]
+    return [urllib.parse.unquote(s) for s in segs[segs.index(name) + 1:]]
 
 
 def library_route(path):
@@ -750,7 +874,7 @@ def library_route(path):
     if "__library" not in segs:
         return None
     i = segs.index("__library")
-    return segs[i + 1:]
+    return [urllib.parse.unquote(s) for s in segs[i + 1:]]
 
 
 def make_handler(prefix):
@@ -1443,7 +1567,9 @@ def make_handler(prefix):
             except (ValueError, UnicodeDecodeError):
                 req = {}
             viewing = req.get("dashboardId")
-            set_viewing(self._session_token(), str(viewing) if viewing else None)
+            viewing = str(viewing) if viewing else None
+            set_viewing(self._session_token(), viewing)
+            log_view(session_login(self._session_token()), viewing)
             self._json(200, {"ok": True})
 
         def _totp_post(self, tail):
@@ -1555,10 +1681,17 @@ def make_handler(prefix):
                 return
             if tail == ["history"]:
                 try:
-                    limit = min(int((qs.get("limit") or ["200"])[0]), 1000)
+                    limit = min(int((qs.get("limit") or ["200"])[0]), 5000)
                 except ValueError:
                     limit = 200
-                self._json(200, {"history": read_history(limit)})
+                login = (qs.get("login") or [""])[0]
+                rows = read_history(limit if not login else 5000)
+                if login:
+                    rows = [r for r in rows if r.get("login") == login][:limit]
+                self._json(200, {"history": rows})
+                return
+            if tail == ["usage"]:
+                self._json(200, {"usage": usage_report()})
                 return
             if tail == ["accounts"]:
                 self._json(200, {"accounts": self._admin_account_list()})
@@ -1628,7 +1761,7 @@ def make_handler(prefix):
                     log_history(login, "force_logout")
                 self._json(200, {"ok": True, "ended": n})
                 return
-            if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable"):
+            if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable", "update-profile"):
                 self._admin_account_action(tail[1], tail[2], body)
                 return
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] == "disable-2fa":
@@ -1879,6 +2012,17 @@ def make_handler(prefix):
                     if n:
                         log_history(login, "force_logout")
 
+            elif action == "update-profile":
+                # Free-text profile fields an admin can correct on someone's
+                # behalf (a typo at signup, a promotion, a transfer) -- unlike
+                # the sign-up form itself these are not constrained to a fixed
+                # dropdown list, since the admin is trusted to enter something
+                # sensible and a hard-coded option list here would just be one
+                # more place to keep in sync with index.html's.
+                for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
+                    if field in body:
+                        accounts[idx][field] = str(body.get(field) or "").strip()[:200]
+
             auth["accounts"] = accounts
             if accounts and auth.get("email") == accounts[0].get("login"):
                 auth["salt"], auth["hash"], auth["iterations"] = (
@@ -2097,7 +2241,7 @@ def make_handler(prefix):
                 return
 
             category = req.get("category")
-            if category not in ("feature", "bug", "data", "other"):
+            if category not in ("feature", "requirement", "bug", "data", "other"):
                 category = "other"
             subject = str(req.get("subject") or "").strip()[:120]
             message = str(req.get("message") or "").strip()[:2000]

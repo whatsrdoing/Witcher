@@ -1,8 +1,10 @@
 # Signing in to the Paras Health SCM Gen-Dash
 
-This reflects the sign-in screen as it works today. Once the admin-approval
-signup flow, email OTP verification, and authenticator-app 2FA are added,
-this guide will be updated to match -- what's below is the current flow.
+This reflects the sign-in screen as it works today, including the
+admin-approval flow for new accounts, password resets, and username
+changes, and the optional authenticator-app (TOTP) second step. The same
+walkthrough is also available from inside the app: click **How to sign in
+/ reset your password** underneath the sign-in card.
 
 ## Signing in
 
@@ -11,7 +13,10 @@ this guide will be updated to match -- what's below is the current flow.
 2. Under **Username**, type your exact sign-in name and press **Continue**.
 3. A **Security password** field appears. Type your password and press
    **Continue** again.
-4. You're in.
+4. If two-factor authentication is turned on for your account, you'll be
+   asked for the 6-digit code from your authenticator app -- or one of
+   your backup codes if you don't have the app to hand.
+5. You're in.
 
 Usernames and passwords are both case-sensitive -- typed exactly as they
 were set up, capital letters included.
@@ -27,24 +32,34 @@ to reset or contact anyone about for a simple mistyped password.
 1. On the sign-in screen, click **Forgot password?** underneath the
    password field.
 2. Enter your exact **Username**.
-3. Enter the **Admin key** -- ask your admin for this if you don't have it;
-   it is not the same as your account password.
-4. Enter a **New password** (at least 6 characters) and repeat it in the
+3. Enter a **New password** (at least 10 characters) and repeat it in the
    field below to confirm.
-5. Submit. You'll see "Password changed" once it's done, and you can sign
-   in immediately with the new password.
+4. Submit. This sends a request to the admin -- your password does not
+   actually change until they approve it. Try signing in with the new
+   password once they have.
 
-This reset happens entirely on this computer -- nothing is emailed, since
-there's no mail server wired in yet (that's changing soon, see the note at
-the top).
+This request is handled entirely by the admin from the admin panel --
+nothing is emailed, since there's no mail server wired in yet.
 
 ## Signing up for a new account
 
-New accounts also require the **Admin key** from your admin. Use the
-**Sign up** link on the sign-in screen and follow the same pattern as
-resetting a password above.
+Use the **Sign up** link on the sign-in screen, fill in your name,
+designation, department, category, phone number, email, Paras ID and a
+password (at least 10 characters), and submit. Like a password reset, this
+goes to the admin as a request -- you can sign in once it's approved, not
+immediately.
+
+## Two-factor authentication
+
+Once signed in, turn it on from the account menu, under **Security**.
+Scan the QR code shown with an authenticator app (Google Authenticator,
+Authy, 1Password, or similar), or enter the setup key by hand if you'd
+rather not scan. Keep the backup codes shown at that point somewhere
+safe -- each one signs you in exactly once if you ever lose the
+authenticator app, and the admin can turn 2FA off for your account as a
+last resort if you lose both.
 
 ## Who to ask
 
-If anything here doesn't match what you're seeing, or you don't have the
-admin key, contact your administrator directly rather than guessing.
+If anything here doesn't match what you're seeing, contact your
+administrator directly rather than guessing.

@@ -2,15 +2,21 @@
   "entries": [
     {
       "date": "2026-08-31",
+      "version": 1,
       "title": "Two-factor authentication, request approvals, and more",
       "notes": [
         "Sign-in can now ask for a code from an authenticator app (or a one-time backup code) as a second step -- turn it on from the account menu, under Security.",
         "New accounts, password resets, and sign-in name changes now go to the admin for approval instead of taking effect immediately.",
         "\"Raise a request\" in the topbar sends a feature idea, a bug, or a question straight to the admin, and shows you its status.",
         "The data folder now backs itself up automatically once a day, with a manual \"Back up now\" and downloadable backups in the admin panel.",
-        "New passwords need at least 8 characters with a letter and a number, and can't be the sign-in name or a common password.",
+        "New passwords need at least 10 characters, and can't be the sign-in name or a common password.",
         "Each dashboard card now shows when its data was last updated.",
-        "A new admin panel: live sessions, accounts, login history (with IP), pending requests, suggestions, backups, and per-dashboard visibility."
+        "A new admin panel: live sessions, accounts, login history (with IP), pending requests, suggestions, backups, and per-dashboard visibility.",
+        "The admin panel's Accounts card now shows each person's designation, department, category, phone, email and Paras ID, with an \"Edit profile\" button to correct any of them.",
+        "Login history is now grouped per person, most recently active first, with a click to expand their full history and a \"Load more\" for a longer window.",
+        "A new \"Usage\" view per account shows time spent per day or per month, which dashboards were viewed and for how long, and whether that person is signed in right now.",
+        "Sign-up now also offers IT and Management as departments, GCOO/MD/CHRO as designations, and \"All\" as a category, with the designation/department/category fields shown three across instead of two.",
+        "A \"How to sign in / reset your password\" link on the sign-in screen opens a short walkthrough of the current sign-in, reset, sign-up and 2FA flow."
       ]
     }
   ]

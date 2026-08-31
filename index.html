@@ -148,7 +148,7 @@
           <label class="gate-label" for="resetPass">New password</label>
           <div class="gate-field">
             <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-            <input id="resetPass" type="password" autocomplete="new-password" placeholder="At least 8 characters, with a letter and a number" required>
+            <input id="resetPass" type="password" autocomplete="new-password" placeholder="At least 10 characters" required>
           </div>
 
           <label class="gate-label" for="resetPass2">Repeat new password</label>
@@ -239,13 +239,16 @@
             </div>
           </div>
 
-          <div class="gate-2col">
+          <div class="gate-3col">
             <div class="gate-col">
               <label class="gate-label" for="signupDesignation">Designation</label>
               <div class="gate-field">
                 <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"/><path d="M7 10.7V16c0 1 2.2 2.3 5 2.3s5-1.3 5-2.3v-5.3"/></svg>
                 <select id="signupDesignation" required>
                   <option value="" disabled selected>Select designation</option>
+                  <option>MD</option>
+                  <option>GCOO</option>
+                  <option>CHRO</option>
                   <option>Vice President</option>
                   <option>Assistant Vice President</option>
                   <option>General Manager</option>
@@ -268,18 +271,18 @@
                   <option>CBU Purchase</option>
                   <option>Pharmacy</option>
                   <option>MDM</option>
+                  <option>IT</option>
+                  <option>Management</option>
                 </select>
               </div>
             </div>
-          </div>
-
-          <div class="gate-2col">
             <div class="gate-col">
               <label class="gate-label" for="signupCategory">Category</label>
               <div class="gate-field">
                 <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
                 <select id="signupCategory" required>
                   <option value="" disabled selected>Select category</option>
+                  <option>All</option>
                   <option>Drugs</option>
                   <option>Consumables</option>
                   <option>D&amp;MC</option>
@@ -287,18 +290,17 @@
                 </select>
               </div>
             </div>
-            <div class="gate-col">
-              <label class="gate-label" for="signupPhone">Phone number</label>
-              <div class="gate-field">
-                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
-                <!-- No maxlength: it counts raw characters, so pasting
-                     "93557-51137" would be cut to 10 characters and then lose
-                     digits to the separator strip. The input handler clamps to
-                     10 actual digits instead. -->
-                <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
-                       placeholder="10-digit number" required>
-              </div>
-            </div>
+          </div>
+
+          <label class="gate-label" for="signupPhone">Phone number</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
+            <!-- No maxlength: it counts raw characters, so pasting
+                 "93557-51137" would be cut to 10 characters and then lose
+                 digits to the separator strip. The input handler clamps to
+                 10 actual digits instead. -->
+            <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
+                   placeholder="10-digit number" required>
           </div>
 
           <label class="gate-label" for="signupEmail">Email</label>
@@ -319,7 +321,7 @@
               <label class="gate-label" for="signupPass">New password</label>
               <div class="gate-field">
                 <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-                <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 8 characters, with a letter and a number" required>
+                <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 10 characters" required>
               </div>
             </div>
             <div class="gate-col">
@@ -345,8 +347,21 @@
 
       <p class="gate-foot">
         Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
+        <a href="#" id="gateHelpLink">How to sign in / reset your password</a>
       </p>
     </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="gateHelpModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>How to sign in / reset your password</h3>
+      <button class="btn sm icon-only" id="gateHelpClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="gateHelpBody"></div>
   </div>
 </div>
 
@@ -575,7 +590,9 @@
 
           <section class="admin-card">
             <h2>Login history</h2>
+            <p class="admin-row-sub" style="margin:0 0 10px">Most recently active first -- click a name for their full history.</p>
             <div id="adminHistory" class="admin-list"></div>
+            <button class="btn sm" id="adminHistoryMore" style="margin-top:10px">Load more history</button>
           </section>
         </div>
       </div>
@@ -741,13 +758,15 @@
       </button>
     </div>
     <div class="modal-body">
-      <p class="reset-lede">A note straight to the admin -- a feature idea, something that's broken, or anything else about the Command Centre.</p>
+      <p class="reset-lede">A note straight to the admin -- a feature idea, something that's broken, or anything else about the Command Centre.
+        <a href="#" id="raiseMineLink">View your recent requests</a></p>
 
       <label class="gate-label" for="raiseCategory">Category</label>
       <div class="gate-field">
         <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
         <select id="raiseCategory">
-          <option value="feature">Feature idea</option>
+          <option value="feature">New dashboard required</option>
+          <option value="requirement">New requirement</option>
           <option value="bug">Something's broken</option>
           <option value="data">Data question</option>
           <option value="other">Other</option>
@@ -766,17 +785,24 @@
       </div>
 
       <div class="gate-msg" id="raiseMsg" style="display:none"></div>
-
-      <div id="raiseMineWrap" style="display:none">
-        <h4>Your recent requests</h4>
-        <div id="raiseMineList" class="admin-list"></div>
-      </div>
     </div>
     <div class="modal-foot">
       <button class="btn" id="raiseCancel">Cancel</button>
       <span style="flex:1"></span>
-      <button class="btn primary" id="raiseSubmit">Send request</button>
+      <button class="btn primary" id="raiseSubmit" disabled>Send request</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="myRequestsModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Your recent requests</h3>
+      <button class="btn sm icon-only" id="myRequestsClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="myRequestsBody"></div>
   </div>
 </div>
 
@@ -801,6 +827,85 @@
       </button>
     </div>
     <div class="modal-body" id="changelogBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="editProfileModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Edit profile</h3>
+      <button class="btn sm icon-only" id="editProfileClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <label class="gate-label" for="editProfileName">Full name</label>
+      <div class="gate-field">
+        <input id="editProfileName" type="text" autocomplete="off">
+      </div>
+
+      <div class="gate-3col">
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileDesignation">Designation</label>
+          <div class="gate-field">
+            <select id="editProfileDesignation"></select>
+          </div>
+        </div>
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileDepartment">Department</label>
+          <div class="gate-field">
+            <select id="editProfileDepartment"></select>
+          </div>
+        </div>
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileCategory">Category</label>
+          <div class="gate-field">
+            <select id="editProfileCategory"></select>
+          </div>
+        </div>
+      </div>
+
+      <label class="gate-label" for="editProfilePhone">Phone number</label>
+      <div class="gate-field">
+        <input id="editProfilePhone" type="tel" inputmode="numeric" autocomplete="off">
+      </div>
+
+      <label class="gate-label" for="editProfileEmail">Email</label>
+      <div class="gate-field">
+        <input id="editProfileEmail" type="text" autocomplete="off">
+      </div>
+
+      <label class="gate-label" for="editProfileParasId">Paras ID</label>
+      <div class="gate-field">
+        <input id="editProfileParasId" type="text" autocomplete="off">
+      </div>
+
+      <div class="gate-msg" id="editProfileMsg" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="editProfileCancel">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="editProfileSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="usageModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="usageTitle">Usage</h3>
+      <button class="btn sm icon-only" id="usageClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="admin-row-sub" id="usageLive"></p>
+      <div class="gate-row" style="margin:2px 0 12px">
+        <button class="btn sm primary" id="usageByMonth" type="button">By month</button>
+        <button class="btn sm" id="usageByDay" type="button">By day</button>
+      </div>
+      <div id="usageBody"></div>
+    </div>
   </div>
 </div>
 

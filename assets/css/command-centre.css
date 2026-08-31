@@ -291,6 +291,8 @@ a{color:var(--brand-soft); text-decoration:none;}
   letter-spacing:.04em; padding:2px 7px; border-radius:999px; background:rgba(91,141,239,.18); color:var(--info);}
 .admin-badge-bad{background:rgba(251,113,133,.18); color:var(--bad);}
 .admin-badge-ok{background:color-mix(in srgb, var(--ok) 18%, transparent); color:var(--ok);}
+.admin-history-detail{display:flex; flex-direction:column; gap:8px; margin:2px 0 4px 16px;
+  padding-left:12px; border-left:2px solid var(--wire);}
 .admin-empty{color:var(--ink-3); font-size:12.5px; margin:6px 0;}
 .admin-summary{font-size:12px; color:var(--ink-3); margin-bottom:10px;}
 
@@ -578,6 +580,11 @@ a{color:var(--brand-soft); text-decoration:none;}
 /* ---------- Modal --------------------------------------------------------- */
 .modal-scrim{position:fixed;inset:0;z-index:95;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(3,7,15,.62);backdrop-filter:blur(4px);}
 .modal-scrim.open{display:flex; animation:scrimIn .26s var(--ease);}
+/* .gate itself sits at z-index:200 (see below) -- this is the one modal
+   ever opened while the sign-in gate is still showing (the "how to sign
+   in" help), so it needs to clear that, unlike every other modal here
+   which only ever opens after the gate is already hidden. */
+#gateHelpModal{z-index:210;}
 /* The scrim's blur builds rather than being there from the first frame, so
    the background reads as being pushed back behind a real surface instead of
    a dark panel being switched on over it. */
@@ -873,6 +880,8 @@ a{color:var(--brand-soft); text-decoration:none;}
 
 .gate-2col{display:grid; grid-template-columns:1fr 1fr; gap:0 14px;}
 @media (max-width:520px){.gate-2col{grid-template-columns:1fr;}}
+.gate-3col{display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 14px;}
+@media (max-width:640px){.gate-3col{grid-template-columns:1fr;}}
 .gate-reveal{
   position:absolute; right:8px; width:32px;height:32px; border-radius:8px; display:flex;
   align-items:center; justify-content:center; color:var(--ink-3); transition:.16s var(--ease);
@@ -1113,11 +1122,14 @@ a{color:var(--brand-soft); text-decoration:none;}
    override: the shared .modal-body above is a flex row built for the
    preview modal's full-bleed iframe, which stacks label+field pairs
    sideways instead of top to bottom for anything else that uses it. */
-#importModal .modal, #raiseModal .modal, #totpModal .modal, #changelogModal .modal{
+#importModal .modal, #raiseModal .modal, #totpModal .modal, #changelogModal .modal,
+#editProfileModal .modal, #usageModal .modal, #myRequestsModal .modal, #gateHelpModal .modal{
   width:min(520px,100%); padding:0; overflow:hidden; display:flex; flex-direction:column;}
-#importModal .modal-body, #raiseModal .modal-body, #totpModal .modal-body, #changelogModal .modal-body{
+#importModal .modal-body, #raiseModal .modal-body, #totpModal .modal-body, #changelogModal .modal-body,
+#editProfileModal .modal-body, #usageModal .modal-body, #myRequestsModal .modal-body, #gateHelpModal .modal-body{
   display:block; flex:0 1 auto; overflow:auto; padding:18px 22px 2px; background:transparent;}
-#importModal .modal-foot, #raiseModal .modal-foot, #totpModal .modal-foot, #changelogModal .modal-foot{
+#importModal .modal-foot, #raiseModal .modal-foot, #totpModal .modal-foot, #changelogModal .modal-foot,
+#editProfileModal .modal-foot, #usageModal .modal-foot{
   flex:0 0 auto; display:flex; align-items:center; gap:9px;
   padding:13px 16px; border-top:1px solid var(--wire);}
 #importModal .modal p, #raiseModal .modal p, #totpModal .modal p, #changelogModal .modal p{margin:0;}
@@ -1133,6 +1145,9 @@ a{color:var(--brand-soft); text-decoration:none;}
 .changelog-entry:last-child{border-bottom:0; padding-bottom:2px;}
 .changelog-entry:first-child{padding-top:2px;}
 .changelog-date{font-size:10.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin-bottom:4px;}
+.changelog-version{display:inline-block; font-size:10px; font-weight:800; letter-spacing:.04em; color:var(--brand-soft);
+  background:color-mix(in srgb,var(--brand-bright) 16%,transparent); border-radius:5px; padding:1px 6px; margin-left:2px;}
+#changelogMore{margin-top:4px;}
 .changelog-title{font-size:14.5px; font-weight:700; color:var(--ink); margin-bottom:8px;}
 .changelog-notes{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;}
 .changelog-notes li{font-size:13px; line-height:1.5; color:var(--ink-2);}

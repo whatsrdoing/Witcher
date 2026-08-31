@@ -23,6 +23,11 @@
   var signupPhotoFile = null; // chosen on the sign-up screen, applied once the account exists
 
   var $ = function (s) { return d.querySelector(s); };
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
 
   function loadConfig() {
     // Browsers refuse to fetch a local .json over file://, so don't even try
@@ -78,8 +83,7 @@
     'qwerty123', 'qwertyuiop', 'letmein123', 'welcome123', 'admin1234', 'iloveyou1'
   ];
   function passwordProblem(pw, login) {
-    if (pw.length < 8) return 'Use at least 8 characters.';
-    if (!/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return 'Mix in at least one letter and one number.';
+    if (pw.length < 10) return 'Use at least 10 characters.';
     if (login && pw.toLowerCase() === String(login).toLowerCase()) return "Don't use the sign-in name as the password.";
     if (COMMON_PASSWORDS.indexOf(pw.toLowerCase()) !== -1) return 'That password is too easy to guess -- pick another.';
     return null;
@@ -475,6 +479,42 @@
     return CAPTIONS[((day % CAPTIONS.length) + CAPTIONS.length) % CAPTIONS.length];
   }
 
+  /* ---- "how to sign in / reset password" help ------------------------------
+     A short, self-contained walkthrough of the current flow (admin-approval
+     queue, optional 2FA step, 10-character passwords) -- baked in here
+     rather than fetched, since it is small, static, and needs to work
+     before anyone is signed in (fetch of a doc file would work too, but
+     this avoids one more request on the gate's critical path). */
+  function helpHtml() {
+    var admin = esc(cfg.admin || 'Ritik Nagar');
+    return '' +
+      '<h4>Signing in</h4>' +
+      '<p class="reset-lede">Type your exact, case-sensitive username and press Continue. ' +
+      'On the next step, type your password and press Continue again. If two-factor ' +
+      'authentication is turned on for your account, you\'ll then be asked for the ' +
+      '6-digit code from your authenticator app (or a backup code).</p>' +
+      '<h4>Forgot your password?</h4>' +
+      '<p class="reset-lede">Click <b>Forgot password?</b> on the sign-in screen, enter your ' +
+      'exact username and a new password (at least 10 characters), and submit. This sends ' +
+      'a request to ' + admin + ' for approval -- sign in with the new password once it\'s ' +
+      'approved, not immediately.</p>' +
+      '<h4>Need a new account?</h4>' +
+      '<p class="reset-lede">Click <b>Sign up</b> and fill in your details. This also goes to ' +
+      admin + ' for approval before you can sign in.</p>' +
+      '<h4>Two-factor authentication</h4>' +
+      '<p class="reset-lede">Once signed in, turn it on from the account menu under Security -- ' +
+      'scan the QR code with an authenticator app, or enter the setup key by hand.</p>' +
+      '<h4>Still stuck?</h4>' +
+      '<p class="reset-lede">Contact ' + admin + ' directly rather than guessing.</p>';
+  }
+  function openHelp() {
+    $('#gateHelpBody').innerHTML = helpHtml();
+    $('#gateHelpModal').classList.add('open');
+  }
+  function closeHelp() {
+    $('#gateHelpModal').classList.remove('open');
+  }
+
   function showSignIn() {
     showScreen('gateSignIn');
     resetSignInStep();
@@ -746,6 +786,9 @@
     });
     $('#resetBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
     $('#signupBack').addEventListener('click', function (e) { e.preventDefault(); showSignIn(); });
+    $('#gateHelpLink').addEventListener('click', function (e) { e.preventDefault(); openHelp(); });
+    $('#gateHelpClose').addEventListener('click', closeHelp);
+    $('#gateHelpModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeHelp(); });
     $('#resetForm').addEventListener('submit', doReset);
     $('#signupForm').addEventListener('submit', doSignup);
 

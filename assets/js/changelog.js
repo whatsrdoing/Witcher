@@ -49,19 +49,36 @@
     });
   }
 
+  var VISIBLE_BY_DEFAULT = 2;   // newest builds shown up front; the rest sit behind "Show all"
+
+  function entryHtml(e) {
+    var when = e.date;
+    try { when = new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
+    catch (err) { /* keep the raw date string */ }
+    var version = e.version ? '<span class="changelog-version">v' + esc(e.version) + '</span>' : '';
+    return '<div class="changelog-entry"><div class="changelog-date">' + esc(when) + ' ' + version + '</div>' +
+      '<div class="changelog-title">' + esc(e.title || '') + '</div>' +
+      '<ul class="changelog-notes">' + (e.notes || []).map(function (n) {
+        return '<li>' + esc(n) + '</li>';
+      }).join('') + '</ul></div>';
+  }
+
+  /* Newest first (already sorted in load()), scrolling straight down through
+     more of them -- only the latest couple of builds show up front, with
+     the rest behind one "Show all" tap rather than paginated further. */
   function render(c) {
     var body = $('#changelogBody');
     if (!c.entries.length) { body.innerHTML = '<p class="reset-lede">Nothing here yet.</p>'; return; }
-    body.innerHTML = c.entries.map(function (e) {
-      var when = e.date;
-      try { when = new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
-      catch (err) { /* keep the raw date string */ }
-      return '<div class="changelog-entry"><div class="changelog-date">' + esc(when) + '</div>' +
-        '<div class="changelog-title">' + esc(e.title || '') + '</div>' +
-        '<ul class="changelog-notes">' + (e.notes || []).map(function (n) {
-          return '<li>' + esc(n) + '</li>';
-        }).join('') + '</ul></div>';
-    }).join('');
+    var head = c.entries.slice(0, VISIBLE_BY_DEFAULT);
+    var rest = c.entries.slice(VISIBLE_BY_DEFAULT);
+    body.innerHTML = head.map(entryHtml).join('') +
+      (rest.length ? '<button class="btn sm" id="changelogMore">Show all (' + c.entries.length + ')</button>' +
+        '<div id="changelogRest" hidden>' + rest.map(entryHtml).join('') + '</div>' : '');
+    var moreBtn = $('#changelogMore');
+    if (moreBtn) moreBtn.addEventListener('click', function () {
+      $('#changelogRest').hidden = false;
+      moreBtn.remove();
+    });
   }
 
   function open() {

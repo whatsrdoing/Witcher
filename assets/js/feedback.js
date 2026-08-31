@@ -12,7 +12,8 @@
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   };
-  var CATEGORY_LABEL = { feature: 'Feature idea', bug: "Something's broken", data: 'Data question', other: 'Other' };
+  var CATEGORY_LABEL = { feature: 'New dashboard required', requirement: 'New requirement',
+    bug: "Something's broken", data: 'Data question', other: 'Other' };
 
   function fmtWhen(ms) {
     if (!ms) return '—';
@@ -39,13 +40,21 @@
     el.style.display = msg ? '' : 'none';
   }
 
+  function updateSubmitEnabled() {
+    var btn = $('#raiseSubmit');
+    if (!btn) return;
+    var subject = ($('#raiseSubject').value || '').trim();
+    var message = ($('#raiseMessage').value || '').trim();
+    btn.disabled = !subject || !message;
+  }
+
   function open() {
     $('#raiseCategory').value = 'feature';
     $('#raiseSubject').value = '';
     $('#raiseMessage').value = '';
     say('', '');
+    updateSubmitEnabled();
     $('#raiseModal').classList.add('open');
-    renderMine();
     $('#raiseSubject').focus();
   }
 
@@ -54,25 +63,34 @@
   }
 
   function closeIfOpen() {
+    if ($('#myRequestsModal').classList.contains('open')) { closeMine(); return true; }
     if ($('#raiseModal').classList.contains('open')) { close(); return true; }
     return false;
   }
 
-  function renderMine() {
-    var wrap = $('#raiseMineWrap'), list = $('#raiseMineList');
-    if (!wrap || !list) return;
+  function openMine() {
+    var body = $('#myRequestsBody');
+    body.textContent = 'Loading…';
+    $('#myRequestsModal').classList.add('open');
     api('__feedback').then(function (r) {
-      if (!r.ok || !(r.body.items || []).length) { wrap.style.display = 'none'; return; }
-      wrap.style.display = '';
-      list.innerHTML = r.body.items.map(function (f) {
-        var badge = f.status === 'done' ? '<span class="admin-badge admin-badge-ok">Done</span>'
-          : '<span class="admin-badge">Open</span>';
-        var remark = f.remark ? '<span class="admin-row-sub">Admin: ' + esc(f.remark) + '</span>' : '';
-        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(f.subject) + '</b> ' + badge +
-          '<span class="admin-row-sub">' + esc(CATEGORY_LABEL[f.category] || f.category) +
-          ' · ' + fmtWhen(f.createdAt) + '</span>' + remark + '</div></div>';
-      }).join('');
+      if (!r.ok) { body.textContent = 'Could not load.'; return; }
+      var items = r.body.items || [];
+      if (!items.length) { body.innerHTML = '<p class="admin-empty">Nothing raised yet.</p>'; return; }
+      body.innerHTML = items.slice().sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); })
+        .map(function (f) {
+          var badge = f.status === 'done' ? '<span class="admin-badge admin-badge-ok">Closed</span>'
+            : '<span class="admin-badge">Open</span>';
+          var remark = f.remark ? '<span class="admin-row-sub">Admin: ' + esc(f.remark) + '</span>' : '';
+          return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(f.subject) + '</b> ' + badge +
+            '<span class="admin-row-sub">' + esc(CATEGORY_LABEL[f.category] || f.category) +
+            ' · ' + fmtWhen(f.createdAt) + '</span>' +
+            '<span class="admin-row-sub">' + esc(f.message) + '</span>' + remark + '</div></div>';
+        }).join('');
     });
+  }
+
+  function closeMine() {
+    $('#myRequestsModal').classList.remove('open');
   }
 
   function submit() {
@@ -94,13 +112,12 @@
       body: JSON.stringify({ category: category, subject: subject, message: message })
     }).then(function (r) {
       busy = false;
-      btn.disabled = false;
       btn.textContent = oldLabel;
-      if (!r.ok) { say(r.body.error || 'Could not send that.', 'err'); return; }
+      if (!r.ok) { say(r.body.error || 'Could not send that.', 'err'); updateSubmitEnabled(); return; }
       $('#raiseSubject').value = '';
       $('#raiseMessage').value = '';
       say('Sent -- the admin will see it in the admin panel.', 'ok');
-      renderMine();
+      updateSubmitEnabled();   // fields are now empty again -- back to disabled until filled in
     });
   }
 
@@ -112,6 +129,15 @@
     var submitBtn = $('#raiseSubmit'); if (submitBtn) submitBtn.addEventListener('click', submit);
     var modal = $('#raiseModal');
     if (modal) modal.addEventListener('click', function (e) { if (e.target === e.currentTarget) close(); });
+
+    $('#raiseSubject').addEventListener('input', updateSubmitEnabled);
+    $('#raiseMessage').addEventListener('input', updateSubmitEnabled);
+
+    var mineLink = $('#raiseMineLink');
+    if (mineLink) mineLink.addEventListener('click', function (e) { e.preventDefault(); openMine(); });
+    var mineClose = $('#myRequestsClose'); if (mineClose) mineClose.addEventListener('click', closeMine);
+    var mineModal = $('#myRequestsModal');
+    if (mineModal) mineModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) closeMine(); });
   });
 
   w.ParasFeedback = { closeIfOpen: closeIfOpen };

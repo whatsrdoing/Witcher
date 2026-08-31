@@ -14,6 +14,34 @@
     });
   };
 
+  /* Kept in sync by hand with the #gateSignup dropdowns in index.html --
+     the admin's "Edit profile" fields are the same three lists, just
+     reachable without going through the request-approval queue. */
+  var DESIGNATIONS = ['MD', 'GCOO', 'CHRO', 'Vice President', 'Assistant Vice President',
+    'General Manager', 'Deputy General Manager', 'Assistant General Manager',
+    'Senior Manager', 'Manager', 'Deputy Manager', 'Assistant Manager'];
+  var DEPARTMENTS = ['Purchase', 'CBU Purchase', 'Pharmacy', 'MDM', 'IT', 'Management'];
+  var CATEGORIES = ['All', 'Drugs', 'Consumables', 'D&MC', 'Non Medical'];
+
+  function fillSelect(sel, options, current) {
+    sel.innerHTML = options.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('');
+    if (current && options.indexOf(current) === -1) {
+      sel.insertAdjacentHTML('afterbegin', '<option>' + esc(current) + '</option>');
+    }
+    sel.value = current || options[0];
+  }
+
+  var dashboardNamesPromise = null;
+  function dashboardNames() {
+    if (dashboardNamesPromise) return dashboardNamesPromise;
+    dashboardNamesPromise = api('__admin/dashboards').then(function (r) {
+      var map = {};
+      (r.body.dashboards || []).forEach(function (d) { map[d.id] = d.name; });
+      return map;
+    }).catch(function () { return {}; });
+    return dashboardNamesPromise;
+  }
+
   function fmtMs(ms) {
     var s = Math.round((ms || 0) / 1000);
     var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
@@ -67,7 +95,8 @@
     renderHistory();
   }
 
-  var FEEDBACK_CATEGORY_LABEL = { feature: 'Feature idea', bug: "Something's broken", data: 'Data question', other: 'Other' };
+  var FEEDBACK_CATEGORY_LABEL = { feature: 'New dashboard required', requirement: 'New requirement',
+    bug: "Something's broken", data: 'Data question', other: 'Other' };
 
   function renderFeedback() {
     var box = $('#adminFeedback');
@@ -160,6 +189,9 @@
     api('__admin/dashboards').then(function (r) {
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = (r.body.dashboards || []).filter(function (d) { return d.status !== 'planned' && d.status !== 'archived'; });
+      // Admin-only dashboards first -- the ones actually worth double-checking
+      // shouldn't be buried below a long list of ones already visible to everyone.
+      rows = rows.slice().sort(function (a, b) { return (b.adminOnly ? 1 : 0) - (a.adminOnly ? 1 : 0); });
       if (!rows.length) { box.innerHTML = '<p class="admin-empty">No live dashboards yet.</p>'; return; }
       box.innerHTML = rows.map(function (d) {
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(d.name) + '</b>' +
@@ -204,22 +236,39 @@
     });
   }
 
+  var accountsCache = [];
+
   function renderAccounts() {
     var box = $('#adminAccounts');
     if (!box) return;
     box.textContent = 'Loading…';
-    api('__admin/accounts').then(function (r) {
+    Promise.all([api('__admin/accounts'), api('__admin/sessions')]).then(function (res) {
+      var r = res[0], sr = res[1];
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.accounts || [];
+      accountsCache = rows;
+      var viewing = {};
+      (sr.ok ? (sr.body.sessions || []) : []).forEach(function (s) { viewing[s.login] = s.viewing; });
       box.innerHTML = rows.map(function (a) {
+        var live = Object.prototype.hasOwnProperty.call(viewing, a.login)
+          ? '<span class="admin-badge admin-badge-ok">' + (viewing[a.login] ? 'viewing ' + esc(viewing[a.login]) : 'on the hub') + ' now</span> '
+          : '';
+        var profileBits = [a.designation, a.department, a.category].filter(Boolean).join(' · ');
+        var contactBits = [a.phone, a.email, a.parasId].filter(Boolean).join(' · ');
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(a.login) + '</b>' +
           (a.isAdmin ? ' <span class="admin-badge">admin</span>' : '') +
           (a.totpEnabled ? ' <span class="admin-badge admin-badge-ok">2FA on</span>' : '') +
           (a.disabled ? ' <span class="admin-badge admin-badge-bad">disabled</span>' : '') +
+          ' ' + live +
           '<span class="admin-row-sub">' + esc(a.name || 'No name on file') +
           ' · signed in ' + a.sessionCount + ' time' + (a.sessionCount === 1 ? '' : 's') +
-          ' · ' + fmtMs(a.totalTimeMs) + ' total</span></div>' +
+          ' · ' + fmtMs(a.totalTimeMs) + ' total</span>' +
+          (profileBits ? '<span class="admin-row-sub">' + esc(profileBits) + '</span>' : '') +
+          (contactBits ? '<span class="admin-row-sub">' + esc(contactBits) + '</span>' : '') +
+          '</div>' +
           '<div class="admin-row-acts">' +
+          '<button class="btn sm" data-usage="' + esc(a.login) + '">Usage</button>' +
+          '<button class="btn sm" data-edit="' + esc(a.login) + '">Edit profile</button>' +
           '<button class="btn sm" data-reset="' + esc(a.login) + '">Reset password</button>' +
           '<button class="btn sm" data-rename="' + esc(a.login) + '">Rename</button>' +
           (a.totpEnabled ? '<button class="btn sm" data-disable-totp="' + esc(a.login) + '">Disable 2FA</button>' : '') +
@@ -227,9 +276,15 @@
           (a.disabled ? 'Enable' : 'Disable') + '</button></div></div>';
       }).join('');
 
+      $$('[data-usage]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () { openUsage(btn.dataset.usage); });
+      });
+      $$('[data-edit]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () { openEditProfile(btn.dataset.edit); });
+      });
       $$('[data-reset]', box).forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var pw = prompt('New password for ' + btn.dataset.reset + ' (at least 8 characters, with a letter and a number):');
+          var pw = prompt('New password for ' + btn.dataset.reset + ' (at least 10 characters):');
           if (!pw) return;
           api('__admin/accounts/' + encodeURIComponent(btn.dataset.reset) + '/reset-password', {
             method: 'POST', body: JSON.stringify({ newPassword: pw })
@@ -271,6 +326,110 @@
         });
       });
     });
+  }
+
+  function openEditProfile(login) {
+    var a = accountsCache.filter(function (x) { return x.login === login; })[0];
+    if (!a) return;
+    $('#editProfileModal').dataset.login = login;
+    $('#editProfileName').value = a.name || '';
+    fillSelect($('#editProfileDesignation'), DESIGNATIONS, a.designation);
+    fillSelect($('#editProfileDepartment'), DEPARTMENTS, a.department);
+    fillSelect($('#editProfileCategory'), CATEGORIES, a.category);
+    $('#editProfilePhone').value = a.phone || '';
+    $('#editProfileEmail').value = a.email || '';
+    $('#editProfileParasId').value = a.parasId || '';
+    var msg = $('#editProfileMsg'); msg.style.display = 'none'; msg.textContent = '';
+    $('#editProfileModal').classList.add('open');
+  }
+
+  function saveEditProfile() {
+    var login = $('#editProfileModal').dataset.login;
+    if (!login) return;
+    var body = {
+      name: $('#editProfileName').value.trim(),
+      designation: $('#editProfileDesignation').value,
+      department: $('#editProfileDepartment').value,
+      category: $('#editProfileCategory').value,
+      phone: $('#editProfilePhone').value.trim(),
+      email: $('#editProfileEmail').value.trim(),
+      parasId: $('#editProfileParasId').value.trim()
+    };
+    var btn = $('#editProfileSave');
+    btn.disabled = true;
+    api('__admin/accounts/' + encodeURIComponent(login) + '/update-profile', {
+      method: 'POST', body: JSON.stringify(body)
+    }).then(function (r) {
+      btn.disabled = false;
+      if (!r.ok) {
+        var msg = $('#editProfileMsg');
+        msg.textContent = r.body.error || 'Could not save it.';
+        msg.className = 'gate-msg err'; msg.style.display = 'flex';
+        return;
+      }
+      $('#editProfileModal').classList.remove('open');
+      renderAccounts();
+    });
+  }
+
+  var usageGroup = 'month';
+  var usageLastByDay = {};
+  var usageLastNames = {};
+
+  function openUsage(login) {
+    usageGroup = 'month';
+    $('#usageTitle').textContent = 'Usage — ' + login;
+    $('#usageByMonth').classList.add('primary');
+    $('#usageByDay').classList.remove('primary');
+    $('#usageModal').classList.add('open');
+    $('#usageBody').textContent = 'Loading…';
+    $('#usageLive').textContent = '';
+    Promise.all([api('__admin/usage'), api('__admin/sessions'), dashboardNames()]).then(function (res) {
+      var ur = res[0], sr = res[1], names = res[2];
+      var live = (sr.ok ? (sr.body.sessions || []) : []).filter(function (s) { return s.login === login; })[0];
+      $('#usageLive').textContent = live
+        ? 'Currently ' + (live.viewing ? 'viewing ' + (names[live.viewing] || live.viewing) : 'on the hub') + '.'
+        : 'Not signed in right now.';
+      if (!ur.ok) { $('#usageBody').textContent = 'Could not load.'; return; }
+      usageLastByDay = (ur.body.usage || {})[login] || {};
+      usageLastNames = names;
+      renderUsageBody(usageLastByDay, usageLastNames);
+    });
+  }
+
+  function setUsageGroup(g) {
+    usageGroup = g;
+    $('#usageByMonth').classList.toggle('primary', g === 'month');
+    $('#usageByDay').classList.toggle('primary', g === 'day');
+    renderUsageBody(usageLastByDay, usageLastNames);
+  }
+
+  function renderUsageBody(byDay, names) {
+    var days = Object.keys(byDay).sort().reverse();
+    var buckets = {};
+    if (usageGroup === 'day') {
+      days.forEach(function (d) { buckets[d] = byDay[d]; });
+    } else {
+      days.forEach(function (d) {
+        var month = d.slice(0, 7);
+        var b = buckets[month] || (buckets[month] = { totalMs: 0, dashboards: {} });
+        b.totalMs += byDay[d].totalMs;
+        Object.keys(byDay[d].dashboards || {}).forEach(function (id) {
+          b.dashboards[id] = (b.dashboards[id] || 0) + byDay[d].dashboards[id];
+        });
+      });
+    }
+    var keys = Object.keys(buckets).sort().reverse();
+    var body = $('#usageBody');
+    if (!keys.length) { body.innerHTML = '<p class="admin-empty">No recorded activity yet.</p>'; return; }
+    body.innerHTML = keys.map(function (k) {
+      var b = buckets[k];
+      var dashList = Object.keys(b.dashboards).sort(function (x, y) { return b.dashboards[y] - b.dashboards[x]; })
+        .map(function (id) { return (names[id] || id) + ' (' + fmtMs(b.dashboards[id]) + ')'; }).join(', ');
+      return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(k) + '</b>' +
+        '<span class="admin-row-sub">' + fmtMs(b.totalMs) + ' total</span>' +
+        (dashList ? '<span class="admin-row-sub">' + esc(dashList) + '</span>' : '') + '</div></div>';
+    }).join('');
   }
 
   function renderStorage() {
@@ -329,21 +488,64 @@
     totp_enabled: '2FA turned on', totp_disabled: '2FA turned off'
   };
 
+  var historyLimit = 300;
+
+  var expandedHistoryLogin = null;
+
+  function historyRowHtml(e) {
+    var bad = e.event === 'login_fail' ? ' admin-badge-bad' : '';
+    var ip = e.ip ? ' · ' + esc(e.ip) : '';
+    return '<div class="admin-row"><div class="admin-row-main">' +
+      '<span class="admin-badge' + bad + '">' + esc(HISTORY_LABEL[e.event] || e.event) + '</span>' +
+      '<span class="admin-row-sub">' + fmtWhen(e.ts) + ip + '</span></div></div>';
+  }
+
+  /* One row per person, most-recently-active first -- their latest event is
+     the overview; clicking a name expands their full history in place. The
+     "keep for longer" ask this replaced is handled by fetching a bigger
+     batch (historyLimit, "Load more history" bumps it) and grouping that
+     client-side, rather than a per-account request every click. */
   function renderHistory() {
     var box = $('#adminHistory');
     if (!box) return;
     box.textContent = 'Loading…';
-    api('__admin/history?limit=100').then(function (r) {
+    api('__admin/history?limit=' + historyLimit).then(function (r) {
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
-      var rows = r.body.history || [];
+      var rows = r.body.history || [];   // newest first, per read_history()
+      var more = $('#adminHistoryMore');
+      if (more) more.style.display = rows.length >= historyLimit ? '' : 'none';
       if (!rows.length) { box.innerHTML = '<p class="admin-empty">No activity recorded yet.</p>'; return; }
-      box.innerHTML = rows.map(function (e) {
-        var bad = e.event === 'login_fail' ? ' admin-badge-bad' : '';
-        var ip = e.ip ? ' · ' + esc(e.ip) : '';
-        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(e.login) + '</b>' +
-          ' <span class="admin-badge' + bad + '">' + esc(HISTORY_LABEL[e.event] || e.event) + '</span>' +
-          '<span class="admin-row-sub">' + fmtWhen(e.ts) + ip + '</span></div></div>';
+
+      var byLogin = {};
+      var order = [];
+      rows.forEach(function (e) {
+        if (!byLogin[e.login]) { byLogin[e.login] = []; order.push(e.login); }
+        byLogin[e.login].push(e);
+      });
+      // `rows` is already newest-first, so `order` (first-seen) is already
+      // most-recently-active-first -- no separate timestamp sort needed.
+
+      box.innerHTML = order.map(function (login) {
+        var events = byLogin[login];
+        var latest = events[0];
+        var bad = latest.event === 'login_fail' ? ' admin-badge-bad' : '';
+        var open = login === expandedHistoryLogin;
+        var head = '<div class="admin-row" data-history-person="' + esc(login) + '" style="cursor:pointer">' +
+          '<div class="admin-row-main"><b>' + esc(login) + '</b>' +
+          ' <span class="admin-badge' + bad + '">' + esc(HISTORY_LABEL[latest.event] || latest.event) + '</span>' +
+          '<span class="admin-row-sub">' + fmtWhen(latest.ts) + ' · ' + events.length + ' event' + (events.length === 1 ? '' : 's') +
+          ' loaded</span></div><span class="admin-badge">' + (open ? 'Hide' : 'Show all') + '</span></div>';
+        var body = open ? '<div class="admin-history-detail">' + events.map(historyRowHtml).join('') + '</div>' : '';
+        return head + body;
       }).join('');
+
+      $$('[data-history-person]', box).forEach(function (row) {
+        row.addEventListener('click', function () {
+          var login = row.dataset.historyPerson;
+          expandedHistoryLogin = (expandedHistoryLogin === login) ? null : login;
+          renderHistory();
+        });
+      });
     });
   }
 
@@ -387,6 +589,25 @@
     if (btn) btn.addEventListener('click', function () { location.hash = '#/admin'; });
     var backupBtn = $('#adminBackupNow');
     if (backupBtn) backupBtn.addEventListener('click', backupNow);
+
+    var histMore = $('#adminHistoryMore');
+    if (histMore) histMore.addEventListener('click', function () { historyLimit += 300; renderHistory(); });
+
+    var editClose = $('#editProfileClose'), editCancel = $('#editProfileCancel');
+    if (editClose) editClose.addEventListener('click', function () { $('#editProfileModal').classList.remove('open'); });
+    if (editCancel) editCancel.addEventListener('click', function () { $('#editProfileModal').classList.remove('open'); });
+    var editSave = $('#editProfileSave');
+    if (editSave) editSave.addEventListener('click', saveEditProfile);
+    var editModal = $('#editProfileModal');
+    if (editModal) editModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) editModal.classList.remove('open'); });
+
+    var usageClose = $('#usageClose');
+    if (usageClose) usageClose.addEventListener('click', function () { $('#usageModal').classList.remove('open'); });
+    var usageModal = $('#usageModal');
+    if (usageModal) usageModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) usageModal.classList.remove('open'); });
+    var usageByMonth = $('#usageByMonth'), usageByDay = $('#usageByDay');
+    if (usageByMonth) usageByMonth.addEventListener('click', function () { setUsageGroup('month'); });
+    if (usageByDay) usageByDay.addEventListener('click', function () { setUsageGroup('day'); });
   });
 
   w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };

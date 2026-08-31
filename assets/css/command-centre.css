@@ -1102,20 +1102,26 @@ a{color:var(--brand-soft); text-decoration:none;}
 
 /* The shared .modal-body is a flex container built for the preview modal's
    full-bleed iframe. This one holds a form, so it stacks instead. */
-#importModal .modal{width:min(520px,100%); padding:0; overflow:hidden;
-  display:flex; flex-direction:column;}
-#importModal .modal-body{display:block; flex:0 1 auto; overflow:auto;
-  padding:18px 22px 2px; background:transparent;}
-#importModal .modal-foot{flex:0 0 auto; display:flex; align-items:center; gap:9px;
+/* Any modal built from the same modal-head/modal-body/modal-foot three-part
+   shell (importModal, and everything sharing this rule) needs the same
+   override: the shared .modal-body above is a flex row built for the
+   preview modal's full-bleed iframe, which stacks label+field pairs
+   sideways instead of top to bottom for anything else that uses it. */
+#importModal .modal, #raiseModal .modal, #totpModal .modal{
+  width:min(520px,100%); padding:0; overflow:hidden; display:flex; flex-direction:column;}
+#importModal .modal-body, #raiseModal .modal-body, #totpModal .modal-body{
+  display:block; flex:0 1 auto; overflow:auto; padding:18px 22px 2px; background:transparent;}
+#importModal .modal-foot, #raiseModal .modal-foot, #totpModal .modal-foot{
+  flex:0 0 auto; display:flex; align-items:center; gap:9px;
   padding:13px 16px; border-top:1px solid var(--wire);}
-#importModal .modal p{margin:0;}
-#importModal .reset-lede{margin:0 0 16px; font-size:13.5px; font-weight:600; color:var(--ink);
+#importModal .modal p, #raiseModal .modal p, #totpModal .modal p{margin:0;}
+#importModal .reset-lede, #raiseModal .reset-lede, #totpModal .reset-lede{margin:0 0 16px; font-size:13.5px; font-weight:600; color:var(--ink);
   word-break:break-word;}
-#importModal .gate-label{margin-top:0;}
-#importModal .gate-field{margin-bottom:6px;}
-#importModal .gate-field select,
-#importModal .gate-field input{height:44px;}
-#importModal .gate-msg{margin:10px 0 6px;}
+#importModal .gate-label, #raiseModal .gate-label, #totpModal .gate-label{margin-top:0;}
+#importModal .gate-field, #raiseModal .gate-field, #totpModal .gate-field{margin-bottom:6px;}
+#importModal .gate-field select, #raiseModal .gate-field select, #totpModal .gate-field select,
+#importModal .gate-field input, #raiseModal .gate-field input, #totpModal .gate-field input{height:44px;}
+#importModal .gate-msg, #raiseModal .gate-msg, #totpModal .gate-msg{margin:10px 0 6px;}
 .import-guess{margin:0 0 16px; font-size:12px; color:var(--ink-3); font-style:italic; line-height:1.5;}
 
 /* The "in development" filter sits with the categories but is not one --

@@ -32,7 +32,7 @@
     },
     {
       "date": "2026-08-31",
-      "version": 3,
+      "version": "f293c8f",
       "title": "Delete an account from the admin panel",
       "notes": [
         "The Accounts card's Disable button is now \"Disable / delete\" -- click it and choose which one, rather than disabling being the only option.",
@@ -40,6 +40,28 @@
         "Guarded against the two ways this could go wrong: you can't delete the only remaining account, and you can't delete the account you're currently signed in as.",
         "Fixed the Edit profile fields (name/phone/email/employee ID) sometimes appearing to auto-complete a previous account's value while typing -- that was the browser's own autofill remembering an earlier entry, not the app; the fields now opt out of it.",
         "Broadcast email now waits for every send to finish and reports what actually happened -- \"Sent to N accounts\" or exactly who it failed for -- instead of just \"Sending to N accounts\" the moment it was queued."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": "c85eadc",
+      "title": "Reordered signup fields, friendlier verification emails",
+      "notes": [
+        "Sign-up now asks for Employee ID above Email, with the \"Send verification code\" button right beneath Email instead of further down the form.",
+        "The sign-up verification email and the admin's new-request email are now a proper welcome note -- a greeting, a plain-language explanation of what's happening, and the code itself in bold, larger type.",
+        "Fixed a crash: a non-signup request (password reset, sign-in name change) could fail to notify the admin by email due to a formatting bug in the message builder."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": "18c7011",
+      "title": "Notification bell, topbar cleanup, renamed to SCM Gen-Dash",
+      "notes": [
+        "A bell in the topbar now shows pending requests from anywhere in the app, not just inside the admin panel -- with a live count and a preview list.",
+        "The admin panel auto-refreshes roughly every 10 seconds while it's open, so a new request shows up without leaving and coming back.",
+        "Removed the topbar's Home button -- the Paras Health logo already goes home, so this frees up space for the other icons.",
+        "The Data Library button is now icon-only like its neighbours, with its name shown on hover.",
+        "Renamed the product from \"Supply Chain Command Centre\" to \"SCM Gen-Dash\" everywhere it's shown. The logo is unchanged."
       ]
     }
   ]

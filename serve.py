@@ -192,6 +192,26 @@ def drop_conflict(token):
         CONFLICTS.pop(token, None)
 
 
+def admin_login():
+    """The primary account's login, or None if auth.json has none yet.
+
+    set_password.py always keeps the account it was last run against as
+    accounts[0] (a fresh signup from the in-app screen is appended, never
+    inserted first -- see build() there), and mirrors that same login into
+    the top-level "email" field for older builds. Either one reliably names
+    the one account this app treats as admin; there is no separate "is
+    admin" flag anywhere in the data, this ordering is it."""
+    try:
+        with open(AUTH_PATH, encoding="utf-8") as fh:
+            auth = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    accounts = auth.get("accounts")
+    if accounts:
+        return accounts[0].get("login")
+    return auth.get("email") or None
+
+
 def auth_configured():
     """False when there is no auth.json yet, or it explicitly says
     enabled: false -- gate.js opens straight in for either, so the API
@@ -451,6 +471,28 @@ def make_handler(prefix):
             self._json(401, {"error": "sign in required"})
             return False
 
+        def _require_admin(self):
+            """Same shape as _require_session above, but for the handful of
+            actions that change the shared source data everyone else's
+            dashboards read from: uploading, renaming, or deleting a Data
+            Library file. A signed-in regular account still reads that data
+            fine (dashboards keep working for everyone) -- this only gates
+            changing it. Not yet applied to downloading the raw file itself:
+            today that is also how a dashboard loads library data to begin
+            with, so locking it down here would break dashboards for every
+            non-admin account; it becomes safe to add once dashboards read a
+            precomputed result instead of the raw upload directly."""
+            if not auth_configured():
+                return True
+            login = session_login(self._session_token())
+            if login and login == admin_login():
+                return True
+            if not login:
+                self._json(401, {"error": "sign in required"})
+            else:
+                self._json(403, {"error": "admin only"})
+            return False
+
         def _send_auth(self):
             """auth.json, read from the data folder -- with the password
             hashes themselves removed. Salt and iteration count are not
@@ -483,7 +525,7 @@ def make_handler(prefix):
             super().do_HEAD()
 
         def do_DELETE(self):
-            if not self._require_session():
+            if not self._require_admin():
                 return
             path_only = self.path.split("?")[0]
             dtail = seg_route(path_only, "__data")
@@ -905,12 +947,12 @@ def make_handler(prefix):
             # _library_put rather than being mistaken for a sign-in request.
             dtail = seg_route(path_only, "__data")
             if dtail is not None and dtail and dtail[0] == "import":
-                if self._require_session():
+                if self._require_admin():
                     self._data_import(qs)
                 return
             tail = library_route(path_only)
             if tail is not None:
-                if not self._require_session():
+                if not self._require_admin():
                     return
                 if len(tail) == 1:
                     self._library_put(tail[0], qs)

@@ -2211,7 +2211,6 @@
     w.addEventListener('hashchange', route);
 
     $('#brand').addEventListener('click', function () { goHome(); });
-    $('#homeBtn').addEventListener('click', function () { goHome(); });
     $('#backBtn').addEventListener('click', function () { goHome(); });
     $('#themeBtn').addEventListener('click', function () {
       applyTheme(d.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light');

@@ -7,7 +7,7 @@
 
   var DEFAULT_APP = {
     org: 'PARAS HEALTH',
-    title: 'Supply Chain Command Centre',
+    title: 'SCM Gen-Dash',
     tagline: '',
     defaultMode: 'local',
     defaultTheme: 'dark'

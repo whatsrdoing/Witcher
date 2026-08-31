@@ -965,7 +965,6 @@ a{color:var(--brand-soft); text-decoration:none;}
 
 /* ---------- Shared Data Library ----------------------------------------- */
 .lib-label{font-size:12.5px;}
-@media (max-width:1320px){ .lib-label{display:none;} #libraryBtn{width:36px;padding:0;justify-content:center;} }
 
 .match-bar{
   flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:10px 16px;
@@ -1147,8 +1146,9 @@ a{color:var(--brand-soft); text-decoration:none;}
 .changelog-entry:last-child{border-bottom:0; padding-bottom:2px;}
 .changelog-entry:first-child{padding-top:2px;}
 .changelog-date{font-size:10.5px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin-bottom:4px;}
-.changelog-version{display:inline-block; font-size:10px; font-weight:800; letter-spacing:.04em; color:var(--brand-soft);
-  background:color-mix(in srgb,var(--brand-bright) 16%,transparent); border-radius:5px; padding:1px 6px; margin-left:2px;}
+.changelog-version{display:inline-block; font-size:10px; font-weight:700; letter-spacing:.02em; color:var(--brand-soft);
+  font-family:var(--mono); background:color-mix(in srgb,var(--brand-bright) 16%,transparent);
+  border-radius:5px; padding:1px 6px; margin-left:2px;}
 #changelogMore{margin-top:4px;}
 .changelog-title{font-size:14.5px; font-weight:700; color:var(--ink); margin-bottom:8px;}
 .changelog-notes{margin:0; padding-left:18px; display:flex; flex-direction:column; gap:6px;}

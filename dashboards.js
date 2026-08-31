@@ -6,7 +6,7 @@ window.__PARAS_REGISTRY__ = {
   "schema": 1,
   "app": {
     "org": "PARAS HEALTH",
-    "title": "Supply Chain Command Centre",
+    "title": "SCM Gen-Dash",
     "tagline": "Offline workspace for supply chain, procurement and pharmacy intelligence",
     "defaultMode": "local",
     "defaultTheme": "dark"

@@ -81,7 +81,25 @@
     $$('.view').forEach(function (v) { v.classList.remove('active'); });
     $('#viewAdmin').classList.add('active');
     refreshAll();
+    startPanelAutoRefresh();
     return true;
+  }
+
+  /* Keeps whatever's on screen current while the admin is actually looking
+     at it, instead of needing to leave and come back to see a new request
+     land -- self-cancelling (checks its own view is still active on every
+     tick) rather than needing app.js's router to remember to stop it. */
+  var panelRefreshTimer = null;
+  function startPanelAutoRefresh() {
+    if (panelRefreshTimer) return;
+    panelRefreshTimer = setInterval(function () {
+      if (!$('#viewAdmin').classList.contains('active')) {
+        clearInterval(panelRefreshTimer);
+        panelRefreshTimer = null;
+        return;
+      }
+      refreshAll();
+    }, 10000);
   }
 
   function refreshAll() {
@@ -702,7 +720,48 @@
     isAdmin().then(function (v) {
       var btn = $('#adminBtn');
       if (btn) btn.style.display = v ? '' : 'none';
+      var tray = $('#adminNotifTray');
+      if (tray) tray.style.display = v ? '' : 'none';
+      if (v) startNotifPolling();
     });
+  }
+
+  /* Pending-requests bell in the topbar -- reachable from anywhere in the
+     app, not just from inside the admin panel, so a new request doesn't
+     sit unnoticed until the admin happens to open it. Polls independently
+     of whether the admin panel itself is even open. */
+  var notifTimer = null;
+  var notifPending = [];
+
+  function renderNotifTray() {
+    api('__admin/requests').then(function (r) {
+      if (!r.ok) return;
+      notifPending = (r.body.requests || []).filter(function (q) { return q.status === 'pending'; })
+        .sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+      var count = $('#adminNotifCount');
+      if (count) {
+        count.textContent = String(notifPending.length);
+        count.style.display = notifPending.length ? '' : 'none';
+      }
+      var list = $('#adminNotifList');
+      if (!list) return;
+      list.innerHTML = notifPending.length
+        ? notifPending.map(function (q) {
+            var detail = q.type === 'id_change' ? ('wants to become "' + esc((q.payload || {}).newLogin) + '"')
+              : q.type === 'signup' ? 'new account request'
+              : 'password reset request';
+            return '<button type="button" class="pop-row" data-notif-goto style="flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer">' +
+              '<b class="nm">' + esc(q.login) + '</b>' +
+              '<span style="font-size:11px;color:var(--ink-3)">' + esc(detail) + ' · ' + fmtWhen(q.createdAt) + '</span></button>';
+          }).join('')
+        : '<p class="empty">Nothing waiting on approval.</p>';
+    });
+  }
+
+  function startNotifPolling() {
+    if (notifTimer) return;
+    renderNotifTray();
+    notifTimer = setInterval(renderNotifTray, 10000);
   }
 
   var lastViewing = undefined;
@@ -722,6 +781,25 @@
     if (btn) btn.addEventListener('click', function () { location.hash = '#/admin'; });
     var backupBtn = $('#adminBackupNow');
     if (backupBtn) backupBtn.addEventListener('click', backupNow);
+
+    var notifBtn = $('#adminNotifBtn');
+    if (notifBtn) notifBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      var p = $('#adminNotifPop');
+      var open = p.style.display === 'block';
+      if (!open) renderNotifTray();
+      p.style.display = open ? 'none' : 'block';
+    });
+    var notifList = $('#adminNotifList');
+    if (notifList) notifList.addEventListener('click', function (e) {
+      if (e.target.closest('[data-notif-goto]')) {
+        $('#adminNotifPop').style.display = 'none';
+        location.hash = '#/admin';
+      }
+    });
+    d.addEventListener('click', function (e) {
+      if (!e.target.closest('#adminNotifTray')) { var p = $('#adminNotifPop'); if (p) p.style.display = 'none'; }
+    });
 
     var histMore = $('#adminHistoryMore');
     if (histMore) histMore.addEventListener('click', function () { historyLimit += 300; renderHistory(); });

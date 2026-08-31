@@ -282,6 +282,7 @@ a{color:var(--brand-soft); text-decoration:none;}
 .admin-badge{display:inline-block; font-size:10.5px; font-weight:700; text-transform:uppercase;
   letter-spacing:.04em; padding:2px 7px; border-radius:999px; background:rgba(91,141,239,.18); color:var(--info);}
 .admin-badge-bad{background:rgba(251,113,133,.18); color:var(--bad);}
+.admin-badge-ok{background:color-mix(in srgb, var(--ok) 18%, transparent); color:var(--ok);}
 .admin-empty{color:var(--ink-3); font-size:12.5px; margin:6px 0;}
 .admin-summary{font-size:12px; color:var(--ink-3); margin-bottom:10px;}
 
@@ -842,6 +843,18 @@ a{color:var(--brand-soft); text-decoration:none;}
   box-shadow:0 0 0 3px color-mix(in srgb, var(--brand-bright) 22%, transparent);
 }
 .gate-field input:focus ~ .gate-ico, .gate-field select:focus ~ .gate-ico, .gate-field:focus-within .gate-ico{color:var(--brand-soft);}
+
+.gate-field textarea{
+  width:100%; min-height:96px; padding:12px 14px; border-radius:12px; font-size:14.5px; font-weight:500;
+  color:var(--ink); background:var(--glass); border:1px solid var(--wire); resize:vertical; font-family:inherit; line-height:1.5;
+  transition:border-color .18s var(--ease), background .18s var(--ease), box-shadow .18s var(--ease);
+}
+.gate-field textarea::placeholder{color:var(--ink-3); font-weight:400;}
+.gate-field textarea:focus{
+  outline:none; border-color:var(--brand-bright); background-color:var(--glass-2);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--brand-bright) 22%, transparent);
+}
+:root[data-theme="light"] .gate-field textarea{background-color:#E9EFF9; border-color:transparent;}
 
 .gate-field-email input{padding-right:132px;}
 .gate-suffix{

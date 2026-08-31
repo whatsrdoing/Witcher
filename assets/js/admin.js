@@ -60,9 +60,52 @@
     renderSessions();
     renderAccounts();
     renderRequests();
+    renderFeedback();
     renderDashboardVisibility();
     renderStorage();
     renderHistory();
+  }
+
+  var FEEDBACK_CATEGORY_LABEL = { feature: 'Feature idea', bug: "Something's broken", data: 'Data question', other: 'Other' };
+
+  function renderFeedback() {
+    var box = $('#adminFeedback');
+    if (!box) return;
+    box.textContent = 'Loading…';
+    api('__admin/feedback').then(function (r) {
+      if (!r.ok) { box.textContent = 'Could not load.'; return; }
+      var rows = (r.body.items || []).slice().sort(function (a, b) {
+        var openDiff = (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0);
+        return openDiff || (b.createdAt || 0) - (a.createdAt || 0);
+      });
+      if (!rows.length) { box.innerHTML = '<p class="admin-empty">Nothing raised yet.</p>'; return; }
+      box.innerHTML = rows.map(function (f) {
+        var badge = f.status === 'done' ? '<span class="admin-badge admin-badge-ok">Done</span>'
+          : '<span class="admin-badge">Open</span>';
+        var remark = f.remark ? '<span class="admin-row-sub">Remark: ' + esc(f.remark) + '</span>' : '';
+        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(f.subject) + '</b> ' + badge +
+          '<span class="admin-row-sub">' + esc(f.login) + ' · ' + esc(FEEDBACK_CATEGORY_LABEL[f.category] || f.category) +
+          ' · ' + fmtWhen(f.createdAt) + '</span>' +
+          '<span class="admin-row-sub">' + esc(f.message) + '</span>' + remark + '</div>' +
+          '<div class="admin-row-acts">' +
+          '<button class="btn sm" data-feedback-toggle="' + esc(f.id) + '" data-done="' + (f.status === 'done' ? '' : '1') + '">' +
+          (f.status === 'done' ? 'Reopen' : 'Mark done') + '</button></div></div>';
+      }).join('');
+
+      $$('[data-feedback-toggle]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () { resolveFeedback(btn.dataset.feedbackToggle, btn.dataset.done === '1'); });
+      });
+    });
+  }
+
+  function resolveFeedback(id, done) {
+    var remark = prompt(done ? 'Mark this done. Add a remark (optional):' : 'Reopen this item. Add a remark (optional):') || '';
+    api('__admin/feedback/' + encodeURIComponent(id) + '/resolve', {
+      method: 'POST', body: JSON.stringify({ done: done, remark: remark })
+    }).then(function (r) {
+      if (!r.ok) { alert(r.body.error || 'Could not update it.'); return; }
+      renderFeedback();
+    });
   }
 
   var REQUEST_LABEL = { signup: 'New account', password_reset: 'Password reset', id_change: 'Sign-in name change' };

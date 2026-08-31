@@ -2394,6 +2394,7 @@
         if ($('#pickModal').classList.contains('open')) return closePick();
         if ($('#previewModal').classList.contains('open')) return closePreview();
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();
+        if (w.ParasFeedback && w.ParasFeedback.closeIfOpen()) return;
         if ($('#drawer').classList.contains('open')) return closeDrawer();
         if (current) return goHome();
       }

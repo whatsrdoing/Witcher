@@ -312,6 +312,27 @@ def write_requests(requests):
     os.replace(tmp, REQUESTS_PATH)
 
 
+FEEDBACK_PATH = os.path.join(paths.data_dir(), "feedback.json")
+FEEDBACK_LOCK = threading.Lock()
+
+
+def read_feedback():
+    try:
+        with open(FEEDBACK_PATH, encoding="utf-8") as fh:
+            return json.load(fh).get("items") or []
+    except (OSError, ValueError):
+        return []
+
+
+def write_feedback(items):
+    os.makedirs(os.path.dirname(FEEDBACK_PATH), exist_ok=True)
+    tmp = FEEDBACK_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump({"items": items}, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, FEEDBACK_PATH)
+
+
 def admin_login():
     """The primary account's login, or None if auth.json has none yet.
 
@@ -562,6 +583,19 @@ def make_handler(prefix):
             if atail is not None:
                 if self._require_admin():
                     self._admin_get(atail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
+                return
+            # A signed-in account's own view of what it has raised -- not the
+            # admin-only full list (that is __admin/feedback), just enough
+            # for the "Raise a request" window to show "here's where yours
+            # stand" without needing email notifications.
+            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__feedback":
+                login = session_login(self._session_token())
+                if not login:
+                    self._json(401, {"error": "sign in required"})
+                    return
+                mine = [f for f in read_feedback() if f.get("login") == login]
+                mine.sort(key=lambda f: f.get("createdAt") or 0, reverse=True)
+                self._json(200, {"items": mine[:20]})
                 return
             if self._redirect():
                 return
@@ -1106,6 +1140,9 @@ def make_handler(prefix):
             if tail == ["requests"]:
                 self._json(200, {"requests": read_requests()})
                 return
+            if tail == ["feedback"]:
+                self._json(200, {"items": read_feedback()})
+                return
             if tail == ["dashboards"]:
                 try:
                     with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
@@ -1162,7 +1199,28 @@ def make_handler(prefix):
             if len(tail) == 3 and tail[0] == "requests" and tail[2] == "resolve":
                 self._admin_requests_resolve(tail[1], body)
                 return
+            if len(tail) == 3 and tail[0] == "feedback" and tail[2] == "resolve":
+                self._admin_feedback_resolve(tail[1], body)
+                return
             self.send_error(404)
+
+        def _admin_feedback_resolve(self, item_id, body):
+            """POST /__admin/feedback/<id>/resolve {done, remark} -- unlike
+            the account-request queue there is nothing to apply here beyond
+            the status itself: this is a suggestion/issue note, not a
+            mutation to auth.json, so marking it done (or reopening it) and
+            optionally leaving a remark is the whole action."""
+            with FEEDBACK_LOCK:
+                items = read_feedback()
+                entry = next((f for f in items if f.get("id") == item_id), None)
+                if entry is None:
+                    self._json(404, {"error": "no such item"})
+                    return
+                entry["status"] = "done" if body.get("done") else "open"
+                entry["remark"] = str(body.get("remark") or "")[:500]
+                entry["resolvedAt"] = int(time.time() * 1000) if entry["status"] == "done" else None
+                write_feedback(items)
+            self._json(200, {"ok": True})
 
         def _admin_requests_resolve(self, request_id, body):
             """POST /__admin/requests/<id>/resolve {action, remark} -- the
@@ -1420,6 +1478,10 @@ def make_handler(prefix):
                 self._json(200, {"ok": True})
                 return
 
+            if last_seg == "__feedback":
+                self._feedback_post()
+                return
+
             if last_seg != "__request":
                 self.send_error(404)
                 return
@@ -1517,6 +1579,53 @@ def make_handler(prefix):
                 requests_.append(entry)
                 write_requests(requests_)
             print("  New %s request: %s" % (rtype, login))
+            self._json(200, {"ok": True, "id": entry["id"]})
+
+        def _feedback_post(self):
+            """POST /__feedback -- a signed-in account's own suggestion, bug
+            report, or question about the Command Centre. Unlike __request
+            this never mutates auth.json or anything else -- it is purely a
+            note that lands in the admin panel's "Suggestions & issues" list
+            for the admin to read and, optionally, mark done."""
+            login = session_login(self._session_token())
+            if not login:
+                self._json(401, {"error": "sign in required"})
+                return
+
+            rate_key = "feedback:" + self.client_address[0]
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 4096:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                rate_fail(rate_key)
+                self._json(400, {"error": "bad request"})
+                return
+
+            category = req.get("category")
+            if category not in ("feature", "bug", "data", "other"):
+                category = "other"
+            subject = str(req.get("subject") or "").strip()[:120]
+            message = str(req.get("message") or "").strip()[:2000]
+            if not subject or not message:
+                rate_fail(rate_key)
+                self._json(400, {"error": "a subject and some details are required"})
+                return
+
+            rate_clear(rate_key)
+            entry = {"id": secrets.token_hex(12), "login": login, "category": category,
+                     "subject": subject, "message": message, "status": "open",
+                     "createdAt": int(time.time() * 1000), "resolvedAt": None, "remark": ""}
+            with FEEDBACK_LOCK:
+                items = read_feedback()
+                items.append(entry)
+                write_feedback(items)
+            print("  New %s request from %s: %s" % (category, login, subject))
             self._json(200, {"ok": True, "id": entry["id"]})
 
         def _json(self, code, payload):

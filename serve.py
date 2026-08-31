@@ -1893,11 +1893,13 @@ def make_handler(prefix):
         def _admin_broadcast_post(self, body):
             """POST /__admin/broadcast {subject, message, logins} -- emails
             every account that has an address on file (or just the ones
-            named in `logins`, if given) from a single background thread,
-            same reasoning as notify_admin_of_request: whoever's SMTP server
-            this is could easily take longer than an HTTP request should,
-            and the admin panel doesn't need to sit there waiting to find
-            out how many sent -- see the login history."""
+            named in `logins`, if given), and waits for every send to
+            actually finish before answering, so the admin panel can show
+            what really happened (sent to N, failed for these M) rather
+            than just "queued" -- unlike notify_admin_of_request (fired for
+            every sign-up regardless of anyone watching), this is a single
+            deliberate button press an admin is looking at, so it is worth
+            the wait to report the real outcome instead of a guess."""
             if not mail.mail_enabled():
                 self._json(503, {"error": "email is not set up on this server -- run set_mail.py first"})
                 return
@@ -1920,12 +1922,8 @@ def make_handler(prefix):
                 self._json(400, {"error": "none of the selected accounts have an email address on file"})
                 return
 
-            def send_all():
-                for addr in recipients:
-                    mail.send_mail(addr, subject, message)
-
-            threading.Thread(target=send_all, daemon=True).start()
-            self._json(200, {"ok": True, "queued": len(recipients)})
+            failed = [addr for addr in recipients if not mail.send_mail(addr, subject, message)]
+            self._json(200, {"ok": True, "sent": len(recipients) - len(failed), "failed": failed})
 
         def _admin_backup_download(self, name):
             # name is only ever compared against our own generated pattern --

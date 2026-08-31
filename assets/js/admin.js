@@ -245,6 +245,10 @@
     }
     var btn = $('#adminBroadcastSend');
     btn.disabled = true;
+    msg.textContent = 'Sending…'; msg.className = 'gate-msg'; msg.style.display = 'flex';
+    // The server waits for every send to actually finish before answering,
+    // so this can take a few seconds for more than a couple of recipients --
+    // worth it to report what really happened instead of just "queued".
     api('__admin/broadcast', { method: 'POST', body: JSON.stringify({ subject: subject, message: message, logins: logins }) })
       .then(function (r) {
         btn.disabled = false;
@@ -253,8 +257,16 @@
           msg.className = 'gate-msg err'; msg.style.display = 'flex';
           return;
         }
-        msg.textContent = 'Sending to ' + r.body.queued + ' account' + (r.body.queued === 1 ? '' : 's') + '.';
-        msg.className = 'gate-msg ok'; msg.style.display = 'flex';
+        var failed = r.body.failed || [];
+        if (!failed.length) {
+          msg.textContent = 'Sent to ' + r.body.sent + ' account' + (r.body.sent === 1 ? '' : 's') + '.';
+          msg.className = 'gate-msg ok';
+        } else {
+          msg.textContent = 'Sent to ' + r.body.sent + ', failed for ' + failed.length +
+            ' (' + failed.join(', ') + ') -- check the server console for why.';
+          msg.className = 'gate-msg err';
+        }
+        msg.style.display = 'flex';
         $('#adminBroadcastSubject').value = ''; $('#adminBroadcastMessage').value = '';
       });
   }

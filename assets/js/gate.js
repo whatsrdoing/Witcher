@@ -587,7 +587,80 @@
       .forEach(function (id) { $('#' + id).value = ''; });
     signupPhotoFile = null;
     clearSignupPhotoPreview();
+    resetSignupOtp();
     setTimeout(function () { $('#signupUser').focus(); }, 60);
+  }
+
+  function api(path, body) {
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, body: j }; });
+      });
+  }
+
+  /* ---- sign-up email verification (OTP) ------------------------------------
+     Only shown/required when the server says email is actually set up
+     (__mail/status) -- fetched once and cached, since it can't change while
+     this tab is open. Everything here degrades to "just sign up, no
+     verification" the moment that's false, same as before this existed. */
+  var mailEnabledPromise = null;
+  function mailEnabled() {
+    if (mailEnabledPromise) return mailEnabledPromise;
+    mailEnabledPromise = fetch('__mail/status', { cache: 'no-store' }).then(function (r) {
+      return r.ok ? r.json() : { enabled: false };
+    }).then(function (j) { return !!(j && j.enabled); }).catch(function () { return false; });
+    return mailEnabledPromise;
+  }
+
+  var signupOtpToken = null, signupOtpEmail = null;
+
+  function resetSignupOtp() {
+    signupOtpToken = null; signupOtpEmail = null;
+    $('#signupOtpCodeWrap').style.display = 'none';
+    $('#signupOtpCode').value = '';
+    $('#signupOtpStatus').textContent = '';
+    $('#signupOtpStatus').className = 'admin-row-sub';
+    var btn = $('#signupOtpSend');
+    btn.disabled = false; btn.textContent = 'Send verification code'; btn.style.display = '';
+    mailEnabled().then(function (on) { $('#signupOtpWrap').style.display = on ? '' : 'none'; });
+  }
+
+  function currentSignupEmail() {
+    return (($('#signupEmail').value || '').trim().split('@')[0] + EMAIL_DOMAIN).toLowerCase();
+  }
+
+  function sendSignupOtp() {
+    var email = currentSignupEmail();
+    if (email === EMAIL_DOMAIN.toLowerCase()) { signupSay('Enter the email first.', 'err'); return; }
+    var btn = $('#signupOtpSend');
+    btn.disabled = true; btn.textContent = 'Sending…';
+    api('__otp/send', { email: email }).then(function (r) {
+      btn.disabled = false; btn.textContent = 'Resend code';
+      if (!r.ok) { $('#signupOtpStatus').textContent = r.body.error || 'Could not send it.'; $('#signupOtpStatus').className = 'admin-row-sub err'; return; }
+      signupOtpEmail = email;
+      $('#signupOtpCodeWrap').style.display = '';
+      $('#signupOtpStatus').textContent = 'Code sent to ' + email + '.';
+      $('#signupOtpStatus').className = 'admin-row-sub';
+      $('#signupOtpCode').focus();
+    });
+  }
+
+  function verifySignupOtp() {
+    var email = currentSignupEmail();
+    var code = ($('#signupOtpCode').value || '').trim();
+    if (!code) return;
+    var btn = $('#signupOtpVerify');
+    btn.disabled = true;
+    api('__otp/verify', { email: email, code: code }).then(function (r) {
+      btn.disabled = false;
+      if (!r.ok) { $('#signupOtpStatus').textContent = r.body.error || 'Wrong or expired code.'; $('#signupOtpStatus').className = 'admin-row-sub err'; return; }
+      signupOtpToken = r.body.token; signupOtpEmail = email;
+      $('#signupOtpCodeWrap').style.display = 'none';
+      $('#signupOtpStatus').textContent = 'Email verified.';
+      $('#signupOtpStatus').className = 'admin-row-sub ok';
+      $('#signupOtpSend').style.display = 'none';
+      signupSay('');
+    });
   }
 
   /* ---- sign-up photo ------------------------------------------------------
@@ -669,22 +742,31 @@
     if (p1 !== p2) return signupSay('The two passwords do not match.', 'err');
     if (findAccount(login)) return signupSay('"' + login + '" is already taken. Choose another username.', 'err');
 
-    busy = true;
-    $('#signupSubmit').classList.add('working');
-    signupSay('Sending the request…', '');
+    var email = emailLocal + EMAIL_DOMAIN;
+    mailEnabled().then(function (otpRequired) {
+      if (otpRequired && (!signupOtpToken || signupOtpEmail !== email.toLowerCase())) {
+        signupSay('Verify your email first -- send yourself a code above.', 'err');
+        return;
+      }
 
-    var iters = cfg.iterations || 250000;
-    var salt = randomSalt();
-    var profile = { name: name, designation: designation, department: department, category: category,
-                     phone: phone, email: emailLocal + EMAIL_DOMAIN, parasId: parasId };
-    w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
-      return submitRequest('signup', { login: login, salt: salt, hash: hash, iterations: iters, profile: profile });
-    }).then(function () {
-      busy = false; $('#signupSubmit').classList.remove('working');
-      signupSay('Request sent. You can sign in once an admin approves it -- add a photo then, from the account menu.', 'ok');
-    }).catch(function (err) {
-      busy = false; $('#signupSubmit').classList.remove('working');
-      signupSay((err && err.message) || 'Could not send the request.', 'err');
+      busy = true;
+      $('#signupSubmit').classList.add('working');
+      signupSay('Sending the request…', '');
+
+      var iters = cfg.iterations || 250000;
+      var salt = randomSalt();
+      var profile = { name: name, designation: designation, department: department, category: category,
+                       phone: phone, email: email, parasId: parasId };
+      w.ParasCrypto.derive(p1, salt, iters).then(function (hash) {
+        return submitRequest('signup', { login: login, salt: salt, hash: hash, iterations: iters,
+                                          profile: profile, otpToken: signupOtpToken });
+      }).then(function () {
+        busy = false; $('#signupSubmit').classList.remove('working');
+        signupSay('Request sent. You can sign in once an admin approves it -- add a photo then, from the account menu.', 'ok');
+      }).catch(function (err) {
+        busy = false; $('#signupSubmit').classList.remove('working');
+        signupSay((err && err.message) || 'Could not send the request.', 'err');
+      });
     });
   }
 
@@ -832,6 +914,16 @@
       var clean = (this.value || '').replace(/[^0-9]/g, '').slice(0, 10);
       if (clean !== this.value) this.value = clean;
     });
+
+    $('#signupOtpSend').addEventListener('click', sendSignupOtp);
+    $('#signupOtpVerify').addEventListener('click', verifySignupOtp);
+    // A verified token is only good for the address it was issued for --
+    // editing the email after verifying has to ask again, not silently
+    // carry the old verification over to a different address.
+    $('#signupEmail').addEventListener('input', function () {
+      if (signupOtpEmail && currentSignupEmail() !== signupOtpEmail) resetSignupOtp();
+    });
+
     tickLockout();
     setTimeout(function () { $('#gateEmail').focus(); }, 120);
   }

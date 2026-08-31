@@ -62,6 +62,7 @@ DASHBOARDS_JSON = os.path.join(ROOT, "dashboards.json")
 # behind. See paths.py for the resolution order (PARAS_DATA_DIR wins, which
 # is also how selftest.py runs against a throwaway directory).
 import paths
+import mail
 
 LIBRARY_DIR = paths.library_dir()
 LIBRARY_BLOBS = paths.library_blobs()
@@ -463,6 +464,84 @@ def write_feedback(items):
         json.dump({"items": items}, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     os.replace(tmp, FEEDBACK_PATH)
+
+
+# ---- sign-up email verification (OTP) ---------------------------------------
+# In memory only, like SESSIONS -- a restart invalidating an in-flight code is
+# a minor inconvenience (ask for a new one), not a reason to persist a value
+# that is only ever useful for a few minutes. Two stages: a 6-digit code sent
+# to the address the sign-up form has typed so far, then (once entered
+# correctly) a longer-lived opaque token the sign-up request itself carries,
+# so the code can't be replayed and the request doesn't need the code again.
+OTP_LOCK = threading.Lock()
+OTP_CODES = {}          # email -> {"code": str, "expires": float}
+OTP_VERIFIED = {}       # token -> {"email": str, "expires": float}
+OTP_CODE_TTL = 10 * 60
+OTP_VERIFIED_TTL = 30 * 60
+
+
+def otp_store(email, code):
+    with OTP_LOCK:
+        OTP_CODES[email] = {"code": code, "expires": time.time() + OTP_CODE_TTL}
+
+
+def otp_check(email, code):
+    """True and consumes the code on a match; False (code left in place, so
+    a mistyped digit doesn't cost the whole attempt) otherwise."""
+    with OTP_LOCK:
+        rec = OTP_CODES.get(email)
+        if not rec or rec["expires"] < time.time():
+            OTP_CODES.pop(email, None)
+            return False
+        if not hmac.compare_digest(rec["code"], code):
+            return False
+        OTP_CODES.pop(email, None)
+        return True
+
+
+def otp_issue_token(email):
+    token = secrets.token_hex(20)
+    with OTP_LOCK:
+        OTP_VERIFIED[token] = {"email": email, "expires": time.time() + OTP_VERIFIED_TTL}
+    return token
+
+
+def otp_token_email(token):
+    """The verified email a still-valid token was issued for, or None."""
+    with OTP_LOCK:
+        rec = OTP_VERIFIED.get(token)
+        if not rec or rec["expires"] < time.time():
+            OTP_VERIFIED.pop(token, None)
+            return None
+        return rec["email"]
+
+
+REQUEST_TYPE_LABEL = {"signup": "new account", "password_reset": "password reset",
+                       "id_change": "sign-in name change"}
+
+
+def notify_admin_of_request(rtype, login):
+    """Emails the admin (auth.json's adminEmail, same address the sign-in
+    screen's "Forgot password?" link already uses) that a request landed in
+    the queue -- sent from a throwaway thread so a slow or unreachable mail
+    server never delays the response to whoever just raised the request.
+    Silently does nothing if mail isn't set up or no admin email is on
+    file, exactly like every other best-effort mail send in this file."""
+    if not mail.mail_enabled():
+        return
+    try:
+        with open(AUTH_PATH, encoding="utf-8") as fh:
+            admin_email = (json.load(fh).get("adminEmail") or "").strip()
+    except (OSError, ValueError):
+        admin_email = ""
+    if not admin_email:
+        return
+    label = REQUEST_TYPE_LABEL.get(rtype, rtype)
+    body = ("A new %s request from \"%s\" is waiting for approval in the Command Centre's admin panel."
+            % (label, login))
+    threading.Thread(target=mail.send_mail,
+                      args=(admin_email, "Paras Health SCM: %s request" % label, body),
+                      daemon=True).start()
 
 
 # ---- automated backups -----------------------------------------------------
@@ -967,6 +1046,12 @@ def make_handler(prefix):
                     self._json(200, {"login": login, "isAdmin": login == admin_login(), "totpEnabled": totp_enabled})
                 else:
                     self._json(401, {"error": "no session"})
+                return
+            # Whether the sign-up form should ask for (and require) an email
+            # code before letting a request through -- no session needed to
+            # ask, since it has to be answerable before anyone signs in.
+            if seg_route(path_only, "__mail") == ["status"]:
+                self._json(200, {"enabled": mail.mail_enabled()})
                 return
             atail = seg_route(path_only, "__admin")
             if atail is not None:
@@ -1797,7 +1882,47 @@ def make_handler(prefix):
                 else:
                     self._json(500, {"error": "backup failed -- see the server console"})
                 return
+            if tail == ["broadcast"]:
+                self._admin_broadcast_post(body)
+                return
             self.send_error(404)
+
+        def _admin_broadcast_post(self, body):
+            """POST /__admin/broadcast {subject, message, logins} -- emails
+            every account that has an address on file (or just the ones
+            named in `logins`, if given) from a single background thread,
+            same reasoning as notify_admin_of_request: whoever's SMTP server
+            this is could easily take longer than an HTTP request should,
+            and the admin panel doesn't need to sit there waiting to find
+            out how many sent -- see the login history."""
+            if not mail.mail_enabled():
+                self._json(503, {"error": "email is not set up on this server -- run set_mail.py first"})
+                return
+            subject = str(body.get("subject") or "").strip()[:200]
+            message = str(body.get("message") or "").strip()[:5000]
+            if not subject or not message:
+                self._json(400, {"error": "a subject and a message are required"})
+                return
+            logins = body.get("logins")
+            wanted = set(logins) if isinstance(logins, list) and logins else None
+
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    accounts = json.load(fh).get("accounts") or []
+            except (OSError, ValueError):
+                accounts = []
+            recipients = [a.get("email") for a in accounts
+                          if a.get("email") and (wanted is None or a.get("login") in wanted)]
+            if not recipients:
+                self._json(400, {"error": "none of the selected accounts have an email address on file"})
+                return
+
+            def send_all():
+                for addr in recipients:
+                    mail.send_mail(addr, subject, message)
+
+            threading.Thread(target=send_all, daemon=True).start()
+            self._json(200, {"ok": True, "queued": len(recipients)})
 
         def _admin_backup_download(self, name):
             # name is only ever compared against our own generated pattern --
@@ -2107,6 +2232,14 @@ def make_handler(prefix):
                     self._totp_post(ttail)
                 return
 
+            otail = seg_route(path_only, "__otp")
+            if otail == ["send"]:
+                self._otp_send_post()
+                return
+            if otail == ["verify"]:
+                self._otp_verify_post()
+                return
+
             atail = seg_route(path_only, "__admin")
             if atail is not None:
                 if self._require_admin():
@@ -2197,6 +2330,17 @@ def make_handler(prefix):
                     val = str((req.get("profile") or {}).get(field) or "").strip()[:200]
                     if val:
                         profile[field] = val
+                # Once email is set up, a sign-up can't go through without
+                # first proving the address actually belongs to whoever is
+                # typing -- see __otp/send and __otp/verify. Skipped entirely
+                # while mail is not configured, same as before this existed.
+                if mail.mail_enabled():
+                    email = (profile.get("email") or "").strip().lower()
+                    verified = otp_token_email(str(req.get("otpToken") or ""))
+                    if not email or not verified or verified != email:
+                        rate_fail(rate_key)
+                        self._json(400, {"error": "verify the email address first"})
+                        return
                 entry["payload"] = {"salt": salt, "hash": hash_,
                                     "iterations": int(req.get("iterations") or 250000), "profile": profile}
             elif rtype == "password_reset":
@@ -2229,6 +2373,7 @@ def make_handler(prefix):
                 requests_.append(entry)
                 write_requests(requests_)
             print("  New %s request: %s" % (rtype, login))
+            notify_admin_of_request(rtype, login)
             self._json(200, {"ok": True, "id": entry["id"]})
 
         def _feedback_post(self):
@@ -2277,6 +2422,71 @@ def make_handler(prefix):
                 write_feedback(items)
             print("  New %s request from %s: %s" % (category, login, subject))
             self._json(200, {"ok": True, "id": entry["id"]})
+
+        def _otp_send_post(self):
+            """POST /__otp/send {email} -- emails a 6-digit code to whatever
+            address the sign-up form has typed so far, no session required
+            (there is no account yet). Rate-limited per IP the same way
+            sign-in attempts are, so this can't be used to spam an inbox or
+            probe which addresses exist -- the response is identical either
+            way, since a mail server's own bounce (if any) is the only place
+            that distinction would ever surface."""
+            rate_key = "otp-send:" + self.client_address[0]
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 1024:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                rate_fail(rate_key)
+                self._json(400, {"error": "bad request"})
+                return
+            email = str(req.get("email") or "").strip().lower()
+            if "@" not in email or len(email) > 200:
+                rate_fail(rate_key)
+                self._json(400, {"error": "enter a valid email address"})
+                return
+            if not mail.mail_enabled():
+                self._json(503, {"error": "email is not set up on this server"})
+                return
+            rate_fail(rate_key)   # counts toward the limit even on success -- a fixed budget of codes per IP
+            code = "%06d" % secrets.randbelow(1000000)
+            otp_store(email, code)
+            mail.send_mail(email, "Paras Health SCM: verification code",
+                            "Your verification code is %s. It expires in 10 minutes. "
+                            "If you did not request this, ignore this email." % code)
+            self._json(200, {"ok": True})
+
+        def _otp_verify_post(self):
+            """POST /__otp/verify {email, code} -- on a match, returns a
+            token the sign-up request carries instead of the code itself, so
+            the request can be finished (filling in the rest of the form)
+            without asking for the code a second time, and the code itself
+            is single-use."""
+            rate_key = "otp-verify:" + self.client_address[0]
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 1024:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                rate_fail(rate_key)
+                self._json(400, {"error": "bad request"})
+                return
+            email = str(req.get("email") or "").strip().lower()
+            code = re.sub(r"\s+", "", str(req.get("code") or ""))
+            if not otp_check(email, code):
+                rate_fail(rate_key)
+                self._json(400, {"error": "wrong or expired code"})
+                return
+            rate_clear(rate_key)
+            self._json(200, {"ok": True, "token": otp_issue_token(email)})
 
         def _json(self, code, payload):
             body = json.dumps(payload).encode("utf-8")

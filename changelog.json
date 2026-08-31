@@ -18,6 +18,17 @@
         "Sign-up now also offers IT and Management as departments, GCOO/MD/CHRO as designations, and \"All\" as a category, with the designation/department/category fields shown three across instead of two.",
         "A \"How to sign in / reset your password\" link on the sign-in screen opens a short walkthrough of the current sign-in, reset, sign-up and 2FA flow."
       ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": 2,
+      "title": "Email: sign-up verification, admin notifications, broadcasts",
+      "notes": [
+        "Once email is set up on the server (see set_mail.py), sign-up now sends a verification code to the address you type -- the request can't be sent until you enter it back.",
+        "The admin is emailed the moment a new signup, password reset, or sign-in name change lands in the pending-requests queue.",
+        "A new \"Broadcast email\" card in the admin panel sends a message to every account with an email on file, or to specific accounts you pick.",
+        "All of the above quietly does nothing until email is configured -- nothing about sign-up, requests, or the admin panel changes on a server that hasn't run set_mail.py."
+      ]
     }
   ]
 }

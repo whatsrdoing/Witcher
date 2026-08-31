@@ -21,7 +21,10 @@
       return r.ok ? r.json() : { entries: [] };
     }).then(function (j) {
       cache = { entries: (j && j.entries) || [] };
-      cache.entries.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+      // By version, not date -- more than one entry can land on the same
+      // day (this one did), and a plain date-string compare would never
+      // flag the second one as unread for someone who already saw the first.
+      cache.entries.sort(function (a, b) { return (b.version || 0) - (a.version || 0); });
       return cache;
     }).catch(function () { return { entries: [] }; });
   }
@@ -33,19 +36,19 @@
     var who = w.ParasGate && w.ParasGate.currentUser && w.ParasGate.currentUser();
     return 'paras_changelog_seen:' + ((who && who.login) || '_');
   }
-  function lastSeen() {
-    try { return localStorage.getItem(seenKey()) || ''; } catch (e) { return ''; }
+  function lastSeenVersion() {
+    try { return Number(localStorage.getItem(seenKey())) || 0; } catch (e) { return 0; }
   }
-  function markSeen(date) {
-    try { localStorage.setItem(seenKey(), date); } catch (e) {}
+  function markSeen(version) {
+    try { localStorage.setItem(seenKey(), String(version || 0)); } catch (e) {}
   }
 
   function refreshDot() {
     load().then(function (c) {
       var dot = $('#whatsNewDot');
       if (!dot) return;
-      var newest = (c.entries[0] && c.entries[0].date) || '';
-      dot.style.display = (newest && newest > lastSeen()) ? '' : 'none';
+      var newest = (c.entries[0] && c.entries[0].version) || 0;
+      dot.style.display = (newest > lastSeenVersion()) ? '' : 'none';
     });
   }
 
@@ -86,7 +89,7 @@
     $('#changelogBody').textContent = 'Loading…';
     load().then(function (c) {
       render(c);
-      if (c.entries[0]) markSeen(c.entries[0].date);
+      if (c.entries[0]) markSeen(c.entries[0].version);
       var dot = $('#whatsNewDot');
       if (dot) dot.style.display = 'none';
     });

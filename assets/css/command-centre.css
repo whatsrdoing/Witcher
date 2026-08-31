@@ -902,6 +902,8 @@ a{color:var(--brand-soft); text-decoration:none;}
 }
 .gate-msg.err{color:var(--bad); background:color-mix(in srgb, var(--bad) 13%, transparent); border-color:color-mix(in srgb, var(--bad) 40%, transparent);}
 .gate-msg.ok{color:var(--ok); background:color-mix(in srgb, var(--ok) 13%, transparent); border-color:color-mix(in srgb, var(--ok) 40%, transparent);}
+.admin-row-sub.err{color:var(--bad);}
+.admin-row-sub.ok{color:var(--ok);}
 
 .gate-submit{
   width:100%; height:50px; border-radius:12px; display:flex; align-items:center; justify-content:center; gap:10px;

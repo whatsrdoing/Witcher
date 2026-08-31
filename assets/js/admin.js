@@ -93,6 +93,7 @@
     renderStorage();
     renderBackups();
     renderHistory();
+    renderBroadcast();
   }
 
   var FEEDBACK_CATEGORY_LABEL = { feature: 'New dashboard required', requirement: 'New requirement',
@@ -198,6 +199,66 @@
     });
   }
 
+  /* Only ever shown once __mail/status says a server is actually
+     configured (see set_mail.py) -- otherwise the card explains why it's
+     off rather than presenting a compose form that can't send anything. */
+  function renderBroadcastPickList() {
+    var pick = $('#adminBroadcastPick');
+    if (!pick) return;
+    pick.innerHTML = accountsCache.filter(function (a) { return a.email; }).map(function (a) {
+      return '<label class="admin-row"><input type="checkbox" value="' + esc(a.login) + '"> ' +
+        '<span class="admin-row-sub">' + esc(a.login) + ' -- ' + esc(a.email) + '</span></label>';
+    }).join('') || '<p class="admin-empty">No accounts have an email on file.</p>';
+  }
+
+  function renderBroadcast() {
+    var card = $('#adminBroadcastCard');
+    if (!card) return;
+    fetch('__mail/status', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; })
+      .then(function (j) {
+        card.style.display = '';
+        var on = !!(j && j.enabled);
+        $('#adminBroadcastOff').style.display = on ? 'none' : '';
+        $('#adminBroadcastForm').style.display = on ? '' : 'none';
+        if (on) renderBroadcastPickList();
+      });
+  }
+
+  function sendBroadcast() {
+    var subject = $('#adminBroadcastSubject').value.trim();
+    var message = $('#adminBroadcastMessage').value.trim();
+    var msg = $('#adminBroadcastMsg');
+    if (!subject || !message) {
+      msg.textContent = 'A subject and a message are required.';
+      msg.className = 'gate-msg err'; msg.style.display = 'flex';
+      return;
+    }
+    var to = document.querySelector('input[name="adminBroadcastTo"]:checked').value;
+    var logins = null;
+    if (to === 'pick') {
+      logins = $$('#adminBroadcastPick input:checked').map(function (c) { return c.value; });
+      if (!logins.length) {
+        msg.textContent = 'Choose at least one account.';
+        msg.className = 'gate-msg err'; msg.style.display = 'flex';
+        return;
+      }
+    }
+    var btn = $('#adminBroadcastSend');
+    btn.disabled = true;
+    api('__admin/broadcast', { method: 'POST', body: JSON.stringify({ subject: subject, message: message, logins: logins }) })
+      .then(function (r) {
+        btn.disabled = false;
+        if (!r.ok) {
+          msg.textContent = r.body.error || 'Could not send it.';
+          msg.className = 'gate-msg err'; msg.style.display = 'flex';
+          return;
+        }
+        msg.textContent = 'Sending to ' + r.body.queued + ' account' + (r.body.queued === 1 ? '' : 's') + '.';
+        msg.className = 'gate-msg ok'; msg.style.display = 'flex';
+        $('#adminBroadcastSubject').value = ''; $('#adminBroadcastMessage').value = '';
+      });
+  }
+
   function renderDashboardVisibility() {
     var box = $('#adminDashboards');
     if (!box) return;
@@ -263,6 +324,7 @@
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.accounts || [];
       accountsCache = rows;
+      renderBroadcastPickList();
       var viewing = {};
       (sr.ok ? (sr.body.sessions || []) : []).forEach(function (s) { viewing[s.login] = s.viewing; });
       box.innerHTML = rows.map(function (a) {
@@ -640,6 +702,14 @@
     var usageByMonth = $('#usageByMonth'), usageByDay = $('#usageByDay');
     if (usageByMonth) usageByMonth.addEventListener('click', function () { setUsageGroup('month'); });
     if (usageByDay) usageByDay.addEventListener('click', function () { setUsageGroup('day'); });
+
+    var broadcastSend = $('#adminBroadcastSend');
+    if (broadcastSend) broadcastSend.addEventListener('click', sendBroadcast);
+    $$('input[name="adminBroadcastTo"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        $('#adminBroadcastPick').style.display = (this.value === 'pick' && this.checked) ? '' : 'none';
+      });
+    });
   });
 
   w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };

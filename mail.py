@@ -17,6 +17,7 @@ import json
 import os
 import smtplib
 import ssl
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 
@@ -47,11 +48,17 @@ def mail_enabled():
     return bool(cfg and cfg.get("host") and cfg.get("username") and cfg.get("password") and cfg.get("from"))
 
 
-def send_mail(to_addr, subject, body):
-    """Send one plain-text email. Returns True on success, False on any
-    failure (bad config, unreachable server, rejected recipient, ...) --
-    the reason goes to the server console via print, same as make_backup's
-    failure handling, never raised back to the caller."""
+def send_mail(to_addr, subject, body, html=None):
+    """Send one email -- plain text only, or (when `html` is given) plain
+    text plus an HTML alternative, for the couple of system messages (the
+    sign-up verification code, the admin's new-request notice) worth a
+    proper greeting and a code that actually looks like a code. Mail
+    clients that can't render HTML fall back to `body`, so `body` should
+    always stand on its own, not just say "see the HTML version". Returns
+    True on success, False on any failure (bad config, unreachable server,
+    rejected recipient, ...) -- the reason goes to the server console via
+    print, same as make_backup's failure handling, never raised back to
+    the caller."""
     cfg = read_mail_config()
     if not cfg or not mail_enabled():
         return False
@@ -59,7 +66,12 @@ def send_mail(to_addr, subject, body):
     if not to_addr or "@" not in parseaddr(to_addr)[1]:
         return False
 
-    msg = MIMEText(body, "plain", "utf-8")
+    if html:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body, "plain", "utf-8"))
+        msg.attach(MIMEText(html, "html", "utf-8"))
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject
     msg["From"] = cfg["from"]
     msg["To"] = to_addr

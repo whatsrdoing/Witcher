@@ -31,6 +31,7 @@ import bisect
 import functools
 import hashlib
 import hmac
+import html
 import http.server
 import json
 import os
@@ -519,6 +520,96 @@ def otp_token_email(token):
 REQUEST_TYPE_LABEL = {"signup": "new account", "password_reset": "password reset",
                        "id_change": "sign-in name change"}
 
+REQUEST_TYPE_EXPLAIN = {
+    "signup": "%s has asked to create a new account on the Command Centre.",
+    "password_reset": "%s has forgotten their password and asked to set a new one.",
+    "id_change": "%s has asked to change the sign-in name they use.",
+}
+
+
+def esc_html(s):
+    return html.escape(str(s or ""), quote=True)
+
+
+def _email_shell(inner_html):
+    """Wraps a system email's content in the same plain shell every one of
+    these uses -- a small header, the content, a footer -- so the sign-up
+    code and the admin notice look like they come from the same place
+    rather than two unrelated scripts."""
+    return (
+        '<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+        'max-width:480px;margin:0 auto;padding:28px 24px;color:#1a2233;">'
+        '<div style="text-align:center;margin-bottom:22px;">'
+        '<div style="font-size:19px;font-weight:800;color:#2456c9;letter-spacing:-.01em;">Paras Health</div>'
+        '<div style="font-size:11px;font-weight:700;letter-spacing:.09em;color:#7a8699;'
+        'text-transform:uppercase;margin-top:2px;">SCM Command Centre</div>'
+        '</div>'
+        + inner_html +
+        '<div style="margin-top:26px;padding-top:16px;border-top:1px solid #e6e9ef;'
+        'font-size:11.5px;color:#98a2b3;text-align:center;">'
+        'This is an automated message from Paras Health SCM Gen-Dash.'
+        '</div></div>'
+    )
+
+
+def otp_email_bodies(code):
+    """Plain-text + HTML bodies for the sign-up verification code -- the
+    plain version has to stand on its own (some mail clients never render
+    HTML at all), the HTML version is what makes the code actually look
+    like a code instead of just another word in a sentence."""
+    text = (
+        "Hello,\n\n"
+        "Thanks for requesting a Paras Health SCM Command Centre account.\n\n"
+        "Your verification code is:\n\n"
+        "    %s\n\n"
+        "Enter this on the sign-up screen to confirm your email address. "
+        "It expires in 10 minutes.\n\n"
+        "If you didn't request this, you can safely ignore this email.\n\n"
+        "-- Paras Health SCM Command Centre" % code
+    )
+    html = _email_shell(
+        '<p style="font-size:15px;line-height:1.7;margin:0 0 14px;">Hello,</p>'
+        '<p style="font-size:15px;line-height:1.7;margin:0 0 14px;">Thanks for requesting a Paras '
+        'Health SCM Command Centre account. Use the code below to confirm your email address.</p>'
+        '<div style="text-align:center;margin:26px 0;">'
+        '<span style="display:inline-block;font-size:34px;font-weight:800;letter-spacing:.18em;'
+        'color:#1a2233;background:#f1f5fb;padding:14px 22px;border-radius:12px;">' + esc_html(code) + '</span>'
+        '</div>'
+        '<p style="font-size:13.5px;line-height:1.6;color:#5b6472;margin:0 0 8px;">This code expires in '
+        '10 minutes.</p>'
+        '<p style="font-size:13.5px;line-height:1.6;color:#5b6472;margin:0;">If you didn\'t request this, '
+        'you can safely ignore this email.</p>'
+    )
+    return text, html
+
+
+def request_notify_bodies(rtype, login):
+    """Plain-text + HTML bodies for the admin's new-request notice -- names
+    the account, says in one sentence what they actually did, and is clear
+    that nothing has happened yet without the admin's approval."""
+    label = REQUEST_TYPE_LABEL.get(rtype, rtype)
+    # Every template (including this fallback, with the label already
+    # substituted in) takes exactly one %s -- login -- applied uniformly below.
+    explain = (REQUEST_TYPE_EXPLAIN.get(rtype) or ("%%s has raised a %s request." % label)) % login
+    text = (
+        "Hello,\n\n"
+        "A new request is waiting for your approval on the Paras Health SCM Command Centre.\n\n"
+        "%s\n\n"
+        "Nothing changes until you review it -- open the admin panel's Pending Requests to "
+        "approve or reject it.\n\n"
+        "-- Paras Health SCM Command Centre" % explain
+    )
+    html = _email_shell(
+        '<p style="font-size:15px;line-height:1.7;margin:0 0 14px;">Hello,</p>'
+        '<p style="font-size:15px;line-height:1.7;margin:0 0 14px;">A new '
+        '<b>' + esc_html(label) + '</b> request is waiting for your approval on the Command Centre.</p>'
+        '<p style="font-size:15px;line-height:1.7;margin:0 0 18px;background:#f1f5fb;'
+        'padding:14px 16px;border-radius:10px;">' + esc_html(explain) + '</p>'
+        '<p style="font-size:13.5px;line-height:1.6;color:#5b6472;margin:0;">Nothing changes until you '
+        'review it -- open the admin panel\'s Pending Requests to approve or reject it.</p>'
+    )
+    return text, html
+
 
 def notify_admin_of_request(rtype, login):
     """Emails the admin (auth.json's adminEmail, same address the sign-in
@@ -537,10 +628,10 @@ def notify_admin_of_request(rtype, login):
     if not admin_email:
         return
     label = REQUEST_TYPE_LABEL.get(rtype, rtype)
-    body = ("A new %s request from \"%s\" is waiting for approval in the Command Centre's admin panel."
-            % (label, login))
+    text, html = request_notify_bodies(rtype, login)
     threading.Thread(target=mail.send_mail,
-                      args=(admin_email, "Paras Health SCM: %s request" % label, body),
+                      args=(admin_email, "Paras Health SCM: %s request" % label, text),
+                      kwargs={"html": html},
                       daemon=True).start()
 
 
@@ -2485,9 +2576,8 @@ def make_handler(prefix):
             rate_fail(rate_key)   # counts toward the limit even on success -- a fixed budget of codes per IP
             code = "%06d" % secrets.randbelow(1000000)
             otp_store(email, code)
-            mail.send_mail(email, "Paras Health SCM: verification code",
-                            "Your verification code is %s. It expires in 10 minutes. "
-                            "If you did not request this, ignore this email." % code)
+            text, html_body = otp_email_bodies(code)
+            mail.send_mail(email, "Paras Health SCM: verification code", text, html=html_body)
             self._json(200, {"ok": True})
 
         def _otp_verify_post(self):

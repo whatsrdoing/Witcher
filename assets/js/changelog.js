@@ -21,34 +21,37 @@
       return r.ok ? r.json() : { entries: [] };
     }).then(function (j) {
       cache = { entries: (j && j.entries) || [] };
-      // By version, not date -- more than one entry can land on the same
-      // day (this one did), and a plain date-string compare would never
-      // flag the second one as unread for someone who already saw the first.
-      cache.entries.sort(function (a, b) { return (b.version || 0) - (a.version || 0); });
+      // Newest first by date -- version is now the git commit hash that
+      // introduced the entry (not a counter), so it isn't orderable on its
+      // own; date is still assigned in the order entries are written.
+      cache.entries.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
       return cache;
     }).catch(function () { return { entries: [] }; });
   }
 
   /* Keyed per account, not just per browser -- a shared machine with more
      than one sign-in should not have the first person to look dismiss it
-     for everyone else too. */
+     for everyone else too. Seen-state is "have I seen this exact entry"
+     (a hash is an identity, not a magnitude), not "is this newer than the
+     last one I saw" -- which also means a version field of any shape
+     (an old numeric one, a git hash, anything) works without translation. */
   function seenKey() {
     var who = w.ParasGate && w.ParasGate.currentUser && w.ParasGate.currentUser();
     return 'paras_changelog_seen:' + ((who && who.login) || '_');
   }
   function lastSeenVersion() {
-    try { return Number(localStorage.getItem(seenKey())) || 0; } catch (e) { return 0; }
+    try { return localStorage.getItem(seenKey()) || ''; } catch (e) { return ''; }
   }
   function markSeen(version) {
-    try { localStorage.setItem(seenKey(), String(version || 0)); } catch (e) {}
+    try { localStorage.setItem(seenKey(), String(version || '')); } catch (e) {}
   }
 
   function refreshDot() {
     load().then(function (c) {
       var dot = $('#whatsNewDot');
       if (!dot) return;
-      var newest = (c.entries[0] && c.entries[0].version) || 0;
-      dot.style.display = (newest > lastSeenVersion()) ? '' : 'none';
+      var newest = (c.entries[0] && c.entries[0].version) || '';
+      dot.style.display = (newest && newest !== lastSeenVersion()) ? '' : 'none';
     });
   }
 
@@ -58,7 +61,7 @@
     var when = e.date;
     try { when = new Date(e.date).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
     catch (err) { /* keep the raw date string */ }
-    var version = e.version ? '<span class="changelog-version">v' + esc(e.version) + '</span>' : '';
+    var version = e.version ? '<span class="changelog-version">' + esc(e.version) + '</span>' : '';
     return '<div class="changelog-entry"><div class="changelog-date">' + esc(when) + ' ' + version + '</div>' +
       '<div class="changelog-title">' + esc(e.title || '') + '</div>' +
       '<ul class="changelog-notes">' + (e.notes || []).map(function (n) {

@@ -276,6 +276,13 @@
           openConflict(login, result.conflictToken);
           return;
         }
+        if (result.status === 'totp') {
+          busy = false;
+          $('#gateSubmit').classList.remove('working');
+          clearFails();
+          openTotp(login, result.totpToken);
+          return;
+        }
         finish(result.status === 'ok');
       });
     }).catch(function (err) {
@@ -314,6 +321,13 @@
       if (r.status === 409) {
         return r.json().then(function (body) {
           return { status: 'conflict', conflictToken: body && body.conflictToken };
+        }).catch(function () { return { status: 'fail' }; });
+      }
+      if (r.status === 401) {
+        return r.json().then(function (body) {
+          return (body && body.totpRequired)
+            ? { status: 'totp', totpToken: body.totpToken }
+            : { status: 'fail' };
         }).catch(function () { return { status: 'fail' }; });
       }
       return { status: 'fail' };
@@ -385,10 +399,59 @@
     resolveConflict(login, token, false);
   }
 
+  /* ---- 2FA at sign-in -----------------------------------------------------
+     Reached only once the password already matched (see verifyPassword) --
+     the pending token proves that, so this screen only ever asks for the
+     second factor, never the password again. */
+  function totpSay(msg, kind) {
+    var el = $('#totpMsg');
+    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
+    el.textContent = msg || '';
+    el.style.display = msg ? 'flex' : 'none';
+  }
+
+  function openTotp(login, token) {
+    showScreen('gateTotp');
+    totpSay('');
+    $('#totpCode').value = '';
+    setTimeout(function () { $('#totpCode').focus(); }, 60);
+    $('#totpForm').onsubmit = function (e) { e.preventDefault(); doTotp(login, token); };
+    $('#totpBack').onclick = function (e) { e.preventDefault(); showSignIn(); };
+  }
+
+  function doTotp(login, token) {
+    if (busy) return;
+    var code = ($('#totpCode').value || '').trim();
+    if (!code) return totpSay('Enter the code.', 'err');
+
+    busy = true;
+    $('#totpSubmit').classList.add('working');
+    totpSay('Verifying…', '');
+    fetch('__session/totp', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ totpToken: token, code: code })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) { return { r: r, body: body }; });
+    }).then(function (res) {
+      busy = false;
+      $('#totpSubmit').classList.remove('working');
+      if (res.r.ok && res.body.ok) { completeSignIn(login); return; }
+      if (res.r.status === 409) { openConflict(login, res.body.conflictToken); return; }
+      if (res.r.status === 404) { totpSay('That sign-in attempt expired. Please sign in again.', 'err'); return; }
+      if (res.r.status === 429) { totpSay('Too many attempts. Try again shortly.', 'err'); return; }
+      totpSay(res.body.error || 'Wrong code.', 'err');
+      $('#totpCode').select();
+    }).catch(function (err) {
+      busy = false;
+      $('#totpSubmit').classList.remove('working');
+      totpSay('Could not verify: ' + (err && err.message || err), 'err');
+    });
+  }
+
   /* ---- screens: sign in / reset / sign up --------------------------------
      Only one of #gateSignIn, #gateReset, #gateSignup is visible at a time. */
   function showScreen(id) {
-    ['gateSignIn', 'gateReset', 'gateSignup', 'gateConflict'].forEach(function (s) {
+    ['gateSignIn', 'gateReset', 'gateSignup', 'gateConflict', 'gateTotp'].forEach(function (s) {
       $('#' + s).style.display = (s === id) ? 'block' : 'none';
     });
     var inner = $('#gateInner');

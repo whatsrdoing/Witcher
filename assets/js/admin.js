@@ -214,6 +214,7 @@
       box.innerHTML = rows.map(function (a) {
         return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(a.login) + '</b>' +
           (a.isAdmin ? ' <span class="admin-badge">admin</span>' : '') +
+          (a.totpEnabled ? ' <span class="admin-badge admin-badge-ok">2FA on</span>' : '') +
           (a.disabled ? ' <span class="admin-badge admin-badge-bad">disabled</span>' : '') +
           '<span class="admin-row-sub">' + esc(a.name || 'No name on file') +
           ' · signed in ' + a.sessionCount + ' time' + (a.sessionCount === 1 ? '' : 's') +
@@ -221,6 +222,7 @@
           '<div class="admin-row-acts">' +
           '<button class="btn sm" data-reset="' + esc(a.login) + '">Reset password</button>' +
           '<button class="btn sm" data-rename="' + esc(a.login) + '">Rename</button>' +
+          (a.totpEnabled ? '<button class="btn sm" data-disable-totp="' + esc(a.login) + '">Disable 2FA</button>' : '') +
           '<button class="btn sm" data-toggle="' + esc(a.login) + '" data-disabled="' + (a.disabled ? '1' : '0') + '">' +
           (a.disabled ? 'Enable' : 'Disable') + '</button></div></div>';
       }).join('');
@@ -242,6 +244,18 @@
             method: 'POST', body: JSON.stringify({ newLogin: name })
           }).then(function (r2) {
             if (!r2.ok) { alert(r2.body.error || 'Could not rename it.'); return; }
+            renderAccounts();
+          });
+        });
+      });
+      $$('[data-disable-totp]', box).forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          if (!confirm('Turn off two-factor authentication for ' + btn.dataset.disableTotp +
+            '? Use this to rescue an account that has lost its authenticator and backup codes.')) return;
+          api('__admin/accounts/' + encodeURIComponent(btn.dataset.disableTotp) + '/disable-2fa', {
+            method: 'POST'
+          }).then(function (r2) {
+            if (!r2.ok) { alert(r2.body.error || 'Could not turn it off.'); return; }
             renderAccounts();
           });
         });
@@ -311,7 +325,8 @@
 
   var HISTORY_LABEL = {
     login_ok: 'Signed in', login_fail: 'Wrong password',
-    logout: 'Signed out', force_logout: 'Signed out (forced)'
+    logout: 'Signed out', force_logout: 'Signed out (forced)',
+    totp_enabled: '2FA turned on', totp_disabled: '2FA turned off'
   };
 
   function renderHistory() {

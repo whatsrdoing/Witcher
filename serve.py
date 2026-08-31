@@ -25,6 +25,8 @@ genuinely resolves and connects to that name. Without that entry the same
 server answers on http://127.0.0.1/... — no browser will display a domain that
 is not actually serving the page, and none should.
 """
+import base64
+import binascii
 import functools
 import hashlib
 import hmac
@@ -36,6 +38,7 @@ import secrets
 import socket
 import shutil
 import socketserver
+import struct
 import subprocess
 import sys
 import threading
@@ -431,6 +434,124 @@ def start_backup_scheduler():
     threading.Thread(target=backup_scheduler_loop, daemon=True).start()
 
 
+# ---- TOTP two-factor authentication -----------------------------------------
+# Deliberately its own file, never a field on the account entries in
+# auth.json: mirror_auth() dumps auth.json verbatim into auth.js so file://
+# mode's sign-in gate still works with no server to ask -- a real password
+# hash sitting there already is an accepted, documented tradeoff of that
+# fallback, but a TOTP secret sitting there too would hand out the ability to
+# generate valid codes to anyone who can read a plain static file, defeating
+# 2FA outright. Keeping it in a separate file under data_dir() (never inside
+# ROOT, never mirrored, never served by any route) means it is simply never
+# reachable the way auth.js is.
+TOTP_PATH = os.path.join(paths.data_dir(), "totp.json")
+TOTP_LOCK = threading.Lock()
+TOTP_ISSUER = "Paras Health SCM"
+
+
+def read_totp():
+    try:
+        with open(TOTP_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_totp(data):
+    os.makedirs(os.path.dirname(TOTP_PATH), exist_ok=True)
+    tmp = TOTP_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, ensure_ascii=False)
+        fh.write("\n")
+    os.replace(tmp, TOTP_PATH)
+
+
+def totp_new_secret():
+    return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+
+def totp_code(secret, for_time, period=30, digits=6):
+    """RFC 6238, SHA-1/HMAC -- the same algorithm every authenticator app
+    (Google Authenticator, Authy, 1Password, ...) implements, so any of them
+    can scan or manually enter the secret from setup."""
+    padded = secret + "=" * (-len(secret) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int(for_time // period)
+    msg = struct.pack(">Q", counter)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    chunk = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(chunk % (10 ** digits)).zfill(digits)
+
+
+def totp_verify(secret, code, window=1, period=30):
+    """window=1 accepts the previous/next 30s step too, tolerating ordinary
+    clock drift between this machine and the phone without widening the
+    guessable window much."""
+    code = re.sub(r"\s+", "", str(code or ""))
+    if not code.isdigit() or not secret:
+        return False
+    now = time.time()
+    for delta in range(-window, window + 1):
+        try:
+            if hmac.compare_digest(totp_code(secret, now + delta * period, period), code):
+                return True
+        except (ValueError, binascii.Error):
+            return False
+    return False
+
+
+def totp_new_backup_codes(n=8):
+    """Plaintext codes are returned to the caller exactly once (right after
+    generation) and never stored -- only their hashes are, same principle as
+    a password."""
+    codes = ["-".join([secrets.token_hex(2), secrets.token_hex(2)]).upper() for _ in range(n)]
+    # Hash the normalized form (no hyphen) -- the hyphen is only cosmetic for
+    # display, and consumption normalizes its input the same way, so the two
+    # sides must agree on what actually gets hashed.
+    hashes = [hashlib.sha256(c.replace("-", "").encode()).hexdigest() for c in codes]
+    return codes, hashes
+
+
+def totp_consume_backup_code(entry, code):
+    norm = re.sub(r"[^0-9A-Za-z]", "", str(code or "")).upper()
+    if not norm:
+        return False
+    h = hashlib.sha256(norm.encode()).hexdigest()
+    codes = entry.get("backupCodes") or []
+    if h in codes:
+        codes.remove(h)
+        entry["backupCodes"] = codes
+        return True
+    return False
+
+
+TOTP_PENDING_TTL = 120
+TOTP_PENDING = {}
+TOTP_PENDING_LOCK = threading.Lock()
+
+
+def new_totp_pending(login):
+    token = secrets.token_urlsafe(24)
+    with TOTP_PENDING_LOCK:
+        TOTP_PENDING[token] = {"login": login, "expires": time.time() + TOTP_PENDING_TTL}
+    return token
+
+
+def totp_pending_login(token):
+    with TOTP_PENDING_LOCK:
+        entry = TOTP_PENDING.get(token)
+        if not entry or entry["expires"] < time.time():
+            TOTP_PENDING.pop(token, None)
+            return None
+        return entry["login"]
+
+
+def drop_totp_pending(token):
+    with TOTP_PENDING_LOCK:
+        TOTP_PENDING.pop(token, None)
+
+
 COMMON_PASSWORDS = {
     "password", "password1", "password123", "12345678", "123456789", "1234567890",
     "qwerty123", "qwertyuiop", "letmein123", "welcome123", "admin1234", "iloveyou1",
@@ -697,7 +818,8 @@ def make_handler(prefix):
             if path_only.rstrip("/").rsplit("/", 1)[-1] == "__session":
                 login = session_login(self._session_token())
                 if login:
-                    self._json(200, {"login": login, "isAdmin": login == admin_login()})
+                    totp_enabled = bool((read_totp().get(login) or {}).get("enabled"))
+                    self._json(200, {"login": login, "isAdmin": login == admin_login(), "totpEnabled": totp_enabled})
                 else:
                     self._json(401, {"error": "no session"})
                 return
@@ -1159,6 +1281,20 @@ def make_handler(prefix):
                 return
             rate_clear(rate_key)
 
+            # Password is right -- if this account has 2FA on, that is not
+            # enough on its own. Hand back a short-lived pending token tied
+            # to this login (not the digest, which never leaves this
+            # request) rather than starting the session yet; POST
+            # /__session/totp below finishes the job once the code checks
+            # out. This intentionally runs before the single-session
+            # conflict check: proving identity fully comes first, then the
+            # takeover decision.
+            totp_entry = read_totp().get(login) or {}
+            if totp_entry.get("enabled"):
+                token = new_totp_pending(login)
+                self._json(401, {"error": "2FA code required", "totpRequired": True, "totpToken": token})
+                return
+
             # One account, one active session -- see the CONFLICTS block
             # above. The password is already proven correct at this point,
             # so a conflict token issued from here can be trusted as "this
@@ -1169,6 +1305,65 @@ def make_handler(prefix):
                 self._json(409, {"error": "already signed in elsewhere", "conflictToken": token})
                 return
 
+            self._start_session(login)
+
+        def _session_totp_post(self):
+            """POST /__session/totp {totpToken, code} -- the second step of
+            signing in to an account with 2FA on. code may be a live TOTP
+            code or a one-time backup code; either finishes the sign-in the
+            same way (session cookie, conflict check) as a plain password
+            match would have."""
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 2048:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            pending_token = str(req.get("totpToken") or "")
+            login = totp_pending_login(pending_token)
+            if not login:
+                self._json(404, {"error": "that sign-in attempt has expired -- start again"})
+                return
+
+            # Only 10^6 possible codes -- this is the one place in the app
+            # where a tight, code-specific rate limit matters more than the
+            # ordinary per-login one above.
+            rate_key = "totp:" + login
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
+            code = req.get("code")
+            with TOTP_LOCK:
+                totp = read_totp()
+                entry = totp.get(login) or {}
+                if not entry.get("enabled"):
+                    # 2FA got turned off between the password step and now --
+                    # treat it as already satisfied rather than erroring.
+                    ok = True
+                elif totp_verify(entry.get("secret", ""), code):
+                    ok = True
+                elif totp_consume_backup_code(entry, code):
+                    ok = True
+                    totp[login] = entry
+                    write_totp(totp)
+                else:
+                    ok = False
+
+            if not ok:
+                rate_fail(rate_key)
+                self._json(401, {"error": "wrong code"})
+                return
+            rate_clear(rate_key)
+            drop_totp_pending(pending_token)
+
+            if sessions_for(login):
+                token = new_conflict(login)
+                self._json(409, {"error": "already signed in elsewhere", "conflictToken": token})
+                return
             self._start_session(login)
 
         def _start_session(self, login):
@@ -1237,6 +1432,88 @@ def make_handler(prefix):
             set_viewing(self._session_token(), str(viewing) if viewing else None)
             self._json(200, {"ok": True})
 
+        def _totp_post(self, tail):
+            """POST /__totp/setup | confirm | disable | regenerate-codes --
+            self-service 2FA management for the signed-in account. Already
+            passed _require_session() by the caller; nothing here is
+            admin-only, since every account manages its own 2FA the same
+            way (see _admin_account_action for the admin's rescue path when
+            someone locks themselves out)."""
+            login = session_login(self._session_token())
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            except (ValueError, UnicodeDecodeError):
+                body = {}
+
+            with TOTP_LOCK:
+                totp = read_totp()
+                entry = totp.get(login) or {}
+
+                if tail == ["setup"]:
+                    if entry.get("enabled"):
+                        self._json(409, {"error": "2FA is already on for this account"})
+                        return
+                    secret = totp_new_secret()
+                    entry["pendingSecret"] = secret
+                    totp[login] = entry
+                    write_totp(totp)
+                    label = urllib.parse.quote(TOTP_ISSUER + ":" + login)
+                    otpauth = ("otpauth://totp/%s?secret=%s&issuer=%s&digits=6&period=30"
+                               % (label, secret, urllib.parse.quote(TOTP_ISSUER)))
+                    self._json(200, {"secret": secret, "otpauthUrl": otpauth})
+                    return
+
+                if tail == ["confirm"]:
+                    pending = entry.get("pendingSecret")
+                    if not pending:
+                        self._json(400, {"error": "start setup again"})
+                        return
+                    if not totp_verify(pending, body.get("code")):
+                        self._json(401, {"error": "wrong code -- check the time on your phone and try again"})
+                        return
+                    codes, hashes = totp_new_backup_codes()
+                    entry["secret"] = pending
+                    entry["enabled"] = True
+                    entry.pop("pendingSecret", None)
+                    entry["backupCodes"] = hashes
+                    totp[login] = entry
+                    write_totp(totp)
+                    log_history(login, "totp_enabled", self.client_address[0])
+                    self._json(200, {"ok": True, "backupCodes": codes})
+                    return
+
+                if tail == ["disable"]:
+                    if not entry.get("enabled"):
+                        self._json(200, {"ok": True})
+                        return
+                    if not (totp_verify(entry.get("secret", ""), body.get("code"))
+                            or totp_consume_backup_code(entry, body.get("code"))):
+                        self._json(401, {"error": "wrong code"})
+                        return
+                    totp.pop(login, None)
+                    write_totp(totp)
+                    log_history(login, "totp_disabled", self.client_address[0])
+                    self._json(200, {"ok": True})
+                    return
+
+                if tail == ["regenerate-codes"]:
+                    if not entry.get("enabled"):
+                        self._json(400, {"error": "2FA is not on for this account"})
+                        return
+                    if not (totp_verify(entry.get("secret", ""), body.get("code"))
+                            or totp_consume_backup_code(entry, body.get("code"))):
+                        self._json(401, {"error": "wrong code"})
+                        return
+                    codes, hashes = totp_new_backup_codes()
+                    entry["backupCodes"] = hashes
+                    totp[login] = entry
+                    write_totp(totp)
+                    self._json(200, {"ok": True, "backupCodes": codes})
+                    return
+
+            self.send_error(404)
+
         # -------------------------------------------------------------
         # Admin panel. Every route here already passed _require_admin()
         # in do_GET/do_POST above -- nothing below re-checks that.
@@ -1293,6 +1570,7 @@ def make_handler(prefix):
             accounts = auth.get("accounts") or []
             primary = admin_login()
             stats = history_stats()
+            totp = read_totp()
             out = []
             for a in accounts:
                 s = stats.get(a.get("login"), {"totalMs": 0, "sessions": 0})
@@ -1304,6 +1582,7 @@ def make_handler(prefix):
                     "createdAt": a.get("createdAt"), "disabled": bool(a.get("disabled")),
                     "isAdmin": a.get("login") == primary,
                     "totalTimeMs": s["totalMs"], "sessionCount": s["sessions"],
+                    "totpEnabled": bool((totp.get(a.get("login")) or {}).get("enabled")),
                 })
             return out
 
@@ -1320,6 +1599,16 @@ def make_handler(prefix):
                 return
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable"):
                 self._admin_account_action(tail[1], tail[2], body)
+                return
+            if len(tail) == 3 and tail[0] == "accounts" and tail[2] == "disable-2fa":
+                with TOTP_LOCK:
+                    totp = read_totp()
+                    had_it = bool((totp.get(tail[1]) or {}).get("enabled"))
+                    totp.pop(tail[1], None)
+                    write_totp(totp)
+                if had_it:
+                    log_history(tail[1], "totp_disabled", self.client_address[0])
+                self._json(200, {"ok": True})
                 return
             if len(tail) == 3 and tail[0] == "dashboards" and tail[2] == "visibility":
                 self._admin_dashboard_visibility(tail[1], body)
@@ -1615,6 +1904,15 @@ def make_handler(prefix):
                 return
             if stail == ["viewing"]:
                 self._session_viewing_post()
+                return
+            if stail == ["totp"]:
+                self._session_totp_post()
+                return
+
+            ttail = seg_route(path_only, "__totp")
+            if ttail is not None:
+                if self._require_session():
+                    self._totp_post(ttail)
                 return
 
             atail = seg_route(path_only, "__admin")

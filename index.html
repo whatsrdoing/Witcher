@@ -183,6 +183,25 @@
         </div>
       </div>
 
+      <div id="gateTotp" style="display:none">
+        <form id="totpForm" novalidate>
+          <p class="reset-lede">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
+          <label class="gate-label" for="totpCode">Code</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" required>
+          </div>
+          <div class="gate-msg" id="totpMsg" style="display:none"></div>
+          <button class="gate-submit" id="totpSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+            <span>Verify</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="totpBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
+
       <div id="gateSignup" style="display:none">
         <form id="signupForm" novalidate>
           <p class="reset-lede">Request a new account. This is sent to the admin
@@ -377,6 +396,12 @@
           </div>
           <h4>Signed in</h4>
           <div id="profilePopBody"></div>
+          <h4>Security</h4>
+          <div class="pop-row">
+            <span class="nm">Two-factor authentication</span>
+            <span id="totpStatus" style="color:var(--ink-2);font-weight:600">Off</span>
+          </div>
+          <button class="btn tiny" id="totpManageBtn" type="button" style="margin-top:8px">Manage</button>
         </div>
       </div>
       <div class="mode" id="modeSwitch" role="group" aria-label="Data mode">
@@ -751,6 +776,18 @@
   </div>
 </div>
 
+<div class="modal-scrim" id="totpModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Two-factor authentication</h3>
+      <button class="btn sm icon-only" id="totpModalClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="totpModalBody"></div>
+  </div>
+</div>
+
 <div class="modal-scrim" id="confirmModal">
   <div class="modal">
     <h3 id="confirmTitle">Are you sure?</h3>
@@ -780,6 +817,8 @@
 <script src="assets/js/idle-timeout.js"></script>
 <script src="assets/js/admin.js"></script>
 <script src="assets/js/feedback.js"></script>
+<script src="assets/js/qrcode.js"></script>
+<script src="assets/js/twofactor.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

@@ -50,6 +50,7 @@
       paintChrome();
       wire();
       if (w.ParasAdmin) w.ParasAdmin.checkAccess();
+      if (w.ParasTwoFactor) w.ParasTwoFactor.refreshStatus();
 
       w.Store.checkPersistence().then(function () {
         renderModeSwitch();
@@ -2395,6 +2396,7 @@
         if ($('#previewModal').classList.contains('open')) return closePreview();
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();
         if (w.ParasFeedback && w.ParasFeedback.closeIfOpen()) return;
+        if (w.ParasTwoFactor && w.ParasTwoFactor.closeIfOpen()) return;
         if ($('#drawer').classList.contains('open')) return closeDrawer();
         if (current) return goHome();
       }

@@ -37,7 +37,8 @@
       "notes": [
         "The Accounts card's Disable button is now \"Disable / delete\" -- click it and choose which one, rather than disabling being the only option.",
         "Deleting is permanent: the account, its password, and its 2FA setup are removed. Its past login history stays, same as a renamed or disabled account's does.",
-        "Guarded against the two ways this could go wrong: you can't delete the only remaining account, and you can't delete the account you're currently signed in as."
+        "Guarded against the two ways this could go wrong: you can't delete the only remaining account, and you can't delete the account you're currently signed in as.",
+        "Fixed the Edit profile fields (name/phone/email/employee ID) sometimes appearing to auto-complete a previous account's value while typing -- that was the browser's own autofill remembering an earlier entry, not the app; the fields now opt out of it."
       ]
     }
   ]

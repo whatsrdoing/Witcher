@@ -215,10 +215,7 @@
 
       if (ok) {
         clearFails();
-        try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
-        setCurrentUser(acc.login);
-        say('Access granted', 'ok');
-        open_();
+        completeSignIn(acc.login);
         return;
       }
 
@@ -245,14 +242,14 @@
         return;
       }
       serverVerify(login, digest).then(function (result) {
-        if (result === 'locked') {
+        if (result.status === 'locked') {
           busy = false;
           $('#gateSubmit').classList.remove('working');
           say('Too many failed attempts. Try again shortly.', 'err');
           shake();
           return;
         }
-        if (result === 'unknown') {
+        if (result.status === 'unknown') {
           // The server has never heard of this login -- a sign-up that
           // only ever made it into this browser's own storage, because the
           // server could not be reached when the account was created.
@@ -261,7 +258,13 @@
           finish(!!acc && w.ParasCrypto.equal(digest, String(acc.hash || '')));
           return;
         }
-        finish(result === 'ok');
+        if (result.status === 'conflict') {
+          busy = false;
+          $('#gateSubmit').classList.remove('working');
+          openConflict(login, result.conflictToken);
+          return;
+        }
+        finish(result.status === 'ok');
       });
     }).catch(function (err) {
       busy = false;
@@ -270,28 +273,110 @@
     });
   }
 
-  /* POST /__session -- see verifyPassword above. Resolves to 'ok', 'fail'
-     (server reached, wrong password), 'locked' (too many recent attempts
-     for this login), or 'unknown' (server reachable but has never heard of
-     this login -- including a genuine connection failure, which gets the
-     same treatment as "nothing to check this against" rather than being
-     surfaced as an error on every keystroke of a typo'd username). */
+  /* Shared tail end of a successful sign-in, whichever path got there --
+     a plain password match, or a resolved single-session conflict below. */
+  function completeSignIn(login) {
+    try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch (err) {}
+    setCurrentUser(login);
+    say('Access granted', 'ok');
+    open_();
+  }
+
+  /* POST /__session -- see verifyPassword above. Resolves to
+     {status:'ok'}, {status:'fail'} (server reached, wrong password),
+     {status:'locked'} (too many recent attempts for this login),
+     {status:'unknown'} (server reachable but has never heard of this
+     login -- including a genuine connection failure, which gets the same
+     treatment as "nothing to check this against" rather than being
+     surfaced as an error on every keystroke of a typo'd username), or
+     {status:'conflict', conflictToken} when this account already has an
+     active session elsewhere -- see openConflict below. */
   function serverVerify(login, digest) {
     return fetch('__session', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ login: login, digest: digest })
     }).then(function (r) {
-      if (r.ok) return 'ok';
-      if (r.status === 404) return 'unknown';
-      if (r.status === 429) return 'locked';
-      return 'fail';
-    }).catch(function () { return 'unknown'; });
+      if (r.ok) return { status: 'ok' };
+      if (r.status === 404) return { status: 'unknown' };
+      if (r.status === 429) return { status: 'locked' };
+      if (r.status === 409) {
+        return r.json().then(function (body) {
+          return { status: 'conflict', conflictToken: body && body.conflictToken };
+        }).catch(function () { return { status: 'fail' }; });
+      }
+      return { status: 'fail' };
+    }).catch(function () { return { status: 'unknown' }; });
+  }
+
+  /* ---- single-active-session conflict ------------------------------------
+     One account, one session. Landing here means the password was already
+     right, so this screen offers a straight choice: sign the other session
+     out and take over right now, or leave it be and wait -- quietly
+     polling in the background -- until that other session ends on its own
+     (a real sign-out, an idle timeout, expiry), at which point this one
+     completes automatically with no further click needed. */
+  var conflictPoll = null;
+
+  function stopConflictPoll() {
+    if (conflictPoll) { clearTimeout(conflictPoll); conflictPoll = null; }
+  }
+
+  function conflictSay(msg, kind) {
+    var el = $('#conflictMsg');
+    if (!msg) { el.style.display = 'none'; return; }
+    el.textContent = msg;
+    el.className = 'gate-msg' + (kind ? ' ' + kind : '');
+    el.style.display = 'block';
+  }
+
+  function resolveConflict(login, token, force) {
+    return fetch('__session/resolve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conflictToken: token, force: !!force })
+    }).then(function (r) {
+      if (r.status === 410) {
+        stopConflictPoll();
+        conflictSay('That sign-in attempt expired. Please sign in again.', 'err');
+        return;
+      }
+      // A 200 here does not by itself mean this sign-in completed -- the
+      // "still active, keep waiting" reply is *also* a 200 (it is not an
+      // error, there is nothing wrong with the request), just with
+      // {ok:false} in the body. Only a body that actually says ok:true
+      // carries a real session cookie; r.ok alone would wrongly treat
+      // "still waiting" as "signed in".
+      return r.json().catch(function () { return null; }).then(function (data) {
+        if (r.ok && data && data.ok) { stopConflictPoll(); completeSignIn(login); return; }
+        // Still active (force:false, other session has not ended yet) --
+        // schedule the next poll rather than treating this as a failure.
+        if (!force) conflictPoll = setTimeout(function () { resolveConflict(login, token, false); }, 3000);
+      });
+    }).catch(function () {
+      if (!force) conflictPoll = setTimeout(function () { resolveConflict(login, token, false); }, 3000);
+    });
+  }
+
+  function openConflict(login, token) {
+    if (!token) { say('That account is already signed in elsewhere.', 'err'); return; }
+    showScreen('gateConflict');
+    conflictSay('');
+    $('#conflictForceBtn').onclick = function () {
+      stopConflictPoll();
+      conflictSay('Signing the other session out…', '');
+      resolveConflict(login, token, true);
+    };
+    $('#conflictBack').onclick = function (e) {
+      e.preventDefault();
+      stopConflictPoll();
+      showSignIn();
+    };
+    resolveConflict(login, token, false);
   }
 
   /* ---- screens: sign in / reset / sign up --------------------------------
      Only one of #gateSignIn, #gateReset, #gateSignup is visible at a time. */
   function showScreen(id) {
-    ['gateSignIn', 'gateReset', 'gateSignup'].forEach(function (s) {
+    ['gateSignIn', 'gateReset', 'gateSignup', 'gateConflict'].forEach(function (s) {
       $('#' + s).style.display = (s === id) ? 'block' : 'none';
     });
     var inner = $('#gateInner');

@@ -175,6 +175,20 @@
         </form>
       </div>
 
+      <div id="gateConflict" style="display:none">
+        <p class="reset-lede">This account is already signed in somewhere else.
+          Sign out there, or sign it out from here to continue on this screen.</p>
+        <div class="gate-msg" id="conflictMsg" style="display:none"></div>
+        <button class="gate-submit" id="conflictForceBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          <span>Sign it out and continue here</span>
+        </button>
+        <p class="gate-foot" id="conflictWaiting" style="margin-top:16px">Waiting for the other session to end&hellip;</p>
+        <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+          <a href="#" id="conflictBack">Back to sign in</a>
+        </div>
+      </div>
+
       <div id="gateSignup" style="display:none">
         <form id="signupForm" novalidate>
           <p class="reset-lede">Register a new account. You'll be asked for the

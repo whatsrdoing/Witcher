@@ -134,6 +134,64 @@ def drop_session(token):
         SESSIONS.pop(token, None)
 
 
+def sessions_for(login):
+    """Active (non-expired) session tokens currently open for this login."""
+    now = time.time()
+    with SESSION_LOCK:
+        return [tok for tok, rec in SESSIONS.items()
+                if rec["login"] == login and rec["expires"] >= now]
+
+
+def drop_sessions_for(login):
+    """End every active session open for this login. Used both by the
+    single-active-session conflict resolver below and, later, by the admin
+    panel's own force-logout."""
+    with SESSION_LOCK:
+        dead = [tok for tok, rec in SESSIONS.items() if rec["login"] == login]
+        for tok in dead:
+            del SESSIONS[tok]
+        return len(dead)
+
+
+# ---------------------------------------------------------------------------
+# Single-active-session conflict handling.
+#
+# One account, one session, at a time. A second sign-in while the first is
+# still active does not just silently open a second session (no telling who
+# actually did what afterwards) -- it gets a conflict token instead of a
+# cookie, and has to resolve it one of two ways: force the first session
+# closed and take over now, or wait, polling quietly, until the first one
+# ends on its own (a real logout, an idle timeout, expiry) and then continue
+# automatically. Either way there is never more than one live session per
+# account.
+# ---------------------------------------------------------------------------
+CONFLICT_TTL = 5 * 60
+CONFLICTS = {}          # token -> {"login": str, "expires": float}
+CONFLICT_LOCK = threading.Lock()
+
+
+def new_conflict(login):
+    token = secrets.token_hex(16)
+    with CONFLICT_LOCK:
+        CONFLICTS[token] = {"login": login, "expires": time.time() + CONFLICT_TTL}
+    return token
+
+
+def conflict_login(token):
+    """The login a still-valid conflict token was issued for, or None."""
+    with CONFLICT_LOCK:
+        rec = CONFLICTS.get(token)
+        if not rec or rec["expires"] < time.time():
+            CONFLICTS.pop(token, None)
+            return None
+        return rec["login"]
+
+
+def drop_conflict(token):
+    with CONFLICT_LOCK:
+        CONFLICTS.pop(token, None)
+
+
 def auth_configured():
     """False when there is no auth.json yet, or it explicitly says
     enabled: false -- gate.js opens straight in for either, so the API
@@ -773,6 +831,19 @@ def make_handler(prefix):
                 return
             rate_clear(rate_key)
 
+            # One account, one active session -- see the CONFLICTS block
+            # above. The password is already proven correct at this point,
+            # so a conflict token issued from here can be trusted as "this
+            # caller genuinely knows this account's password", without
+            # asking for it again on the resolve step below.
+            if sessions_for(login):
+                token = new_conflict(login)
+                self._json(409, {"error": "already signed in elsewhere", "conflictToken": token})
+                return
+
+            self._start_session(login)
+
+        def _start_session(self, login):
             token = new_session(login)
             secure = (self.headers.get("X-Forwarded-Proto", "") == "https")
             cookie = "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (
@@ -786,6 +857,37 @@ def make_handler(prefix):
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
             self.wfile.write(body)
+
+        def _session_resolve_post(self):
+            """POST /__session/resolve {conflictToken, force} -- the second
+            step after a 409 from /__session above. force:true kills the
+            other session and takes over immediately; force:false (or
+            omitted) only completes the sign-in once the other session has
+            ended on its own, otherwise it reports back that it's still
+            active so the caller can poll again shortly."""
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 4096:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            token = str(req.get("conflictToken") or "")
+            login = conflict_login(token)
+            if not login:
+                self._json(410, {"error": "that sign-in attempt has expired -- start again"})
+                return
+
+            if req.get("force"):
+                drop_sessions_for(login)
+            elif sessions_for(login):
+                self._json(200, {"ok": False, "stillActive": True})
+                return
+
+            drop_conflict(token)
+            self._start_session(login)
 
         def do_POST(self):
             """Handles writes from the browser: files dropped into the Data
@@ -818,10 +920,15 @@ def make_handler(prefix):
                     self.send_error(404)
                 return
 
-            last_seg = path_only.rstrip("/").rsplit("/", 1)[-1]
-            if last_seg == "__session":
+            stail = seg_route(path_only, "__session")
+            if stail == []:
                 self._session_login_post()
                 return
+            if stail == ["resolve"]:
+                self._session_resolve_post()
+                return
+
+            last_seg = path_only.rstrip("/").rsplit("/", 1)[-1]
             if last_seg == "__logout":
                 drop_session(self._session_token())
                 self._json(200, {"ok": True})

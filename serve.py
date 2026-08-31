@@ -552,6 +552,20 @@ def drop_totp_pending(token):
         TOTP_PENDING.pop(token, None)
 
 
+def clean_login(raw):
+    """Every path that accepts a sign-in name as input (signup, an
+    id-change request, an admin rename) runs it through this rather than a
+    bare str().strip() -- a login is never shown back to anyone unescaped
+    server-side, but it does get written into auth.json, into every audit
+    log line for that account, and rendered client-side (already escaped
+    there); a control character or an unbounded length here is not
+    exploitable on its own, just needless mess. Empty string means
+    "rejected", same as the falsy check every caller already did."""
+    s = str(raw or "").strip()
+    s = "".join(c for c in s if ord(c) >= 0x20 and ord(c) != 0x7f)
+    return s[:64]
+
+
 COMMON_PASSWORDS = {
     "password", "password1", "password123", "12345678", "123456789", "1234567890",
     "qwerty123", "qwertyuiop", "letmein123", "welcome123", "admin1234", "iloveyou1",
@@ -1180,7 +1194,7 @@ def make_handler(prefix):
             now = int(time.time() * 1000)
             rec = {
                 "id": file_id,
-                "dashboardId": (qs.get("dashboardId") or [""])[0],
+                "dashboardId": (qs.get("dashboardId") or [""])[0][:100],
                 "name": (qs.get("name") or ["untitled"])[0][:300],
                 "size": written,
                 "type": (qs.get("type") or [""])[0][:100],
@@ -1246,7 +1260,7 @@ def make_handler(prefix):
                 self._json(400, {"error": "bad request"})
                 return
 
-            login = str(req.get("login") or "").strip()
+            login = clean_login(req.get("login"))
             digest = str(req.get("digest") or "")
             if not login or not digest:
                 self._json(400, {"error": "bad request"})
@@ -1442,9 +1456,22 @@ def make_handler(prefix):
             login = session_login(self._session_token())
             try:
                 n = int(self.headers.get("Content-Length") or 0)
+                if n > 2048:
+                    raise ValueError("bad length")
                 body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
             except (ValueError, UnicodeDecodeError):
                 body = {}
+
+            # disable/regenerate-codes both guess against an *existing*
+            # secret -- the same brute-force risk (and the same "totp:"
+            # bucket) as the sign-in step, worth guarding even though this
+            # route needs a valid session first: a hijacked session cookie
+            # alone should not be enough to grind through codes.
+            if tail in (["disable"], ["regenerate-codes"]):
+                rate_key = "totp:" + login
+                if rate_locked(rate_key):
+                    self._json(429, {"error": "too many attempts -- try again shortly"})
+                    return
 
             with TOTP_LOCK:
                 totp = read_totp()
@@ -1489,8 +1516,10 @@ def make_handler(prefix):
                         return
                     if not (totp_verify(entry.get("secret", ""), body.get("code"))
                             or totp_consume_backup_code(entry, body.get("code"))):
+                        rate_fail("totp:" + login)
                         self._json(401, {"error": "wrong code"})
                         return
+                    rate_clear("totp:" + login)
                     totp.pop(login, None)
                     write_totp(totp)
                     log_history(login, "totp_disabled", self.client_address[0])
@@ -1503,8 +1532,10 @@ def make_handler(prefix):
                         return
                     if not (totp_verify(entry.get("secret", ""), body.get("code"))
                             or totp_consume_backup_code(entry, body.get("code"))):
+                        rate_fail("totp:" + login)
                         self._json(401, {"error": "wrong code"})
                         return
+                    rate_clear("totp:" + login)
                     codes, hashes = totp_new_backup_codes()
                     entry["backupCodes"] = hashes
                     totp[login] = entry
@@ -1826,7 +1857,7 @@ def make_handler(prefix):
                 accounts[idx]["iterations"] = iters
 
             elif action == "rename":
-                new_login = str(body.get("newLogin") or "").strip()
+                new_login = clean_login(body.get("newLogin"))
                 if not new_login:
                     self._json(400, {"error": "a new sign-in name is required"})
                     return
@@ -1982,7 +2013,7 @@ def make_handler(prefix):
             except (OSError, ValueError):
                 auth = {}
             accounts = auth.get("accounts") or []
-            login = str(req.get("login") or "").strip()
+            login = clean_login(req.get("login"))
             if not login:
                 self._json(400, {"error": "a username is required"})
                 return
@@ -2022,7 +2053,7 @@ def make_handler(prefix):
                     rate_fail(rate_key)
                     self._json(404, {"error": "no such account"})
                     return
-                new_login = str(req.get("newLogin") or "").strip()
+                new_login = clean_login(req.get("newLogin"))
                 if not new_login:
                     self._json(400, {"error": "a new sign-in name is required"})
                     return

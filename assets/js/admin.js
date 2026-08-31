@@ -350,8 +350,8 @@
           '<button class="btn sm" data-reset="' + esc(a.login) + '">Reset password</button>' +
           '<button class="btn sm" data-rename="' + esc(a.login) + '">Rename</button>' +
           (a.totpEnabled ? '<button class="btn sm" data-disable-totp="' + esc(a.login) + '">Disable 2FA</button>' : '') +
-          '<button class="btn sm" data-toggle="' + esc(a.login) + '" data-disabled="' + (a.disabled ? '1' : '0') + '">' +
-          (a.disabled ? 'Enable' : 'Disable') + '</button></div></div>';
+          '<button class="btn sm" data-remove="' + esc(a.login) + '" data-disabled="' + (a.disabled ? '1' : '0') + '">' +
+          (a.disabled ? 'Enable / delete' : 'Disable / delete') + '</button></div></div>';
       }).join('');
 
       $$('[data-usage]', box).forEach(function (btn) {
@@ -393,17 +393,49 @@
           });
         });
       });
-      $$('[data-toggle]', box).forEach(function (btn) {
+      $$('[data-remove]', box).forEach(function (btn) {
         btn.addEventListener('click', function () {
-          var willDisable = btn.dataset.disabled === '0';
-          if (willDisable && !confirm('Disable ' + btn.dataset.toggle +
-            '? They will be signed out and unable to sign in again until re-enabled.')) return;
-          api('__admin/accounts/' + encodeURIComponent(btn.dataset.toggle) + '/disable', {
-            method: 'POST', body: JSON.stringify({ disabled: willDisable })
-          }).then(function (r2) { if (r2.ok) renderAccounts(); else alert(r2.body.error || 'Could not update it.'); });
+          openRemoveAccount(btn.dataset.remove, btn.dataset.disabled === '1');
         });
       });
     });
+  }
+
+  function openRemoveAccount(login, disabled) {
+    $('#removeAccountModal').dataset.login = login;
+    $('#removeAccountTitle').textContent = login;
+    $('#removeAccountToggle').textContent = disabled ? 'Enable' : 'Disable';
+    $('#removeAccountModal').classList.add('open');
+  }
+
+  function closeRemoveAccount() {
+    $('#removeAccountModal').classList.remove('open');
+  }
+
+  function toggleFromRemoveModal() {
+    var login = $('#removeAccountModal').dataset.login;
+    var willDisable = $('#removeAccountToggle').textContent === 'Disable';
+    if (willDisable && !confirm('Disable ' + login +
+      '? They will be signed out and unable to sign in again until re-enabled.')) return;
+    api('__admin/accounts/' + encodeURIComponent(login) + '/disable', {
+      method: 'POST', body: JSON.stringify({ disabled: willDisable })
+    }).then(function (r) {
+      if (!r.ok) { alert(r.body.error || 'Could not update it.'); return; }
+      closeRemoveAccount();
+      renderAccounts();
+    });
+  }
+
+  function deleteFromRemoveModal() {
+    var login = $('#removeAccountModal').dataset.login;
+    if (!confirm('Permanently delete ' + login + '? This cannot be undone -- ' +
+      'their account, password, and 2FA setup are all removed. Login history is kept.')) return;
+    api('__admin/accounts/' + encodeURIComponent(login) + '/delete', { method: 'POST' })
+      .then(function (r) {
+        if (!r.ok) { alert(r.body.error || 'Could not delete it.'); return; }
+        closeRemoveAccount();
+        renderAccounts();
+      });
   }
 
   function openEditProfile(login) {
@@ -710,6 +742,13 @@
         $('#adminBroadcastPick').style.display = (this.value === 'pick' && this.checked) ? '' : 'none';
       });
     });
+
+    var removeToggle = $('#removeAccountToggle'), removeDelete = $('#removeAccountDelete'),
+        removeCancel = $('#removeAccountCancel'), removeModal = $('#removeAccountModal');
+    if (removeToggle) removeToggle.addEventListener('click', toggleFromRemoveModal);
+    if (removeDelete) removeDelete.addEventListener('click', deleteFromRemoveModal);
+    if (removeCancel) removeCancel.addEventListener('click', closeRemoveAccount);
+    if (removeModal) removeModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) closeRemoveAccount(); });
   });
 
   w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };

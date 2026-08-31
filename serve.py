@@ -1853,7 +1853,7 @@ def make_handler(prefix):
                     log_history(login, "force_logout")
                 self._json(200, {"ok": True, "ended": n})
                 return
-            if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable", "update-profile"):
+            if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable", "delete", "update-profile"):
                 self._admin_account_action(tail[1], tail[2], body)
                 return
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] == "disable-2fa":
@@ -2145,6 +2145,35 @@ def make_handler(prefix):
                     n = drop_sessions_for(login)
                     if n:
                         log_history(login, "force_logout")
+
+            elif action == "delete":
+                # Permanent, unlike "disable" -- the account and its 2FA
+                # secret are gone, not just locked out. Two guards: never
+                # leave zero accounts behind (that's an unrecoverable
+                # install, not just a mistake), and never let the admin
+                # delete the very session doing the deleting -- everything
+                # from this point in the request would still be running as
+                # a login that no longer exists.
+                if len(accounts) <= 1:
+                    self._json(400, {"error": "can't delete the only remaining account"})
+                    return
+                if login == session_login(self._session_token()):
+                    self._json(400, {"error": "can't delete the account you're currently signed in as"})
+                    return
+                accounts.pop(idx)
+                n = drop_sessions_for(login)
+                if n:
+                    log_history(login, "force_logout")
+                with TOTP_LOCK:
+                    totp = read_totp()
+                    if totp.pop(login, None) is not None:
+                        write_totp(totp)
+                # Same re-sync set_password.py's own --remove does unconditionally:
+                # the top-level auth fields always mirror whichever account is
+                # accounts[0] now, since that is what file:// mode's fallback reads.
+                auth["email"] = accounts[0]["login"]
+                auth["salt"], auth["hash"], auth["iterations"] = (
+                    accounts[0]["salt"], accounts[0]["hash"], accounts[0].get("iterations", 250000))
 
             elif action == "update-profile":
                 # Free-text profile fields an admin can correct on someone's

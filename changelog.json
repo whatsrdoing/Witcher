@@ -29,6 +29,16 @@
         "A new \"Broadcast email\" card in the admin panel sends a message to every account with an email on file, or to specific accounts you pick.",
         "All of the above quietly does nothing until email is configured -- nothing about sign-up, requests, or the admin panel changes on a server that hasn't run set_mail.py."
       ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": 3,
+      "title": "Delete an account from the admin panel",
+      "notes": [
+        "The Accounts card's Disable button is now \"Disable / delete\" -- click it and choose which one, rather than disabling being the only option.",
+        "Deleting is permanent: the account, its password, and its 2FA setup are removed. Its past login history stays, same as a renamed or disabled account's does.",
+        "Guarded against the two ways this could go wrong: you can't delete the only remaining account, and you can't delete the account you're currently signed in as."
+      ]
     }
   ]
 }

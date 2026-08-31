@@ -63,6 +63,7 @@
     renderFeedback();
     renderDashboardVisibility();
     renderStorage();
+    renderBackups();
     renderHistory();
   }
 
@@ -277,6 +278,37 @@
     });
   }
 
+  function renderBackups() {
+    var box = $('#adminBackups'), sum = $('#adminBackupSummary');
+    if (!box) return;
+    box.textContent = 'Loading…';
+    api('__admin/backups').then(function (r) {
+      if (!r.ok) { box.textContent = 'Could not load.'; return; }
+      var rows = r.body.backups || [];
+      if (sum) sum.textContent = rows.length + ' backup' + (rows.length === 1 ? '' : 's') +
+        ' kept · stored in ' + esc(r.body.dir || '');
+      if (!rows.length) {
+        box.innerHTML = '<p class="admin-empty">No backups yet -- one is taken automatically, or use "Back up now".</p>';
+        return;
+      }
+      box.innerHTML = rows.map(function (b) {
+        return '<div class="admin-row"><div class="admin-row-main"><b>' + esc(b.name) + '</b>' +
+          '<span class="admin-row-sub">' + fmtBytes(b.size) + ' · ' + fmtWhen(b.createdAt) + '</span></div>' +
+          '<a class="btn sm" href="__admin/backups/' + encodeURIComponent(b.name) + '" download>Download</a></div>';
+      }).join('');
+    });
+  }
+
+  function backupNow() {
+    var btn = $('#adminBackupNow');
+    if (btn) { btn.disabled = true; btn.textContent = 'Backing up…'; }
+    api('__admin/backups', { method: 'POST' }).then(function (r) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Back up now'; }
+      if (!r.ok) { alert(r.body.error || 'Backup failed.'); return; }
+      renderBackups();
+    });
+  }
+
   var HISTORY_LABEL = {
     login_ok: 'Signed in', login_fail: 'Wrong password',
     logout: 'Signed out', force_logout: 'Signed out (forced)'
@@ -338,6 +370,8 @@
   d.addEventListener('DOMContentLoaded', function () {
     var btn = $('#adminBtn');
     if (btn) btn.addEventListener('click', function () { location.hash = '#/admin'; });
+    var backupBtn = $('#adminBackupNow');
+    if (backupBtn) backupBtn.addEventListener('click', backupNow);
   });
 
   w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };

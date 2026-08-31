@@ -43,6 +43,7 @@ import time
 import urllib.parse
 import uuid
 import webbrowser
+import zipfile
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SITE = os.path.join(ROOT, "site.json")
@@ -337,6 +338,97 @@ def write_feedback(items):
         json.dump({"items": items}, fh, indent=2, ensure_ascii=False)
         fh.write("\n")
     os.replace(tmp, FEEDBACK_PATH)
+
+
+# ---- automated backups -----------------------------------------------------
+# Everything this install has accumulated -- accounts, uploaded registers,
+# the database -- lives only on this one machine (see paths.py). A zip of
+# the whole data folder, taken automatically once a day and kept for the
+# last couple of weeks, is the difference between a wiped disk being an
+# afternoon's inconvenience and losing months of supply-chain data outright.
+BACKUPS_DIR = os.path.join(paths.data_dir(), "backups")
+BACKUP_INTERVAL_SECONDS = 24 * 3600
+BACKUP_KEEP = 14
+BACKUP_LOCK = threading.Lock()
+BACKUP_NAME_RE = re.compile(r"^backup-\d{8}-\d{6}\.zip$")
+
+
+def list_backups():
+    """Newest first."""
+    try:
+        names = [f for f in os.listdir(BACKUPS_DIR) if BACKUP_NAME_RE.match(f)]
+    except OSError:
+        return []
+    out = []
+    for name in names:
+        full = os.path.join(BACKUPS_DIR, name)
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        out.append({"name": name, "size": st.st_size, "createdAt": int(st.st_mtime * 1000)})
+    out.sort(key=lambda b: b["createdAt"], reverse=True)
+    return out
+
+
+def _prune_backups():
+    for stale in list_backups()[BACKUP_KEEP:]:
+        try:
+            os.remove(os.path.join(BACKUPS_DIR, stale["name"]))
+        except OSError:
+            pass
+
+
+def make_backup():
+    """Zip everything under the data folder -- except backups/ itself, so a
+    backup never nests inside another one -- into a new timestamped archive,
+    then prune down to the newest BACKUP_KEEP. Best-effort: a failure here
+    (disk full, permissions) must never take the server down; it is logged
+    and surfaced to whoever asked for it, not raised."""
+    root = paths.data_dir()
+    os.makedirs(BACKUPS_DIR, exist_ok=True)
+    name = "backup-%s.zip" % time.strftime("%Y%m%d-%H%M%S")
+    tmp_path = os.path.join(BACKUPS_DIR, name + ".tmp")
+    with BACKUP_LOCK:
+        try:
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                for dirpath, dirnames, filenames in os.walk(root):
+                    dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d) != BACKUPS_DIR]
+                    for fn in filenames:
+                        full = os.path.join(dirpath, fn)
+                        zf.write(full, os.path.relpath(full, root))
+            os.replace(tmp_path, os.path.join(BACKUPS_DIR, name))
+        except OSError as exc:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            print("  Backup failed: %s" % exc)
+            return None
+        _prune_backups()
+    print("  Backup created: %s" % name)
+    return name
+
+
+def backup_scheduler_loop():
+    """Runs for the life of the process. Checks hourly, but only actually
+    backs up once BACKUP_INTERVAL_SECONDS has passed since the newest one on
+    disk -- so restarting the server throughout the day does not spam
+    backups, and a machine left running for weeks still gets one roughly
+    daily."""
+    while True:
+        try:
+            backups = list_backups()
+            last = backups[0]["createdAt"] / 1000.0 if backups else 0
+            if time.time() - last >= BACKUP_INTERVAL_SECONDS:
+                make_backup()
+        except Exception as exc:                     # noqa: BLE001
+            print("  Backup scheduler error: %s" % exc)
+        time.sleep(3600)
+
+
+def start_backup_scheduler():
+    threading.Thread(target=backup_scheduler_loop, daemon=True).start()
 
 
 COMMON_PASSWORDS = {
@@ -1173,6 +1265,12 @@ def make_handler(prefix):
             if tail == ["feedback"]:
                 self._json(200, {"items": read_feedback()})
                 return
+            if tail == ["backups"]:
+                self._json(200, {"backups": list_backups(), "dir": BACKUPS_DIR})
+                return
+            if len(tail) == 2 and tail[0] == "backups":
+                self._admin_backup_download(tail[1])
+                return
             if tail == ["dashboards"]:
                 try:
                     with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
@@ -1232,7 +1330,38 @@ def make_handler(prefix):
             if len(tail) == 3 and tail[0] == "feedback" and tail[2] == "resolve":
                 self._admin_feedback_resolve(tail[1], body)
                 return
+            if tail == ["backups"]:
+                name = make_backup()
+                if name:
+                    self._json(200, {"ok": True, "name": name})
+                else:
+                    self._json(500, {"error": "backup failed -- see the server console"})
+                return
             self.send_error(404)
+
+        def _admin_backup_download(self, name):
+            # name is only ever compared against our own generated pattern --
+            # never trusted as a path, so a caller cannot walk this outside
+            # BACKUPS_DIR no matter what it sends.
+            if not BACKUP_NAME_RE.match(name):
+                self.send_error(404)
+                return
+            full = os.path.join(BACKUPS_DIR, name)
+            if not os.path.isfile(full):
+                self.send_error(404)
+                return
+            try:
+                with open(full, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                self.send_error(500)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
         def _admin_feedback_resolve(self, item_id, body):
             """POST /__admin/feedback/<id>/resolve {done, remark} -- unlike
@@ -1878,6 +2007,7 @@ def main(argv):
 
     if auto_open:
         threading.Timer(0.6, lambda: open_window(url, app_mode)).start()
+    start_backup_scheduler()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

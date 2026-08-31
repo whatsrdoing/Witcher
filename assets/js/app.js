@@ -13,6 +13,7 @@
   var framesByMode = { local: Object.create(null), session: Object.create(null) };
   var frames = framesByMode.local;    // id -> { el, loaded, openedAt }; points at the active mode's set
   var fileCounts = Object.create(null);
+  var lastUpdated = Object.create(null);  // dashboardId -> newest attached file's updatedAt, for the card's freshness note
   var current = null;                 // active dashboard id, null = home
   var DEV_CAT = '__dev';            // pseudo-category: everything not live yet
   var filter = { text: '', category: 'all' };
@@ -506,6 +507,7 @@
     grid.innerHTML = list.map(function (x, i) {
       var open = !!frames[x.id];
       var n = fileCounts[x.id] || 0;
+      var updatedAt = lastUpdated[x.id];
       var playable = x.status !== 'planned' && !!x.file;
       return '<article class="card glass status-' + esc(x.status) + '" data-id="' + esc(x.id) + '" draggable="true"' +
         ' style="--accent:' + esc(x.accent) + '; animation-delay:' + Math.min(i * 26, 320) + 'ms">' +
@@ -521,6 +523,10 @@
           '</div>' +
         '</div>' +
         '<p class="card-desc">' + esc(x.description || 'No description yet — add one in dashboards.json.') + '</p>' +
+        (updatedAt
+          ? '<div class="card-updated" title="' + esc(fmtDate(updatedAt)) + '">' + ico('clock', 'sm') +
+            '<span>Data updated ' + esc(relTime(updatedAt)) + '</span></div>'
+          : '') +
         '<div class="card-foot">' +
           '<span class="badge ' + esc(x.status) + '">' + esc(statusLabel(x.status)) + '</span>' +
           (open ? '<span class="badge open">Open</span>' : '') +
@@ -625,7 +631,20 @@
     // Every mutation (add, delete, condense) funnels through here, so this is
     // the one place the cached file list has to be dropped.
     invalidateFiles();
-    return w.Store.Files.counts().then(function (c) { fileCounts = c || {}; return c; });
+    // listAll (not the lighter counts()) because the card's "last updated"
+    // note needs each file's own updatedAt, not just how many there are.
+    return w.Store.Files.listAll().then(function (rows) {
+      var counts = Object.create(null), updated = Object.create(null);
+      (rows || []).forEach(function (r) {
+        if (!r.dashboardId) return;
+        counts[r.dashboardId] = (counts[r.dashboardId] || 0) + 1;
+        var t = r.updatedAt || r.addedAt || 0;
+        if (t > (updated[r.dashboardId] || 0)) updated[r.dashboardId] = t;
+      });
+      fileCounts = counts;
+      lastUpdated = updated;
+      return counts;
+    }).catch(function () { fileCounts = {}; lastUpdated = {}; return {}; });
   }
 
   function openDrawer(id, tab) {
@@ -876,6 +895,22 @@
   function fmtDate(t) {
     try { return new Date(t).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
     catch (e) { return ''; }
+  }
+  /* When its underlying data last changed, for the home card's freshness
+     note -- "how current is what I'd see if I opened this" without having
+     to open it. Falls back to the plain date once "X days ago" stops being
+     useful at a glance. */
+  function relTime(t) {
+    if (!t) return '';
+    var s = Math.max(0, (Date.now() - t) / 1000);
+    if (s < 60) return 'just now';
+    var m = s / 60;
+    if (m < 60) return Math.floor(m) + (Math.floor(m) === 1 ? ' minute ago' : ' minutes ago');
+    var h = m / 60;
+    if (h < 24) return Math.floor(h) + (Math.floor(h) === 1 ? ' hour ago' : ' hours ago');
+    var days = h / 24;
+    if (days < 30) return Math.floor(days) + (Math.floor(days) === 1 ? ' day ago' : ' days ago');
+    return fmtDate(t);
   }
 
   /* The file list is fetched once per scope and then filtered in memory.

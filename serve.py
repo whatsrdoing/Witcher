@@ -110,8 +110,29 @@ SESSION_LOCK = threading.Lock()
 def new_session(login):
     token = secrets.token_hex(32)
     with SESSION_LOCK:
-        SESSIONS[token] = {"login": login, "expires": time.time() + SESSION_TTL}
+        SESSIONS[token] = {"login": login, "expires": time.time() + SESSION_TTL,
+                           "startedAt": time.time(), "viewing": None}
     return token
+
+
+def set_viewing(token, viewing):
+    """Records which dashboard (or None for the hub itself) a session is
+    currently looking at, self-reported by the browser -- see
+    POST __session/viewing. Purely informational, for the admin panel's
+    live-sessions view; never used for any access decision."""
+    with SESSION_LOCK:
+        rec = SESSIONS.get(token)
+        if rec:
+            rec["viewing"] = viewing
+
+
+def active_sessions():
+    """Every currently active session, for the admin panel."""
+    now = time.time()
+    with SESSION_LOCK:
+        return [{"login": rec["login"], "viewing": rec.get("viewing"),
+                  "startedAt": rec.get("startedAt")}
+                for rec in SESSIONS.values() if rec["expires"] >= now]
 
 
 def session_login(token):
@@ -190,6 +211,83 @@ def conflict_login(token):
 def drop_conflict(token):
     with CONFLICT_LOCK:
         CONFLICTS.pop(token, None)
+
+
+HISTORY_PATH = os.path.join(paths.data_dir(), "login_history.jsonl")
+HISTORY_LOCK = threading.Lock()
+
+
+def log_history(login, event):
+    """Append one line to the persistent login/session history log -- the
+    admin panel's audit trail. Separate from SESSIONS (in-memory, forgets
+    everything on restart, on purpose -- see the block above); this is
+    meant to survive restarts and keep growing. Best-effort: a write
+    failure here must never break the sign-in flow itself."""
+    if not login:
+        return
+    entry = {"ts": int(time.time() * 1000), "login": login, "event": event}
+    try:
+        with HISTORY_LOCK:
+            with open(HISTORY_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def read_history(limit=200):
+    """Most recent entries first."""
+    try:
+        with open(HISTORY_PATH, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return []
+    out = []
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+        if len(out) >= limit:
+            break
+    return out
+
+
+def history_stats():
+    """Per-login total signed-in time (ms) and how many sessions that adds
+    up over, best-effort: pairs each login_ok with the next logout or
+    force_logout for that same login; one still open counts up to now."""
+    try:
+        with open(HISTORY_PATH, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return {}
+    open_since = {}
+    stats = {}
+    now_ms = time.time() * 1000
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        login, event, ts = e.get("login"), e.get("event"), e.get("ts")
+        if not login or ts is None:
+            continue
+        s = stats.setdefault(login, {"totalMs": 0, "sessions": 0})
+        if event == "login_ok":
+            open_since[login] = ts
+            s["sessions"] += 1
+        elif event in ("logout", "force_logout") and login in open_since:
+            s["totalMs"] += max(0, ts - open_since.pop(login))
+    for login, start in open_since.items():
+        stats.setdefault(login, {"totalMs": 0, "sessions": 0})
+        stats[login]["totalMs"] += max(0, now_ms - start)
+    return stats
 
 
 def admin_login():
@@ -434,9 +532,14 @@ def make_handler(prefix):
             if path_only.rstrip("/").rsplit("/", 1)[-1] == "__session":
                 login = session_login(self._session_token())
                 if login:
-                    self._json(200, {"login": login})
+                    self._json(200, {"login": login, "isAdmin": login == admin_login()})
                 else:
                     self._json(401, {"error": "no session"})
+                return
+            atail = seg_route(path_only, "__admin")
+            if atail is not None:
+                if self._require_admin():
+                    self._admin_get(atail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
                 return
             if self._redirect():
                 return
@@ -784,6 +887,7 @@ def make_handler(prefix):
                 "addedAt": now,
                 "updatedAt": now,
                 "headers": headers[:200],
+                "uploadedBy": session_login(self._session_token()) or "",
             }
             try:
                 os.replace(part_path, blob_path)
@@ -866,9 +970,13 @@ def make_handler(prefix):
             if not acc:
                 self._json(404, {"error": "no such account"})
                 return
+            if acc.get("disabled"):
+                self._json(403, {"error": "this account has been disabled"})
+                return
 
             if not hmac.compare_digest(digest, str(acc.get("hash") or "")):
                 rate_fail(rate_key)
+                log_history(login, "login_fail")
                 self._json(401, {"error": "wrong password"})
                 return
             rate_clear(rate_key)
@@ -886,6 +994,7 @@ def make_handler(prefix):
             self._start_session(login)
 
         def _start_session(self, login):
+            log_history(login, "login_ok")
             token = new_session(login)
             secure = (self.headers.get("X-Forwarded-Proto", "") == "https")
             cookie = "%s=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d" % (
@@ -924,12 +1033,157 @@ def make_handler(prefix):
 
             if req.get("force"):
                 drop_sessions_for(login)
+                log_history(login, "force_logout")
             elif sessions_for(login):
                 self._json(200, {"ok": False, "stillActive": True})
                 return
 
             drop_conflict(token)
             self._start_session(login)
+
+        def _session_viewing_post(self):
+            """POST /__session/viewing {dashboardId} -- self-reported by the
+            hub on every navigation (see app.js), so the admin panel's live
+            sessions list can show what each person actually has open right
+            now. Any signed-in session may report its own view; there is
+            nothing here to gate beyond just having a valid session, since
+            this never affects what anyone can read or change."""
+            if not self._require_session():
+                return
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                req = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+            except (ValueError, UnicodeDecodeError):
+                req = {}
+            viewing = req.get("dashboardId")
+            set_viewing(self._session_token(), str(viewing) if viewing else None)
+            self._json(200, {"ok": True})
+
+        # -------------------------------------------------------------
+        # Admin panel. Every route here already passed _require_admin()
+        # in do_GET/do_POST above -- nothing below re-checks that.
+        # -------------------------------------------------------------
+        def _admin_get(self, tail, qs):
+            if tail == ["sessions"]:
+                self._json(200, {"sessions": active_sessions()})
+                return
+            if tail == ["history"]:
+                try:
+                    limit = min(int((qs.get("limit") or ["200"])[0]), 1000)
+                except ValueError:
+                    limit = 200
+                self._json(200, {"history": read_history(limit)})
+                return
+            if tail == ["accounts"]:
+                self._json(200, {"accounts": self._admin_account_list()})
+                return
+            if tail == ["storage"]:
+                files = library_read_index()
+                self._json(200, {"files": files, "totalBytes": sum(f.get("size", 0) for f in files)})
+                return
+            self.send_error(404)
+
+        def _admin_account_list(self):
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                return []
+            accounts = auth.get("accounts") or []
+            primary = admin_login()
+            stats = history_stats()
+            out = []
+            for a in accounts:
+                s = stats.get(a.get("login"), {"totalMs": 0, "sessions": 0})
+                out.append({
+                    "login": a.get("login"), "name": a.get("name") or "",
+                    "designation": a.get("designation") or "", "department": a.get("department") or "",
+                    "category": a.get("category") or "", "phone": a.get("phone") or "",
+                    "email": a.get("email") or "", "parasId": a.get("parasId") or "",
+                    "createdAt": a.get("createdAt"), "disabled": bool(a.get("disabled")),
+                    "isAdmin": a.get("login") == primary,
+                    "totalTimeMs": s["totalMs"], "sessionCount": s["sessions"],
+                })
+            return out
+
+        def _admin_post(self, tail, body):
+            if tail == ["sessions", "logout"]:
+                login = str(body.get("login") or "")
+                if not login:
+                    self._json(400, {"error": "bad request"})
+                    return
+                n = drop_sessions_for(login)
+                if n:
+                    log_history(login, "force_logout")
+                self._json(200, {"ok": True, "ended": n})
+                return
+            if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable"):
+                self._admin_account_action(tail[1], tail[2], body)
+                return
+            self.send_error(404)
+
+        def _admin_account_action(self, login, action, body):
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                self._json(404, {"error": "no accounts configured"})
+                return
+            accounts = auth.get("accounts") or []
+            idx = next((i for i, a in enumerate(accounts) if a.get("login") == login), None)
+            if idx is None:
+                self._json(404, {"error": "no such account"})
+                return
+
+            if action == "reset-password":
+                new_password = str(body.get("newPassword") or "")
+                if len(new_password) < 6:
+                    self._json(400, {"error": "use at least 6 characters"})
+                    return
+                salt = secrets.token_hex(16)
+                iters = accounts[idx].get("iterations") or 250000
+                accounts[idx]["salt"] = salt
+                accounts[idx]["hash"] = hashlib.pbkdf2_hmac(
+                    "sha256", new_password.encode("utf-8"), bytes.fromhex(salt), iters, 32).hex()
+                accounts[idx]["iterations"] = iters
+
+            elif action == "rename":
+                new_login = str(body.get("newLogin") or "").strip()
+                if not new_login:
+                    self._json(400, {"error": "a new sign-in name is required"})
+                    return
+                if any(a.get("login") == new_login for a in accounts):
+                    self._json(409, {"error": "that sign-in name is already taken"})
+                    return
+                old_login = accounts[idx]["login"]
+                accounts[idx]["login"] = new_login
+                if auth.get("email") == old_login:
+                    auth["email"] = new_login
+                drop_sessions_for(old_login)
+                log_history(old_login, "force_logout")
+
+            elif action == "disable":
+                disabled = bool(body.get("disabled", True))
+                accounts[idx]["disabled"] = disabled
+                if disabled:
+                    n = drop_sessions_for(login)
+                    if n:
+                        log_history(login, "force_logout")
+
+            auth["accounts"] = accounts
+            if accounts and auth.get("email") == accounts[0].get("login"):
+                auth["salt"], auth["hash"], auth["iterations"] = (
+                    accounts[0]["salt"], accounts[0]["hash"], accounts[0]["iterations"])
+            try:
+                with open(AUTH_PATH, "w", encoding="utf-8") as fh:
+                    json.dump(auth, fh, indent=2, ensure_ascii=False)
+                    fh.write("\n")
+                import sync
+                sync.mirror_auth()
+            except (OSError, ImportError) as exc:
+                self._json(500, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True})
 
         def do_POST(self):
             """Handles writes from the browser: files dropped into the Data
@@ -969,10 +1223,28 @@ def make_handler(prefix):
             if stail == ["resolve"]:
                 self._session_resolve_post()
                 return
+            if stail == ["viewing"]:
+                self._session_viewing_post()
+                return
+
+            atail = seg_route(path_only, "__admin")
+            if atail is not None:
+                if self._require_admin():
+                    try:
+                        n = int(self.headers.get("Content-Length") or 0)
+                        body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+                    except (ValueError, UnicodeDecodeError):
+                        body = {}
+                    self._admin_post(atail, body)
+                return
 
             last_seg = path_only.rstrip("/").rsplit("/", 1)[-1]
             if last_seg == "__logout":
-                drop_session(self._session_token())
+                token = self._session_token()
+                logout_login = session_login(token)
+                drop_session(token)
+                if logout_login:
+                    log_history(logout_login, "logout")
                 self._json(200, {"ok": True})
                 return
 

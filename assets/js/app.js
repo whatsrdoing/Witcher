@@ -44,6 +44,7 @@
 
       paintChrome();
       wire();
+      if (w.ParasAdmin) w.ParasAdmin.checkAccess();
 
       w.Store.checkPersistence().then(function () {
         renderModeSwitch();
@@ -243,6 +244,11 @@
   /* ===================== routing ========================================= */
   function route() {
     var h = (location.hash || '').replace(/^#/, '');
+    if (h === '/admin') {
+      if (w.ParasAdmin && w.ParasAdmin.showIfAllowed()) return;
+      // Not the admin account (or the check hasn't resolved yet) -- fall
+      // through to home rather than sitting on a blank/forbidden hash.
+    }
     var m = /^\/d\/(.+)$/.exec(h);
     if (m) {
       var db = byId(decodeURIComponent(m[1]));
@@ -260,12 +266,14 @@
     current = null;
     $('#viewHome').classList.add('active');
     $('#viewDash').classList.remove('active');
+    $('#viewAdmin').classList.remove('active');
     $$('.frames iframe').forEach(function (f) { f.classList.remove('active'); });
     $('#frameLoading').style.display = 'none';
     $('#matchBar').style.display = 'none';
     $('.dash-bar').classList.remove('collapsed');
     renderCrumbs();
     renderLiveCount();
+    if (w.ParasAdmin) w.ParasAdmin.reportViewing(null);
     if (!silent) location.hash = '#/';
     else if (!location.hash || location.hash === '#') history.replaceState(null, '', '#/');
   }
@@ -274,10 +282,12 @@
     var db = byId(id);
     if (!db) return goHome();
     if (!db.file) { toast('"' + db.name + '" is registered but has no HTML file yet.', 'warn'); return; }
+    if (w.ParasAdmin) w.ParasAdmin.reportViewing(db.name || id);
 
     current = id;
     $('#viewHome').classList.remove('active');
     $('#viewDash').classList.add('active');
+    $('#viewAdmin').classList.remove('active');
     // Each dashboard starts pinned open, as if newly loaded; refreshMatchBar
     // below decides within a beat whether this one gets to autohide (and, if
     // so, tucks it away right then -- see setChromeLoaded). The bar is one

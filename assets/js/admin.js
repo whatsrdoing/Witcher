@@ -956,5 +956,13 @@
     if (removeModal) removeModal.addEventListener('click', function (e) { if (e.target === e.currentTarget) closeRemoveAccount(); });
   });
 
-  w.ParasAdmin = { checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed };
+  w.ParasAdmin = {
+    checkAccess: checkAccess, isAdmin: isAdmin, reportViewing: reportViewing, showIfAllowed: showIfAllowed,
+    // Exposed for admin-overlay.js: the hidden search-bar unlock populates
+    // #viewAdmin's cards the same way the routed #/admin page does, but
+    // without going through showIfAllowed's isAdminCached gate -- a normal
+    // account holding a valid overlay grant is never "isAdmin" client-side,
+    // only server-side for the duration of that grant.
+    refreshAll: refreshAll
+  };
 })(window, document);

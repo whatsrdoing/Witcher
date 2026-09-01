@@ -1020,6 +1020,19 @@
 
 <div class="toasts" id="toasts"></div>
 
+<!-- Hidden admin overlay: reveals the SAME #viewAdmin content used by the
+     normal #/admin route, but as a torn-down-on-close overlay reachable
+     from any signed-in account via the search bar + admin key (see
+     admin-overlay.js) -- never a routed page, so nothing shows in the
+     address bar and nothing survives a close. -->
+<div class="admin-overlay-scrim" id="adminOverlayScrim">
+  <div class="admin-overlay-shell" id="adminOverlayShell">
+    <button class="btn sm icon-only admin-overlay-close" id="adminOverlayClose" aria-label="Close">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+</div>
+
 <!-- Admin-only data assistant: a floating widget, not tied to any one view --
      it stays available (and stays admin-gated) no matter which dashboard or
      screen is open. ask.js shows/hides #askWidget entirely based on
@@ -1100,6 +1113,7 @@
 <script src="assets/js/avatar.js"></script>
 <script src="assets/js/idle-timeout.js"></script>
 <script src="assets/js/admin.js"></script>
+<script src="assets/js/admin-overlay.js"></script>
 <script src="assets/js/feedback.js"></script>
 <script src="assets/js/qrcode.js"></script>
 <script src="assets/js/twofactor.js"></script>

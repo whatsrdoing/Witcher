@@ -165,6 +165,42 @@ def drop_session(token):
         SESSIONS.pop(token, None)
 
 
+# ---------------------------------------------------------------------------
+# Hidden admin overlay -- typing the admin key into the search bar (see
+# ask.js's sibling, the search-bar handler in app.js) grants whichever
+# session is currently signed in on that browser -- any account, not just
+# the primary admin's own -- temporary access to the /__admin/* routes,
+# without changing who is actually signed in. Closing the overlay revokes
+# it immediately (see POST /__session/admin-unlock/revoke); ADMIN_OVERLAY_TTL
+# is only a safety ceiling for a tab that never gets the chance to send that
+# (closed, crashed, network dropped), not the normal way this ends.
+# ---------------------------------------------------------------------------
+ADMIN_OVERLAY = {}                # session token -> expiry (epoch seconds)
+ADMIN_OVERLAY_LOCK = threading.Lock()
+ADMIN_OVERLAY_TTL = 20 * 60
+
+
+def grant_admin_overlay(token):
+    with ADMIN_OVERLAY_LOCK:
+        ADMIN_OVERLAY[token] = time.time() + ADMIN_OVERLAY_TTL
+
+
+def admin_overlay_active(token):
+    if not token:
+        return False
+    with ADMIN_OVERLAY_LOCK:
+        exp = ADMIN_OVERLAY.get(token)
+        if exp and exp >= time.time():
+            return True
+        ADMIN_OVERLAY.pop(token, None)
+        return False
+
+
+def revoke_admin_overlay(token):
+    with ADMIN_OVERLAY_LOCK:
+        ADMIN_OVERLAY.pop(token, None)
+
+
 def sessions_for(login):
     """Active (non-expired) session tokens currently open for this login."""
     now = time.time()
@@ -1268,11 +1304,21 @@ def make_handler(prefix):
             today that is also how a dashboard loads library data to begin
             with, so locking it down here would break dashboards for every
             non-admin account; it becomes safe to add once dashboards read a
-            precomputed result instead of the raw upload directly."""
+            precomputed result instead of the raw upload directly.
+
+            Also true for any session -- admin or not -- holding a live
+            admin-overlay grant (see grant_admin_overlay): the hidden
+            search-bar unlock proves knowledge of the admin key, not that
+            this particular account is the primary admin, so this
+            deliberately does not check login == admin_login() for that
+            case."""
             if not auth_configured():
                 return True
-            login = session_login(self._session_token())
+            token = self._session_token()
+            login = session_login(token)
             if login and login == admin_login():
+                return True
+            if login and admin_overlay_active(token):
                 return True
             if not login:
                 self._json(401, {"error": "sign in required"})
@@ -1832,6 +1878,65 @@ def make_handler(prefix):
             self.send_header("Set-Cookie", cookie)
             self.end_headers()
             self.wfile.write(body)
+
+        def _session_admin_unlock_post(self):
+            """POST /__session/admin-unlock {digest} -- the hidden trigger
+            behind the search bar's admin-key gesture. Works for ANY signed-in
+            session, not just the primary admin's own -- a correct digest
+            proves whoever is typing knows the shared admin key, which is
+            exactly the "walk up to any already-open session and reveal
+            admin controls" behaviour that was asked for. `digest` is a
+            PBKDF2 digest the browser derived the same way it already does
+            for a password (over adminKeySalt/iterations from auth.js);
+            comparing it here, never client-side, is the same reasoning as
+            the main sign-in check above -- the real adminKeyHash never
+            leaves the server (see _send_auth's redaction)."""
+            if not self._require_session():
+                return
+            token = self._session_token()
+            login = session_login(token)
+
+            rate_key = "adminunlock:" + (login or self.client_address[0])
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 2048:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            digest = str(req.get("digest") or "")
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                auth = {}
+            key_hash = str(auth.get("adminKeyHash") or "")
+
+            if not key_hash or not digest or not hmac.compare_digest(digest, key_hash):
+                rate_fail(rate_key)
+                self._json(401, {"ok": False})
+                return
+            rate_clear(rate_key)
+            grant_admin_overlay(token)
+            self._json(200, {"ok": True})
+
+        def _session_admin_unlock_revoke_post(self):
+            """POST /__session/admin-unlock/revoke -- the overlay's close
+            button calls this before tearing itself down client-side, so
+            "nothing stays until I type the key again" is actually true
+            server-side too, not just a hidden div. Always succeeds (even
+            if nothing was granted) -- closing an overlay that never
+            finished opening is not an error."""
+            if not self._require_session():
+                return
+            revoke_admin_overlay(self._session_token())
+            self._json(200, {"ok": True})
 
         def _session_resolve_post(self):
             """POST /__session/resolve {conflictToken, force} -- the second
@@ -2568,6 +2673,12 @@ def make_handler(prefix):
                 return
             if stail == ["totp", "start"]:
                 self._session_totp_start_post()
+                return
+            if stail == ["admin-unlock"]:
+                self._session_admin_unlock_post()
+                return
+            if stail == ["admin-unlock", "revoke"]:
+                self._session_admin_unlock_revoke_post()
                 return
 
             ttail = seg_route(path_only, "__totp")

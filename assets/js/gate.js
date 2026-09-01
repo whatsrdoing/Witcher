@@ -884,49 +884,11 @@
     location.reload();
   }
 
-  /* ---- brand-values intro -------------------------------------------------
-     Purely a glass cover over the sign-in card below it -- everything the
-     rest of showGate() wires up (the form, its listeners) still happens
-     regardless of whether this is showing; dismissing it never re-runs any
-     of that setup, it just gets out of the way. Shown every time the gate
-     opens, no skip-after-first-time.
-
-     #gateCard is actually hidden (the gate.intro-active CSS rule), not just
-     visually covered -- two backdrop-filters stacked directly on each other
-     don't blur predictably, and this card's content showed through far more
-     than its own opacity alone would suggest. Hiding gate-card outright
-     means there is only ever one thing behind this card's blur (the photo
-     grid), same as gate-card's own blur normally has. */
-  function showIntro() {
-    var intro = $('#introCard');
-    if (!intro) return;
-    $('#gate').classList.add('intro-active');
-    intro.classList.remove('exiting');
-    intro.style.display = 'grid';
-    var dismissed = false;
-    function dismiss() {
-      if (dismissed) return;
-      dismissed = true;
-      intro.classList.add('exiting');
-      $('#gate').classList.remove('intro-active');
-      // Matches the slowest child transition above (the panel itself, at a
-      // .15s delay + .45s duration) plus a small margin -- long enough for
-      // every piece to actually finish, short enough not to leave a dead
-      // interactive gap once everything has visibly settled.
-      setTimeout(function () { intro.style.display = 'none'; }, 650);
-    }
-    // The whole panel is clickable; #introContinue is the one real,
-    // keyboard-reachable <button> in it, so Enter/Space there already
-    // fires a native click that bubbles up to this same listener.
-    intro.addEventListener('click', dismiss);
-  }
-
   function showGate() {
     d.documentElement.setAttribute('data-locked', '');
     var gate = $('#gate');
     gate.style.display = 'flex';
     gate.classList.remove('gone');
-    showIntro();
 
     // Deliberately not cleared here. The gate is shown only once auth.json
     // has loaded, which on a slow machine is a moment after the page becomes

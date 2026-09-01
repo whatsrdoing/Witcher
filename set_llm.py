@@ -90,11 +90,13 @@ def main(argv):
           "Anthropic per use; check console.anthropic.com for current pricing and usage.")
 
     if test_q:
-        answer, err = assistant.ask(test_q, [], "")
+        answer, err, usage = assistant.ask(test_q, [], "")
         if err:
             print("Test question failed: %s" % err)
             return 1
         print("Answer: %s" % answer)
+        print("  (%s -- %d in / %d out tokens, ~$%.4f)" % (
+            usage["model"], usage["inputTokens"], usage["outputTokens"], usage["cost"]))
     return 0
 
 

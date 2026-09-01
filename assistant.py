@@ -76,6 +76,29 @@ TOOLS = [
 MAX_TURNS = 6
 _NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
+# The only two models the Ask panel's picker offers -- kept short and
+# deliberately curated (see the admin.js/ask.js model dropdown) rather
+# than exposing Anthropic's full model list. Validated server-side too:
+# a request naming anything else falls back to the configured default
+# rather than being sent through as-is.
+ALLOWED_MODELS = ("claude-opus-5", "claude-sonnet-5")
+
+# $ per 1M tokens (input, output) -- Anthropic's list pricing, used only
+# to show an *estimated* running cost in the Ask panel. This is never
+# authoritative; the real number lives on platform.claude.com/cost.
+MODEL_PRICING = {
+    "claude-opus-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+}
+
+
+def estimate_cost(model, input_tokens, output_tokens):
+    rates = MODEL_PRICING.get(model)
+    if not rates:
+        return None
+    in_rate, out_rate = rates
+    return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000.0
+
 
 def _to_number(cell):
     """Best-effort: strips currency symbols, commas, and surrounding text
@@ -177,29 +200,47 @@ def _run_tool(name, args, library_index, library_blobs_dir):
     return {"error": "Unknown tool %s" % name}
 
 
-def ask(question, library_index, library_blobs_dir):
-    """Runs the tool-use loop to completion and returns (answer, error) --
-    exactly one of the two is set. Never raises; a failure at any step
-    (no API key, a network error, too many turns) comes back as `error`
-    for the caller to show plainly rather than as an exception."""
+def ask(question, library_index, library_blobs_dir, model=None):
+    """Runs the tool-use loop to completion and returns (answer, error,
+    usage) -- exactly one of answer/error is set. `usage` is always a
+    dict ({"model", "inputTokens", "outputTokens", "cost"}, all zero if
+    nothing was ever sent) so the caller can log/display it regardless of
+    outcome. Never raises; a failure at any step (no API key, a network
+    error, too many turns) comes back as `error` for the caller to show
+    plainly rather than as an exception.
+
+    `model` is the Ask panel's per-question picker choice -- validated
+    against ALLOWED_MODELS here (never trust the client's string as-is)
+    and, when valid, passed through to every turn of this one question
+    only. An invalid/omitted value falls back to whatever set_llm.py
+    configured as the default."""
     question = (question or "").strip()
+    picked_model = model if model in ALLOWED_MODELS else None
+    usage = {"model": picked_model, "inputTokens": 0, "outputTokens": 0, "cost": 0.0}
     if not question:
-        return None, "Ask something first."
+        return None, "Ask something first.", usage
     if not llm.llm_enabled():
-        return None, "The assistant isn't set up yet -- see set_llm.py."
+        return None, "The assistant isn't set up yet -- see set_llm.py.", usage
 
     messages = [{"role": "user", "content": question}]
     for _ in range(MAX_TURNS):
-        response, err = llm.messages_create(messages, system=SYSTEM_PROMPT, tools=TOOLS, max_tokens=1024)
+        response, err = llm.messages_create(
+            messages, system=SYSTEM_PROMPT, tools=TOOLS, max_tokens=1024, model=picked_model)
         if err:
-            return None, err
+            return None, err, usage
+
+        turn_usage = response.get("usage") or {}
+        usage["model"] = response.get("model") or usage["model"]
+        usage["inputTokens"] += turn_usage.get("input_tokens") or 0
+        usage["outputTokens"] += turn_usage.get("output_tokens") or 0
 
         content = response.get("content") or []
         messages.append({"role": "assistant", "content": content})
 
         if response.get("stop_reason") != "tool_use":
             text = "".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
-            return (text or "No answer came back."), None
+            usage["cost"] = estimate_cost(usage["model"], usage["inputTokens"], usage["outputTokens"]) or 0.0
+            return (text or "No answer came back."), None, usage
 
         results = []
         for block in content:
@@ -209,4 +250,5 @@ def ask(question, library_index, library_blobs_dir):
             results.append({"type": "tool_result", "tool_use_id": block.get("id"), "content": json.dumps(output)})
         messages.append({"role": "user", "content": results})
 
-    return None, "Took too many steps to resolve -- try asking more specifically."
+    usage["cost"] = estimate_cost(usage["model"], usage["inputTokens"], usage["outputTokens"]) or 0.0
+    return None, "Took too many steps to resolve -- try asking more specifically.", usage

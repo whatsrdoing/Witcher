@@ -427,6 +427,64 @@ def usage_report():
     return days
 
 
+ASK_USAGE_PATH = os.path.join(paths.data_dir(), "ask_usage.jsonl")
+ASK_USAGE_LOCK = threading.Lock()
+
+
+def log_ask_usage(model, input_tokens, output_tokens):
+    """Append one line per answered Ask question -- best-effort, same
+    shape as log_view: a write failure here must never break the Ask
+    panel, it just means that question's tokens are missing from the
+    running total the panel shows."""
+    entry = {"ts": int(time.time() * 1000), "model": model,
+              "inputTokens": input_tokens, "outputTokens": output_tokens}
+    try:
+        with ASK_USAGE_LOCK:
+            with open(ASK_USAGE_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
+def ask_usage_report():
+    """Today's and this month's token/cost totals for the Ask panel's
+    usage window. Cost is always assistant.estimate_cost's *estimate*
+    from list pricing -- there is no API for a real account balance, so
+    this never claims to be one; replayed from ask_usage.jsonl the same
+    way usage_report() replays the login/view logs."""
+    now_ms = int(time.time() * 1000)
+    today = _day_str(now_ms)
+    month = time.strftime("%Y-%m", time.localtime(now_ms / 1000.0))
+    totals = {"today": {"tokens": 0, "cost": 0.0}, "month": {"tokens": 0, "cost": 0.0}}
+    try:
+        with open(ASK_USAGE_PATH, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return totals
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        ts = e.get("ts")
+        if ts is None:
+            continue
+        in_tok, out_tok = e.get("inputTokens") or 0, e.get("outputTokens") or 0
+        cost = assistant.estimate_cost(e.get("model"), in_tok, out_tok) or 0.0
+        if time.strftime("%Y-%m", time.localtime(ts / 1000.0)) == month:
+            totals["month"]["tokens"] += in_tok + out_tok
+            totals["month"]["cost"] += cost
+        if _day_str(ts) == today:
+            totals["today"]["tokens"] += in_tok + out_tok
+            totals["today"]["cost"] += cost
+    totals["today"]["cost"] = round(totals["today"]["cost"], 4)
+    totals["month"]["cost"] = round(totals["month"]["cost"], 4)
+    return totals
+
+
 REQUESTS_PATH = os.path.join(paths.data_dir(), "pending_requests.json")
 REQUESTS_LOCK = threading.Lock()
 
@@ -1965,7 +2023,10 @@ def make_handler(prefix):
                 self._json(200, {"backups": list_backups(), "dir": BACKUPS_DIR})
                 return
             if tail == ["ask", "status"]:
-                self._json(200, {"enabled": llm.llm_enabled()})
+                self._json(200, {"enabled": llm.llm_enabled(), "models": list(assistant.ALLOWED_MODELS)})
+                return
+            if tail == ["ask", "usage"]:
+                self._json(200, ask_usage_report())
                 return
             if len(tail) == 2 and tail[0] == "backups":
                 self._admin_backup_download(tail[1])
@@ -2115,13 +2176,16 @@ def make_handler(prefix):
                 self._json(429, {"error": "too many questions -- try again shortly"})
                 return
             question = str(body.get("question") or "")[:2000]
-            answer, err = assistant.ask(question, library_read_index(), LIBRARY_BLOBS)
+            model = body.get("model") if isinstance(body.get("model"), str) else None
+            answer, err, usage = assistant.ask(question, library_read_index(), LIBRARY_BLOBS, model=model)
+            if usage.get("inputTokens") or usage.get("outputTokens"):
+                log_ask_usage(usage.get("model"), usage.get("inputTokens", 0), usage.get("outputTokens", 0))
             if err:
                 rate_fail(rate_key)
-                self._json(200, {"ok": False, "error": err})
+                self._json(200, {"ok": False, "error": err, "usage": usage})
                 return
             rate_clear(rate_key)
-            self._json(200, {"ok": True, "answer": answer})
+            self._json(200, {"ok": True, "answer": answer, "usage": usage})
 
         def _admin_broadcast_post(self, body):
             """POST /__admin/broadcast {subject, message, logins} -- emails

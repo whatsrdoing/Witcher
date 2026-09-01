@@ -53,16 +53,20 @@ def llm_enabled():
     return bool(cfg and cfg.get("apiKey"))
 
 
-def messages_create(messages, system=None, tools=None, max_tokens=1024):
+def messages_create(messages, system=None, tools=None, max_tokens=1024, model=None):
     """One call to POST /v1/messages. Returns (response_dict, None) on
     success or (None, reason_string) on any failure -- no API key
     configured, a network error, or the API itself rejecting the
-    request."""
+    request.
+
+    `model` overrides the configured default for this one call only (the
+    per-question model picker in the Ask panel) -- it never touches
+    llm_config.json, which stays whatever set_llm.py last wrote."""
     cfg = read_llm_config()
     if not cfg or not cfg.get("apiKey"):
         return None, "no API key configured -- see set_llm.py"
 
-    payload = {"model": cfg.get("model") or DEFAULT_MODEL, "max_tokens": max_tokens, "messages": messages}
+    payload = {"model": model or cfg.get("model") or DEFAULT_MODEL, "max_tokens": max_tokens, "messages": messages}
     if system:
         payload["system"] = system
     if tools:

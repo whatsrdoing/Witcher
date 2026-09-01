@@ -1032,6 +1032,20 @@
         <h3>Data Assistant</h3>
         <p id="askStatusLine">Checking…</p>
       </div>
+      <div class="ask-model-picker" id="askModelPicker">
+        <button type="button" class="ask-model-btn" id="askModelBtn" aria-haspopup="true" aria-expanded="false">
+          <span id="askModelLabel">Opus 5</span>
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="ask-model-menu" id="askModelMenu" role="menu">
+          <button type="button" class="ask-model-opt" data-model="claude-opus-5" data-label="Opus 5" role="menuitem">
+            <span>Opus 5</span><em>Best answers</em>
+          </button>
+          <button type="button" class="ask-model-opt" data-model="claude-sonnet-5" data-label="Sonnet 5" role="menuitem">
+            <span>Sonnet 5</span><em>Faster, cheaper</em>
+          </button>
+        </div>
+      </div>
       <button class="btn sm icon-only" id="askClose" aria-label="Close">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -1041,6 +1055,10 @@
       question is a real, billed call to Anthropic's API once it is.
     </p>
     <div id="askBody">
+      <div class="ask-usage-bar" id="askUsageBar">
+        <span id="askUsageText">—</span>
+        <a href="https://platform.claude.com/cost" target="_blank" rel="noopener">Real billing ↗</a>
+      </div>
       <div class="ask-log" id="askLog">
         <div class="ask-empty" id="askEmpty">
           Ask about totals, counts, averages or filters across your uploaded

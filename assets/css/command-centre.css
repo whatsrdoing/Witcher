@@ -836,7 +836,7 @@ a{color:var(--brand-soft); text-decoration:none;}
    material still separates chrome from content, it just stops showing what is
    behind it -- which is what makes translucency tiring to read against. */
 @media (prefers-reduced-transparency: reduce){
-  .glass, .topbar, .pop, .drawer, .toast, .modal, .ask-panel, .ask-model-menu, .admin-overlay-scrim{
+  .glass, .topbar, .pop, .drawer, .toast, .modal, .ask-panel, .ask-model-menu, .admin-overlay-scrim, .wheel-pop{
     backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
   }
   .topbar{background:var(--bg);}
@@ -856,7 +856,7 @@ a{color:var(--brand-soft); text-decoration:none;}
     --wire:rgba(16,24,38,.42); --wire-soft:rgba(16,24,38,.24);
     --ink-2:#26303E; --ink-3:#48545F;
   }
-  .glass, .topbar, .pop, .drawer, .toast, .modal, .ask-panel, .ask-model-menu, .admin-overlay-scrim{
+  .glass, .topbar, .pop, .drawer, .toast, .modal, .ask-panel, .ask-model-menu, .admin-overlay-scrim, .wheel-pop{
     backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
   }
   .topbar{background:var(--bg);}
@@ -1074,6 +1074,48 @@ a{color:var(--brand-soft); text-decoration:none;}
   box-shadow:0 0 0 3px color-mix(in srgb, var(--brand-bright) 22%, transparent);
 }
 .gate-field input:focus ~ .gate-ico, .gate-field select:focus ~ .gate-ico, .gate-field:focus-within .gate-ico{color:var(--brand-soft);}
+
+/* ---------- Wheel picker ----------------------------------------------------
+   Replaces the native <select> popup with a draggable, momentum-driven wheel
+   (see wheel-picker.js) -- the <select> itself is untouched, still the real
+   value, still visible in its own already-styled box; this is only what
+   opens when you click it. One shared popover element, reused across every
+   enhanced select. */
+.wheel-pop{
+  position:fixed; z-index:300; display:none; border-radius:var(--r-lg);
+  background:color-mix(in srgb, var(--bg-2) 92%, transparent);
+  backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
+  border:1px solid var(--wire); box-shadow:var(--shadow-lg);
+  opacity:0; transform:scale(.94) translateY(6px); pointer-events:none;
+  transition:opacity .2s var(--ease), transform .22s var(--ease);
+}
+.wheel-pop.open{opacity:1; transform:none; pointer-events:auto;}
+.wheel-viewport{
+  position:relative; height:280px; overflow:hidden; touch-action:none;
+  padding:0 18px; perspective:700px; cursor:grab; -webkit-user-select:none; user-select:none;
+}
+.wheel-viewport:active{cursor:grabbing;}
+.wheel-band{
+  position:absolute; left:12px; right:12px; top:50%; height:40px; transform:translateY(-50%);
+  border-radius:10px; background:var(--glass-2); border:1px solid var(--wire); pointer-events:none;
+}
+.wheel-track{position:absolute; left:0; right:0; top:50%; height:0;}
+.wheel-row{
+  position:absolute; top:-20px; left:0; right:0; height:40px;
+  display:flex; align-items:center; justify-content:center; text-align:center;
+  background:none; border:none; margin:0; padding:0 6px; font:inherit;
+  font-size:15px; font-weight:600; color:var(--ink-2); cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  will-change:transform,opacity; backface-visibility:hidden; transition:color .15s var(--ease);
+}
+.wheel-row.wp-center{color:var(--ink); font-weight:800; font-size:16.5px;}
+.wheel-row.wp-confirm{color:var(--brand-bright);}
+.wheel-fade{position:absolute; left:0; right:0; height:70px; pointer-events:none; opacity:.92;}
+.wheel-fade-top{top:0; background:linear-gradient(var(--bg-2), transparent);}
+.wheel-fade-bot{bottom:0; background:linear-gradient(transparent, var(--bg-2));}
+@media (max-width:520px){
+  .wheel-viewport{height:240px;}
+}
 
 .gate-field textarea{
   width:100%; min-height:96px; padding:12px 14px; border-radius:12px; font-size:14.5px; font-weight:500;

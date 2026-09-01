@@ -1243,7 +1243,15 @@ def make_handler(prefix):
             safe.pop("hash", None)
             safe.pop("adminKeyHash", None)
             if isinstance(safe.get("accounts"), list):
-                safe["accounts"] = [dict(a, hash="") for a in safe["accounts"]]
+                totp_map = read_totp()
+                # Whether 2FA is on is not secret the way the hash is --
+                # the gate needs it before sign-in to decide whether to
+                # show the password field at all or go straight to a code
+                # (see POST /__session/totp/start).
+                safe["accounts"] = [
+                    dict(a, hash="", totpEnabled=bool((totp_map.get(a.get("login")) or {}).get("enabled")))
+                    for a in safe["accounts"]
+                ]
             self._json(200, safe)
 
         def do_HEAD(self):
@@ -1631,6 +1639,65 @@ def make_handler(prefix):
 
             self._start_session(login)
 
+        def _session_totp_start_post(self):
+            """POST /__session/totp/start {login} -- begins sign-in for an
+            account with 2FA on WITHOUT a password: the whole point of this
+            route is that owning the authenticator app is treated as
+            sufficient on its own to start a sign-in, the same way knowing
+            the password is for an account without 2FA. It proves nothing
+            by itself -- the pending token this hands back leads nowhere
+            until the correct code follows at POST /__session/totp, same
+            as the password-first path above. Rate-limited the same way a
+            password attempt is (per login, not per code) so this cannot
+            be used to spam pending tokens or as a cheap way to discover
+            which accounts exist beyond what the sign-in screen already
+            reveals at the username step."""
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+                if n <= 0 or n > 1024:
+                    raise ValueError("bad length")
+                req = json.loads(self.rfile.read(n).decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                self._json(400, {"error": "bad request"})
+                return
+
+            login = clean_login(req.get("login"))
+            if not login:
+                self._json(400, {"error": "bad request"})
+                return
+
+            rate_key = "login:" + login
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return
+
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                self._json(404, {"error": "no such account"})
+                return
+            accounts = auth.get("accounts") or []
+            acc = next((a for a in accounts if a.get("login") == login), None)
+            if not acc:
+                self._json(404, {"error": "no such account"})
+                return
+            if acc.get("disabled"):
+                self._json(403, {"error": "this account has been disabled"})
+                return
+
+            totp_entry = read_totp().get(login) or {}
+            if not totp_entry.get("enabled"):
+                # Not actually a 2FA account -- the client should not have
+                # offered this path, but fall back cleanly rather than
+                # dead-ending the sign-in if it did (2FA toggled off
+                # between page load and now, a stale mirror, etc).
+                self._json(400, {"error": "this account signs in with a password"})
+                return
+
+            token = new_totp_pending(login)
+            self._json(200, {"totpToken": token})
+
         def _session_totp_post(self):
             """POST /__session/totp {totpToken, code} -- the second step of
             signing in to an account with 2FA on. code may be a live TOTP
@@ -1936,6 +2003,48 @@ def make_handler(prefix):
                 })
             return out
 
+        def _require_step_up(self, body):
+            """Gate for the handful of admin actions that write to the
+            accounts file itself (auth.json/totp.json) -- reset/rename/
+            disable/delete/update-profile/disable-2fa, and approving a
+            pending request. Already inside _require_admin (this is only
+            ever reached by the signed-in admin), so this is not "prove
+            who you are" again -- it is "an unattended, unlocked admin
+            session should not be enough on its own to change someone's
+            credentials", which the standing session cookie alone cannot
+            rule out. Only bites when the admin's own account has 2FA on;
+            an admin without 2FA has only the one factor to begin with, and
+            the session already covers it -- nothing more to ask for."""
+            login = session_login(self._session_token())
+            totp_entry = read_totp().get(login) or {}
+            if not totp_entry.get("enabled"):
+                return True
+
+            rate_key = "stepup:" + login
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many attempts -- try again shortly"})
+                return False
+
+            try:
+                with open(AUTH_PATH, encoding="utf-8") as fh:
+                    auth = json.load(fh)
+            except (OSError, ValueError):
+                auth = {}
+            acc = next((a for a in (auth.get("accounts") or []) if a.get("login") == login), None)
+
+            digest = str(body.get("stepUpDigest") or "")
+            code = str(body.get("stepUpCode") or "")
+            pass_ok = bool(acc) and bool(digest) and hmac.compare_digest(digest, str(acc.get("hash") or ""))
+            code_ok = pass_ok and totp_verify(totp_entry.get("secret", ""), code)
+            if pass_ok and code_ok:
+                rate_clear(rate_key)
+                return True
+
+            rate_fail(rate_key)
+            self._json(401, {"error": "step-up verification required", "stepUpRequired": True,
+                              "reason": "password" if not pass_ok else "code"})
+            return False
+
         def _admin_post(self, tail, body):
             if tail == ["sessions", "logout"]:
                 login = str(body.get("login") or "")
@@ -1948,9 +2057,13 @@ def make_handler(prefix):
                 self._json(200, {"ok": True, "ended": n})
                 return
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] in ("reset-password", "rename", "disable", "delete", "update-profile"):
+                if not self._require_step_up(body):
+                    return
                 self._admin_account_action(tail[1], tail[2], body)
                 return
             if len(tail) == 3 and tail[0] == "accounts" and tail[2] == "disable-2fa":
+                if not self._require_step_up(body):
+                    return
                 with TOTP_LOCK:
                     totp = read_totp()
                     had_it = bool((totp.get(tail[1]) or {}).get("enabled"))
@@ -2087,6 +2200,20 @@ def make_handler(prefix):
                     entry["remark"] = str(body.get("remark") or "")[:500]
                     write_requests(requests_)
                     self._json(200, {"ok": True})
+                    return
+
+            # "approve" is the one path here that writes to auth.json (see
+            # the docstring above) -- step-up gated the same as every other
+            # change to the accounts file, outside the REQUESTS_LOCK since
+            # it only ever reads auth.json/totp.json, never requests.json.
+            if not self._require_step_up(body):
+                return
+
+            with REQUESTS_LOCK:
+                requests_ = read_requests()
+                entry = next((r for r in requests_ if r.get("id") == request_id), None)
+                if entry is None or entry.get("status") != "pending":
+                    self._json(409, {"error": "already resolved"})
                     return
 
                 try:
@@ -2345,6 +2472,9 @@ def make_handler(prefix):
                 return
             if stail == ["totp"]:
                 self._session_totp_post()
+                return
+            if stail == ["totp", "start"]:
+                self._session_totp_start_post()
                 return
 
             ttail = seg_route(path_only, "__totp")

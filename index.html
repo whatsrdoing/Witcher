@@ -992,6 +992,36 @@
   </div>
 </div>
 
+<!-- Step-up re-verification: only ever shown when the signed-in admin's own
+     account has 2FA on, right before a change that writes to the accounts
+     file itself (reset/rename/disable/delete/update-profile/disable-2fa,
+     approving a pending request) actually takes effect. The standing
+     session cookie is enough to view the admin panel; it is deliberately
+     not enough on its own for this. -->
+<div class="modal-scrim" id="stepUpModal">
+  <div class="modal">
+    <h3>Confirm it's you</h3>
+    <p class="admin-row-sub">This change needs your password and current 2FA code again.</p>
+    <form id="stepUpForm" novalidate>
+      <label class="gate-label" for="stepUpPass">Your password</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        <input id="stepUpPass" type="password" autocomplete="current-password" placeholder="••••••••••••" required>
+      </div>
+      <label class="gate-label" for="stepUpCode">2FA code</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        <input id="stepUpCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" required>
+      </div>
+      <div class="gate-msg" id="stepUpMsg" style="display:none"></div>
+      <div class="acts">
+        <button class="btn" id="stepUpCancel" type="button">Cancel</button>
+        <button class="btn primary" id="stepUpOk" type="submit">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div class="toasts" id="toasts"></div>
 
 <!-- Registry: dashboards.json is the source of truth. dashboards.js is the

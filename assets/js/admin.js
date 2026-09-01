@@ -208,9 +208,13 @@
   function resolveRequest(id, action) {
     var remark = prompt(action === 'approve' ? 'Approve this request. Add a remark (optional):'
       : 'Reject this request. Add a remark (optional):') || '';
-    api('__admin/requests/' + encodeURIComponent(id) + '/resolve', {
+    // Only approving actually writes to auth.json (rejecting just records
+    // the remark) -- step-up only applies there, same split serve.py makes.
+    var call = action === 'approve' ? apiStepUp : api;
+    call('__admin/requests/' + encodeURIComponent(id) + '/resolve', {
       method: 'POST', body: JSON.stringify({ action: action, remark: remark })
     }).then(function (r) {
+      if (!r) return;
       if (!r.ok) { alert(r.body.error || 'Could not resolve it.'); return; }
       renderRequests();
       if (action === 'approve') renderAccounts();
@@ -394,18 +398,19 @@
         btn.addEventListener('click', function () {
           var pw = prompt('New password for ' + btn.dataset.reset + ' (at least 10 characters):');
           if (!pw) return;
-          api('__admin/accounts/' + encodeURIComponent(btn.dataset.reset) + '/reset-password', {
+          apiStepUp('__admin/accounts/' + encodeURIComponent(btn.dataset.reset) + '/reset-password', {
             method: 'POST', body: JSON.stringify({ newPassword: pw })
-          }).then(function (r2) { if (!r2.ok) alert(r2.body.error || 'Could not reset it.'); });
+          }).then(function (r2) { if (r2 && !r2.ok) alert(r2.body.error || 'Could not reset it.'); });
         });
       });
       $$('[data-rename]', box).forEach(function (btn) {
         btn.addEventListener('click', function () {
           var name = prompt('New sign-in name for ' + btn.dataset.rename + ':');
           if (!name) return;
-          api('__admin/accounts/' + encodeURIComponent(btn.dataset.rename) + '/rename', {
+          apiStepUp('__admin/accounts/' + encodeURIComponent(btn.dataset.rename) + '/rename', {
             method: 'POST', body: JSON.stringify({ newLogin: name })
           }).then(function (r2) {
+            if (!r2) return;
             if (!r2.ok) { alert(r2.body.error || 'Could not rename it.'); return; }
             renderAccounts();
           });
@@ -415,9 +420,10 @@
         btn.addEventListener('click', function () {
           if (!confirm('Turn off two-factor authentication for ' + btn.dataset.disableTotp +
             '? Use this to rescue an account that has lost its authenticator and backup codes.')) return;
-          api('__admin/accounts/' + encodeURIComponent(btn.dataset.disableTotp) + '/disable-2fa', {
+          apiStepUp('__admin/accounts/' + encodeURIComponent(btn.dataset.disableTotp) + '/disable-2fa', {
             method: 'POST'
           }).then(function (r2) {
+            if (!r2) return;
             if (!r2.ok) { alert(r2.body.error || 'Could not turn it off.'); return; }
             renderAccounts();
           });
@@ -447,9 +453,10 @@
     var willDisable = $('#removeAccountToggle').textContent === 'Disable';
     if (willDisable && !confirm('Disable ' + login +
       '? They will be signed out and unable to sign in again until re-enabled.')) return;
-    api('__admin/accounts/' + encodeURIComponent(login) + '/disable', {
+    apiStepUp('__admin/accounts/' + encodeURIComponent(login) + '/disable', {
       method: 'POST', body: JSON.stringify({ disabled: willDisable })
     }).then(function (r) {
+      if (!r) return;
       if (!r.ok) { alert(r.body.error || 'Could not update it.'); return; }
       closeRemoveAccount();
       renderAccounts();
@@ -460,8 +467,9 @@
     var login = $('#removeAccountModal').dataset.login;
     if (!confirm('Permanently delete ' + login + '? This cannot be undone -- ' +
       'their account, password, and 2FA setup are all removed. Login history is kept.')) return;
-    api('__admin/accounts/' + encodeURIComponent(login) + '/delete', { method: 'POST' })
+    apiStepUp('__admin/accounts/' + encodeURIComponent(login) + '/delete', { method: 'POST' })
       .then(function (r) {
+        if (!r) return;
         if (!r.ok) { alert(r.body.error || 'Could not delete it.'); return; }
         closeRemoveAccount();
         renderAccounts();
@@ -507,10 +515,11 @@
     };
     var btn = $('#editProfileSave');
     btn.disabled = true;
-    api('__admin/accounts/' + encodeURIComponent(login) + '/update-profile', {
+    apiStepUp('__admin/accounts/' + encodeURIComponent(login) + '/update-profile', {
       method: 'POST', body: JSON.stringify(body)
     }).then(function (r) {
       btn.disabled = false;
+      if (!r) return;
       if (!r.ok) {
         var msg = $('#editProfileMsg');
         msg.textContent = r.body.error || 'Could not save it.';
@@ -701,19 +710,114 @@
   }
 
   var isAdminPromise = null;
+  var sessionLoginCached = '';
+  var sessionTotpEnabled = false;
 
   /* Memoised: app.js's boot() calls this once to decide whether to filter
      admin-only dashboards out of the registry before anything renders;
-     checkAccess() below reuses the same result rather than asking twice. */
+     checkAccess() below reuses the same result rather than asking twice.
+     Also the one place sessionTotpEnabled gets set -- whether *this*
+     signed-in account (not the one being edited) has 2FA on, which is
+     what decides whether step-up is asked for below. */
   function isAdmin() {
     if (isAdminPromise) return isAdminPromise;
     isAdminPromise = fetch('__session', { cache: 'no-store' }).then(function (r) {
       return r.ok ? r.json() : null;
     }).then(function (who) {
       isAdminCached = !!(who && who.isAdmin);
+      sessionLoginCached = (who && who.login) || '';
+      sessionTotpEnabled = !!(who && who.totpEnabled);
       return isAdminCached;
     }).catch(function () { isAdminCached = false; return false; });
     return isAdminPromise;
+  }
+
+  /* ---- step-up re-verification --------------------------------------------
+     Before a change that writes to the accounts file itself (reset/rename/
+     disable/delete/update-profile/disable-2fa, approving a pending
+     request), an admin whose own account has 2FA on is asked for their
+     password and a fresh code again -- see _require_step_up in serve.py
+     for why. withStepUp() wraps one of those calls: skips the modal
+     entirely when this admin has no 2FA (nothing more to ask for), else
+     opens it, computes the digest against this admin's own salt from
+     auth.json (never the account being changed), and only calls `run`
+     once both check out server-side -- retrying in place on a wrong
+     password or code rather than closing and losing what was already
+     typed into the underlying form. */
+  var authDataPromise = null;
+  function authData() {
+    if (authDataPromise) return authDataPromise;
+    authDataPromise = fetch('auth.json', { cache: 'no-store' }).then(function (r) {
+      return r.ok ? r.json() : {};
+    }).catch(function () { return {}; });
+    return authDataPromise;
+  }
+
+  function withStepUp(run) {
+    if (!sessionTotpEnabled) return run({});
+    return new Promise(function (resolve, reject) {
+      var modal = $('#stepUpModal');
+      var form = $('#stepUpForm');
+      var msg = $('#stepUpMsg');
+      var passEl = $('#stepUpPass');
+      var codeEl = $('#stepUpCode');
+      function say(text) {
+        msg.textContent = text || '';
+        msg.style.display = text ? 'flex' : 'none';
+      }
+      function cleanup() {
+        modal.classList.remove('open');
+        form.removeEventListener('submit', onSubmit);
+        $('#stepUpCancel').removeEventListener('click', onCancel);
+      }
+      function onCancel() {
+        cleanup();
+        reject(new Error('cancelled'));
+      }
+      function onSubmit(e) {
+        e.preventDefault();
+        var pass = passEl.value || '';
+        var code = (codeEl.value || '').trim();
+        if (!pass || !code) { say('Enter both your password and the 2FA code.'); return; }
+        say('Verifying…');
+        authData().then(function (auth) {
+          var acc = (auth.accounts || []).filter(function (a) { return a.login === sessionLoginCached; })[0];
+          var salt = acc ? acc.salt : '00';
+          var iters = (acc && acc.iterations) || auth.iterations || 250000;
+          return w.ParasCrypto.derive(pass, salt, iters);
+        }).then(function (digest) {
+          return run({ stepUpDigest: digest, stepUpCode: code });
+        }).then(function (r) {
+          if (r && r.status === 401 && r.body && r.body.stepUpRequired) {
+            say(r.body.reason === 'code' ? 'Wrong code -- try again.' : 'Wrong password -- try again.');
+            codeEl.value = '';
+            (r.body.reason === 'code' ? codeEl : passEl).focus();
+            return;
+          }
+          cleanup();
+          resolve(r);
+        }).catch(function (err) {
+          say('Could not verify: ' + (err && err.message || err));
+        });
+      }
+      passEl.value = ''; codeEl.value = ''; say('');
+      form.addEventListener('submit', onSubmit);
+      $('#stepUpCancel').addEventListener('click', onCancel);
+      modal.classList.add('open');
+      setTimeout(function () { passEl.focus(); }, 60);
+    });
+  }
+
+  /* Same call as api(), just with withStepUp's extra fields folded into
+     the body first when this admin's own 2FA requires them. A cancelled
+     step-up resolves to null rather than rejecting, so call sites only
+     need one extra "did they back out" check, not a whole catch block. */
+  function apiStepUp(path, opts) {
+    opts = opts || {};
+    return withStepUp(function (extra) {
+      var payload = Object.assign(JSON.parse(opts.body || '{}'), extra);
+      return api(path, Object.assign({}, opts, { body: JSON.stringify(payload) }));
+    }).catch(function () { return null; });
   }
 
   function checkAccess() {

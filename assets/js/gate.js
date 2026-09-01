@@ -193,7 +193,52 @@
       shake();
       return;
     }
+    // An account with 2FA on signs in with just the username and a code --
+    // the authenticator app standing in for the password entirely, not on
+    // top of it. Only possible with a server to check the code against
+    // (file:// has no auth.json-side secret to verify it with), so that
+    // combination falls through to the normal password step below.
+    if (acc.totpEnabled && location.protocol !== 'file:') {
+      startPasswordlessTotp(acc);
+      return;
+    }
     enterPassStep(acc);
+  }
+
+  function startPasswordlessTotp(acc) {
+    busy = true;
+    $('#gateSubmit').classList.add('working');
+    say('');
+    fetch('__session/totp/start', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ login: acc.login })
+    }).then(function (r) {
+      return r.json().catch(function () { return null; }).then(function (body) {
+        return { status: r.status, body: body };
+      });
+    }).then(function (res) {
+      busy = false;
+      $('#gateSubmit').classList.remove('working');
+      if (res.status === 200 && res.body && res.body.totpToken) {
+        clearFails();
+        openTotp(acc.login, res.body.totpToken);
+        return;
+      }
+      if (res.status === 429) {
+        say('Too many attempts. Try again shortly.', 'err');
+        shake();
+        return;
+      }
+      // 2FA turned off between page load and now, account disabled, or
+      // some other reason this path is no longer valid -- the ordinary
+      // password step still works, so fall back to it rather than
+      // dead-ending the sign-in.
+      enterPassStep(acc);
+    }).catch(function () {
+      busy = false;
+      $('#gateSubmit').classList.remove('working');
+      enterPassStep(acc);
+    });
   }
 
   /* Whether the password actually matches is decided here in two different
@@ -404,9 +449,12 @@
   }
 
   /* ---- 2FA at sign-in -----------------------------------------------------
-     Reached only once the password already matched (see verifyPassword) --
-     the pending token proves that, so this screen only ever asks for the
-     second factor, never the password again. */
+     Reached one of two ways: the password already matched (see
+     verifyPassword) and this is the second factor on top of it, or the
+     account signs in passwordless and this is the only factor
+     (startPasswordlessTotp above). Either way the pending token is what
+     this screen actually trusts, not which path got here -- it only ever
+     asks for the code, never the password. */
   function totpSay(msg, kind) {
     var el = $('#totpMsg');
     el.className = 'gate-msg' + (kind ? ' ' + kind : '');

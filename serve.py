@@ -64,6 +64,8 @@ DASHBOARDS_JSON = os.path.join(ROOT, "dashboards.json")
 # is also how selftest.py runs against a throwaway directory).
 import paths
 import mail
+import llm
+import assistant
 
 LIBRARY_DIR = paths.library_dir()
 LIBRARY_BLOBS = paths.library_blobs()
@@ -1962,6 +1964,9 @@ def make_handler(prefix):
             if tail == ["backups"]:
                 self._json(200, {"backups": list_backups(), "dir": BACKUPS_DIR})
                 return
+            if tail == ["ask", "status"]:
+                self._json(200, {"enabled": llm.llm_enabled()})
+                return
             if len(tail) == 2 and tail[0] == "backups":
                 self._admin_backup_download(tail[1])
                 return
@@ -2092,7 +2097,31 @@ def make_handler(prefix):
             if tail == ["broadcast"]:
                 self._admin_broadcast_post(body)
                 return
+            if tail == ["ask"]:
+                self._admin_ask_post(body)
+                return
             self.send_error(404)
+
+        def _admin_ask_post(self, body):
+            """POST /__admin/ask {question} -- the admin-only data assistant.
+            Rate-limited per admin login, same shape as every other
+            sensitive action here: each question is a real, billed call to
+            Anthropic's API (see llm.py), so a stuck retry loop in the
+            browser or a double-click should not be able to fire it
+            unboundedly."""
+            login = session_login(self._session_token())
+            rate_key = "ask:" + (login or "")
+            if rate_locked(rate_key):
+                self._json(429, {"error": "too many questions -- try again shortly"})
+                return
+            question = str(body.get("question") or "")[:2000]
+            answer, err = assistant.ask(question, library_read_index(), LIBRARY_BLOBS)
+            if err:
+                rate_fail(rate_key)
+                self._json(200, {"ok": False, "error": err})
+                return
+            rate_clear(rate_key)
+            self._json(200, {"ok": True, "answer": answer})
 
         def _admin_broadcast_post(self, body):
             """POST /__admin/broadcast {subject, message, logins} -- emails

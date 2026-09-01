@@ -599,6 +599,24 @@
             <div id="adminFeedback" class="admin-list"></div>
           </section>
 
+          <section class="admin-card" id="adminAskCard" style="display:none">
+            <h2>Ask</h2>
+            <p class="admin-row-sub" id="adminAskOff" style="display:none">
+              Not set up yet -- run <code>set_llm.py</code> on the server to turn this on. Each
+              question is a real, billed call to Anthropic's API once it is.
+            </p>
+            <div id="adminAskForm">
+              <div id="adminAskLog" class="admin-ask-log"></div>
+              <form id="adminAskInputForm" class="gate-row" style="gap:8px;align-items:flex-start">
+                <div class="gate-field" style="flex:1;margin-bottom:0">
+                  <input id="adminAskInput" type="text" autocomplete="off"
+                         placeholder="e.g. total received quantity in the July GRN register" maxlength="2000">
+                </div>
+                <button class="btn sm primary" id="adminAskSend" type="submit">Ask</button>
+              </form>
+            </div>
+          </section>
+
           <section class="admin-card" id="adminBroadcastCard" style="display:none">
             <h2>Broadcast email</h2>
             <p class="admin-row-sub" id="adminBroadcastOff" style="display:none">

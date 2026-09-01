@@ -842,6 +842,91 @@ a{color:var(--brand-soft); text-decoration:none;}
 @keyframes gateIn{from{opacity:0; transform:translateY(16px) scale(.985)}to{opacity:1; transform:none}}
 @keyframes shake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(4px)}30%,50%,70%{transform:translateX(-7px)}40%,60%{transform:translateX(7px)}}
 
+/* ---- Brand-values intro ---------------------------------------------------
+   A cover over the sign-in card, shown every time the gate opens. The card
+   underneath is already fully formed the whole time this sits on top of it
+   (its own gateIn animation has long since settled by the time anyone
+   clicks) -- so dismissing this is a pure reveal, not a hand-off between two
+   separately-timed screens. On tap: the four values fly out to their own
+   corner (matching the corner they're already sitting in, not inverted) and
+   fade, the mark shrinks and fades a beat later, the panel itself settles
+   back and dissolves last -- one continuous motion, not four unrelated
+   ones. Plain CSS transitions gated by one class, not keyframes: this fires
+   once per gate, not repeatedly, so there's no retargeting case to protect
+   against. prefers-reduced-motion already collapses every duration here to
+   .01ms via the app-wide rule above -- no separate opt-out needed. */
+.intro-card{
+  position:absolute; inset:0; z-index:1;
+  display:grid; grid-template-columns:1fr 1fr 1fr; grid-template-rows:1fr auto 1fr auto;
+  align-items:center; justify-items:center; row-gap:16px; column-gap:10px;
+  border-radius:var(--r-lg); padding:30px 24px 22px; box-shadow:var(--shadow-lg);
+  background:var(--glass-2); border:1px solid var(--wire); cursor:pointer;
+  backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
+  animation:gateIn .5s var(--ease) .07s both;
+  transition:opacity .45s var(--ease) .15s, transform .45s var(--ease) .15s;
+}
+/* Same glass tone as .gate-card -- safe to match exactly now that #gateCard
+   is actually hidden (visibility, not just covered) while this shows, see
+   .gate.intro-active below. Two backdrop-filters stacked on top of each
+   other (this card blurring a gate-card that's *also* blurring things
+   behind it) turned out not to compose predictably -- gate-card's content
+   showed through far more than the alpha math alone would suggest. Hiding
+   it outright means this card's own blur only ever has one thing behind
+   it to blur (the photo grid), exactly like gate-card's does normally. */
+:root:not([data-theme="light"]) .intro-card{background:rgba(16,24,42,.93); border-color:rgba(255,255,255,.14);}
+:root[data-theme="light"] .intro-card{background:rgba(255,255,255,.94);}
+.intro-card.exiting{opacity:0; transform:scale(.96); pointer-events:none;}
+.gate.intro-active #gateCard{visibility:hidden;}
+
+.intro-badge{display:flex; align-items:center; gap:8px; min-width:0; transition:transform .48s var(--ease), opacity .4s var(--ease);}
+.intro-badge-tl{grid-column:1; grid-row:1; justify-self:start;}
+.intro-badge-tr{grid-column:3; grid-row:1; justify-self:end;}
+.intro-badge-bl{grid-column:1; grid-row:3; justify-self:start;}
+.intro-badge-br{grid-column:3; grid-row:3; justify-self:end;}
+/* Each flies to the corner it already occupies -- top-left stays top-left,
+   just further out, never crossed to the opposite side. */
+.intro-card.exiting .intro-badge-tl{transition-delay:0ms; transform:translate(-58vw,-58vh); opacity:0;}
+.intro-card.exiting .intro-badge-tr{transition-delay:40ms; transform:translate(58vw,-58vh); opacity:0;}
+.intro-card.exiting .intro-badge-bl{transition-delay:80ms; transform:translate(-58vw,58vh); opacity:0;}
+.intro-card.exiting .intro-badge-br{transition-delay:120ms; transform:translate(58vw,58vh); opacity:0;}
+
+.intro-badge-label{font-size:13px; font-weight:800; letter-spacing:.01em; white-space:nowrap;}
+.intro-badge-tl .intro-badge-label, .intro-badge-br .intro-badge-label{color:var(--brand-soft);}
+.intro-badge-tr .intro-badge-label, .intro-badge-bl .intro-badge-label{color:var(--ink-2);}
+.intro-badge-line{width:22px; height:1.5px; flex:0 0 auto; background:currentColor; opacity:.55;}
+.intro-badge-dot{width:6px; height:6px; border-radius:50%; flex:0 0 auto; background:currentColor;}
+.intro-badge-tl .intro-badge-line, .intro-badge-tl .intro-badge-dot,
+.intro-badge-br .intro-badge-line, .intro-badge-br .intro-badge-dot{color:var(--brand-soft);}
+.intro-badge-tr .intro-badge-line, .intro-badge-tr .intro-badge-dot,
+.intro-badge-bl .intro-badge-line, .intro-badge-bl .intro-badge-dot{color:var(--ink-2);}
+
+.intro-center{
+  grid-column:1 / -1; grid-row:2; justify-self:center;
+  display:flex; flex-direction:column; align-items:center; gap:12px;
+  transition:transform .35s var(--ease) .1s, opacity .3s var(--ease) .1s;
+}
+.intro-card.exiting .intro-center{transform:scale(.85); opacity:0;}
+.intro-mark{width:76px; height:auto; display:block;}
+.intro-hashtag{margin:0; font-size:16.5px; font-weight:800; letter-spacing:-.01em; color:var(--brand-soft);}
+
+.intro-continue{
+  grid-column:1 / -1; grid-row:4; justify-self:center;
+  display:flex; align-items:center; gap:7px; border:none; background:none; padding:0;
+  font-size:12px; font-weight:700; letter-spacing:.02em; color:var(--ink-2); cursor:pointer;
+  transition:opacity .2s var(--ease), color .2s var(--ease);
+}
+.intro-continue svg{width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round;}
+.intro-card:hover .intro-continue{color:var(--brand-soft);}
+.intro-card.exiting .intro-continue{opacity:0; pointer-events:none;}
+
+@media (max-width:520px){
+  .intro-card{padding:22px 16px 18px; row-gap:10px; column-gap:6px;}
+  .intro-badge-label{font-size:11px;}
+  .intro-badge-line{width:14px;}
+  .intro-mark{width:60px;}
+  .intro-hashtag{font-size:14px;}
+}
+
 .gate-card-head{display:flex; align-items:center; gap:13px; margin-bottom:22px;}
 .gate-lock{
   width:42px;height:42px;flex:0 0 auto;border-radius:12px; display:flex;align-items:center;justify-content:center;

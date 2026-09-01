@@ -320,8 +320,23 @@ a{color:var(--brand-soft); text-decoration:none;}
 }
 .ask-fab-icon{position:absolute; top:50%; left:50%; width:23px; height:23px; transform:translate(-50%,-50%); transition:opacity .2s var(--ease), transform .3s var(--ease);}
 .ask-fab-close{opacity:0; transform:translate(-50%,-50%) rotate(-45deg) scale(.6);}
-.ask-widget.open .ask-fab-icon:not(.ask-fab-close){opacity:0; transform:translate(-50%,-50%) rotate(45deg) scale(.6);}
+.ask-widget.open .ask-fab-icon:not(.ask-fab-close){animation:none; opacity:0; transform:translate(-50%,-50%) rotate(45deg) scale(.6);}
 .ask-widget.open .ask-fab-close{opacity:1; transform:translate(-50%,-50%);}
+
+/* Idle-only brand breathe: the sparkle keeps its place, then softly gives way
+   to the real Paras mark and back -- two layers on the same loop, offset by
+   half a cycle so only one is ever visible. Suspended the instant the panel
+   opens (see the .open override just above), so it never fights the
+   sparkle<->close morph. */
+.ask-fab-sparkle, .ask-fab-mark{animation:askFabIdle 7s var(--ease) infinite;}
+.ask-fab-mark{animation-delay:-3.5s; filter:brightness(0) invert(1); object-fit:contain;}
+@keyframes askFabIdle{
+  0%   {opacity:0; transform:translate(-50%,-50%) scale(.82) rotate(-8deg);}
+  12%  {opacity:1; transform:translate(-50%,-50%) scale(1) rotate(0deg);}
+  38%  {opacity:1; transform:translate(-50%,-50%) scale(1) rotate(0deg);}
+  50%  {opacity:0; transform:translate(-50%,-50%) scale(1.12) rotate(8deg);}
+  100% {opacity:0; transform:translate(-50%,-50%) scale(1.12) rotate(8deg);}
+}
 
 .ask-panel{
   position:absolute; right:0; bottom:70px; width:min(380px, calc(100vw - 32px));
@@ -747,6 +762,11 @@ a{color:var(--brand-soft); text-decoration:none;}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms !important; animation-iteration-count:1 !important; transition-duration:.01ms !important;}
   .bg-field{display:none;}          /* a drifting full-viewport field is exactly what this setting is for */
+  /* Collapsing askFabIdle's duration to near-zero would otherwise let the
+     animation "finish" and both layers revert to their un-animated default
+     (opacity:1) at once -- sparkle and mark stacked on top of each other.
+     Pin the resting frame explicitly: sparkle showing, mark hidden. */
+  .ask-fab-mark{opacity:0;}
 }
 
 /* Reduced transparency: frost the glass rather than removing the layer. The

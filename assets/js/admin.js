@@ -88,8 +88,13 @@
   /* Keeps whatever's on screen current while the admin is actually looking
      at it, instead of needing to leave and come back to see a new request
      land -- self-cancelling (checks its own view is still active on every
-     tick) rather than needing app.js's router to remember to stop it. */
+     tick) rather than needing app.js's router to remember to stop it.
+     Ticks every second; refreshAllBusy skips starting a new round while
+     the previous one is still in flight, so a slow moment (a big history
+     fetch, a loaded machine) never piles up overlapping requests -- it
+     just waits for the next second where the last round has finished. */
   var panelRefreshTimer = null;
+  var refreshAllBusy = false;
   function startPanelAutoRefresh() {
     if (panelRefreshTimer) return;
     panelRefreshTimer = setInterval(function () {
@@ -98,20 +103,18 @@
         panelRefreshTimer = null;
         return;
       }
-      refreshAll();
-    }, 10000);
+      if (refreshAllBusy) return;
+      refreshAllBusy = true;
+      var clear = function () { refreshAllBusy = false; };
+      refreshAll().then(clear, clear);   // reset on success or failure alike
+    }, 1000);
   }
 
   function refreshAll() {
-    renderSessions();
-    renderAccounts();
-    renderRequests();
-    renderFeedback();
-    renderDashboardVisibility();
-    renderStorage();
-    renderBackups();
-    renderHistory();
-    renderBroadcast();
+    return Promise.all([
+      renderSessions(), renderAccounts(), renderRequests(), renderFeedback(),
+      renderDashboardVisibility(), renderStorage(), renderBackups(), renderHistory(), renderBroadcast()
+    ]);
   }
 
   var FEEDBACK_CATEGORY_LABEL = { feature: 'New dashboard required', requirement: 'New requirement',
@@ -120,8 +123,9 @@
   function renderFeedback() {
     var box = $('#adminFeedback');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/feedback').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/feedback').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = (r.body.items || []).slice().sort(function (a, b) {
         var openDiff = (a.status === 'done' ? 1 : 0) - (b.status === 'done' ? 1 : 0);
@@ -172,8 +176,9 @@
   function renderRequests() {
     var box = $('#adminRequests');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/requests').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/requests').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = (r.body.requests || []).slice().sort(function (a, b) {
         var openDiff = (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1);
@@ -236,7 +241,7 @@
   function renderBroadcast() {
     var card = $('#adminBroadcastCard');
     if (!card) return;
-    fetch('__mail/status', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; })
+    return fetch('__mail/status', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; })
       .then(function (j) {
         card.style.display = '';
         var on = !!(j && j.enabled);
@@ -296,8 +301,9 @@
   function renderDashboardVisibility() {
     var box = $('#adminDashboards');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/dashboards').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/dashboards').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = (r.body.dashboards || []).filter(function (d) { return d.status !== 'planned' && d.status !== 'archived'; });
       // Admin-only dashboards first -- the ones actually worth double-checking
@@ -326,8 +332,9 @@
   function renderSessions() {
     var box = $('#adminSessions');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/sessions').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/sessions').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.sessions || [];
       if (!rows.length) { box.innerHTML = '<p class="admin-empty">Nobody is signed in right now.</p>'; return; }
@@ -352,8 +359,9 @@
   function renderAccounts() {
     var box = $('#adminAccounts');
     if (!box) return;
-    box.textContent = 'Loading…';
-    Promise.all([api('__admin/accounts'), api('__admin/sessions')]).then(function (res) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return Promise.all([api('__admin/accounts'), api('__admin/sessions')]).then(function (res) {
+      box.dataset.loaded = '1';
       var r = res[0], sr = res[1];
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.accounts || [];
@@ -594,8 +602,9 @@
   function renderStorage() {
     var box = $('#adminStorage'), sum = $('#adminStorageSummary');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/storage').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/storage').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var files = r.body.files || [];
       if (sum) sum.textContent = files.length + ' file' + (files.length === 1 ? '' : 's') +
@@ -613,8 +622,9 @@
   function renderBackups() {
     var box = $('#adminBackups'), sum = $('#adminBackupSummary');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/backups').then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/backups').then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.backups || [];
       if (sum) sum.textContent = rows.length + ' backup' + (rows.length === 1 ? '' : 's') +
@@ -668,8 +678,9 @@
   function renderHistory() {
     var box = $('#adminHistory');
     if (!box) return;
-    box.textContent = 'Loading…';
-    api('__admin/history?limit=' + historyLimit).then(function (r) {
+    if (!box.dataset.loaded) box.textContent = 'Loading…';
+    return api('__admin/history?limit=' + historyLimit).then(function (r) {
+      box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.history || [];   // newest first, per read_history()
       var more = $('#adminHistoryMore');

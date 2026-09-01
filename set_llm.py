@@ -4,8 +4,17 @@
     python3 set_llm.py                          # prompts for the API key
     python3 set_llm.py --key sk-ant-...          # set it directly
     python3 set_llm.py --key sk-ant-... --model claude-sonnet-5
+    python3 set_llm.py --key sk-ant-... --workspace wrkspc_...
     python3 set_llm.py --test "how many files are in the data library?"
     python3 set_llm.py --remove                  # turn the assistant off again
+
+Some API keys from console.anthropic.com are "identity-linked" -- tied to
+your login rather than to one workspace -- and Anthropic requires those
+requests to also name which workspace they act in. If __admin/ask reports
+"anthropic-workspace-id is required...", open console.anthropic.com, check
+the workspace picker (top left) for the workspace your key belongs to, open
+Settings for that workspace, and copy its ID (starts with "wrkspc_") into
+--workspace. A plain (non-identity-linked) key doesn't need this at all.
 
 Writes llm_config.json to the data folder (see paths.py) -- never inside
 the app folder, never mirrored anywhere the browser can read it, same
@@ -44,7 +53,7 @@ def main(argv):
         del argv[i:i + 2]
 
     values = {}
-    for flag, key in (("--key", "apiKey"), ("--model", "model")):
+    for flag, key in (("--key", "apiKey"), ("--model", "model"), ("--workspace", "workspaceId")):
         if flag in argv:
             i = argv.index(flag)
             if i + 1 >= len(argv):
@@ -62,6 +71,12 @@ def main(argv):
         typed = getpass.getpass("Anthropic API key from console.anthropic.com (not shown): ").strip()
         values["apiKey"] = typed or prev.get("apiKey", "")
         values["model"] = input("Model [%s]: " % prev.get("model", llm.DEFAULT_MODEL)).strip() or prev.get("model", llm.DEFAULT_MODEL)
+        workspace = input(
+            "Workspace ID (only needed if your key is \"identity-linked\" -- leave blank "
+            "if unsure, add it later with --workspace if __admin/ask asks for one) [%s]: "
+            % prev.get("workspaceId", "")
+        ).strip()
+        values["workspaceId"] = workspace or prev.get("workspaceId", "")
 
     if not values.get("apiKey", prev.get("apiKey")):
         sys.exit("An API key is required. Nothing was saved.")

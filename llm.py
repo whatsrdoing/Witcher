@@ -69,11 +69,14 @@ def messages_create(messages, system=None, tools=None, max_tokens=1024):
         payload["tools"] = tools
 
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(API_URL, data=body, method="POST", headers={
+    headers = {
         "content-type": "application/json",
         "x-api-key": cfg["apiKey"],
         "anthropic-version": API_VERSION,
-    })
+    }
+    if cfg.get("workspaceId"):
+        headers["anthropic-workspace-id"] = cfg["workspaceId"]
+    req = urllib.request.Request(API_URL, data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT, context=ssl.create_default_context()) as resp:
             return json.loads(resp.read().decode("utf-8")), None

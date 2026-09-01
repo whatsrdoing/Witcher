@@ -49,7 +49,16 @@
 
     var tick = function () { if (w.ParasAdmin && w.ParasAdmin.refreshAll) w.ParasAdmin.refreshAll(); };
     tick();
-    refreshTimer = setInterval(tick, 1000);
+    // If the routed #/admin page is already open on this same account
+    // (viewAdmin still carries .active -- app.js's router only clears that
+    // on navigating away), admin.js's own panelRefreshTimer is already
+    // polling this exact view every second; starting a second, independent
+    // 1s poller here would just double every request underneath it for as
+    // long as both are open. Only take over the polling job when nothing
+    // else already owns it.
+    if (!viewAdmin.classList.contains('active')) {
+      refreshTimer = setInterval(tick, 1000);
+    }
   }
 
   function closeOverlay() {

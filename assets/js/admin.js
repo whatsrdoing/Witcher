@@ -111,8 +111,15 @@
   }
 
   function refreshAll() {
+    // Sessions fetched once and handed to both renderSessions() and
+    // renderAccounts() (which also needs it for the "viewing now" badges) --
+    // they used to each call api('__admin/sessions') independently, so every
+    // single refreshAll tick fired it twice for no reason. Standalone calls
+    // to either function (after a force-logout, an edit-profile save, ...)
+    // still fetch their own copy via the default below.
+    var sessionsPromise = api('__admin/sessions');
     return Promise.all([
-      renderSessions(), renderAccounts(), renderRequests(), renderFeedback(),
+      renderSessions(sessionsPromise), renderAccounts(sessionsPromise), renderRequests(), renderFeedback(),
       renderDashboardVisibility(), renderStorage(), renderBackups(), renderHistory(), renderBroadcast()
     ]);
   }
@@ -329,11 +336,11 @@
     });
   }
 
-  function renderSessions() {
+  function renderSessions(sessionsPromise) {
     var box = $('#adminSessions');
     if (!box) return;
     if (!box.dataset.loaded) box.textContent = 'Loading…';
-    return api('__admin/sessions').then(function (r) {
+    return (sessionsPromise || api('__admin/sessions')).then(function (r) {
       box.dataset.loaded = '1';
       if (!r.ok) { box.textContent = 'Could not load.'; return; }
       var rows = r.body.sessions || [];
@@ -356,11 +363,11 @@
 
   var accountsCache = [];
 
-  function renderAccounts() {
+  function renderAccounts(sessionsPromise) {
     var box = $('#adminAccounts');
     if (!box) return;
     if (!box.dataset.loaded) box.textContent = 'Loading…';
-    return Promise.all([api('__admin/accounts'), api('__admin/sessions')]).then(function (res) {
+    return Promise.all([api('__admin/accounts'), sessionsPromise || api('__admin/sessions')]).then(function (res) {
       box.dataset.loaded = '1';
       var r = res[0], sr = res[1];
       if (!r.ok) { box.textContent = 'Could not load.'; return; }

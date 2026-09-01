@@ -599,24 +599,6 @@
             <div id="adminFeedback" class="admin-list"></div>
           </section>
 
-          <section class="admin-card" id="adminAskCard" style="display:none">
-            <h2>Ask</h2>
-            <p class="admin-row-sub" id="adminAskOff" style="display:none">
-              Not set up yet -- run <code>set_llm.py</code> on the server to turn this on. Each
-              question is a real, billed call to Anthropic's API once it is.
-            </p>
-            <div id="adminAskForm">
-              <div id="adminAskLog" class="admin-ask-log"></div>
-              <form id="adminAskInputForm" class="gate-row" style="gap:8px;align-items:flex-start">
-                <div class="gate-field" style="flex:1;margin-bottom:0">
-                  <input id="adminAskInput" type="text" autocomplete="off"
-                         placeholder="e.g. total received quantity in the July GRN register" maxlength="2000">
-                </div>
-                <button class="btn sm primary" id="adminAskSend" type="submit">Ask</button>
-              </form>
-            </div>
-          </section>
-
           <section class="admin-card" id="adminBroadcastCard" style="display:none">
             <h2>Broadcast email</h2>
             <p class="admin-row-sub" id="adminBroadcastOff" style="display:none">
@@ -1038,6 +1020,52 @@
 
 <div class="toasts" id="toasts"></div>
 
+<!-- Admin-only data assistant: a floating widget, not tied to any one view --
+     it stays available (and stays admin-gated) no matter which dashboard or
+     screen is open. ask.js shows/hides #askWidget entirely based on
+     ParasAdmin.isAdmin(); everyone else never has it in the layout at all. -->
+<div class="ask-widget" id="askWidget" style="display:none">
+  <div class="ask-panel" id="askPanel" aria-hidden="true">
+    <div class="ask-panel-head">
+      <span class="ask-panel-dot" id="askDot"></span>
+      <div class="ask-panel-title">
+        <h3>Data Assistant</h3>
+        <p id="askStatusLine">Checking…</p>
+      </div>
+      <button class="btn sm icon-only" id="askClose" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p class="ask-off" id="askOff" style="display:none">
+      Not set up yet — run <code>set_llm.py</code> on the server to turn this on. Each
+      question is a real, billed call to Anthropic's API once it is.
+    </p>
+    <div id="askBody">
+      <div class="ask-log" id="askLog">
+        <div class="ask-empty" id="askEmpty">
+          Ask about totals, counts, averages or filters across your uploaded
+          registers — exact figures, computed live from the real files.
+        </div>
+      </div>
+      <form id="askInputForm" class="ask-input-row">
+        <input id="askInput" type="text" autocomplete="off"
+               placeholder="e.g. total received quantity in the July GRN register" maxlength="2000">
+        <button class="ask-send" id="askSend" type="submit" aria-label="Ask">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+  <button class="ask-fab" id="askFab" title="Ask the data assistant" aria-label="Ask the data assistant" aria-expanded="false">
+    <span class="ask-fab-ring"></span>
+    <svg class="ask-fab-icon" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+      <path d="M12 2.5l1.65 5.1a3.4 3.4 0 0 0 2.2 2.2l5.1 1.65-5.1 1.65a3.4 3.4 0 0 0-2.2 2.2L12 20.4l-1.65-5.1a3.4 3.4 0 0 0-2.2-2.2L3.05 11.45l5.1-1.65a3.4 3.4 0 0 0 2.2-2.2z"/>
+      <path d="M19 3l.7 2.15L21.85 6l-2.15.7L19 8.85l-.7-2.15L16.15 6l2.15-.7z"/>
+    </svg>
+    <svg class="ask-fab-icon ask-fab-close" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</div>
+
 <!-- Registry: dashboards.json is the source of truth. dashboards.js is the
      generated mirror that lets a plain file:// double-click work too. -->
 <script src="dashboards.js" onerror="void 0"></script>
@@ -1057,6 +1085,7 @@
 <script src="assets/js/qrcode.js"></script>
 <script src="assets/js/twofactor.js"></script>
 <script src="assets/js/changelog.js"></script>
+<script src="assets/js/ask.js"></script>
 <script src="assets/js/app.js"></script>
 </body>
 </html>

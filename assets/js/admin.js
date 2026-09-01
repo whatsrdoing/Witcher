@@ -113,7 +113,7 @@
   function refreshAll() {
     return Promise.all([
       renderSessions(), renderAccounts(), renderRequests(), renderFeedback(),
-      renderDashboardVisibility(), renderStorage(), renderBackups(), renderHistory(), renderBroadcast(), renderAsk()
+      renderDashboardVisibility(), renderStorage(), renderBackups(), renderHistory(), renderBroadcast()
     ]);
   }
 
@@ -236,62 +236,6 @@
       return '<label class="admin-row"><input type="checkbox" value="' + esc(a.login) + '"> ' +
         '<span class="admin-row-sub">' + esc(a.login) + ' -- ' + esc(a.email) + '</span></label>';
     }).join('') || '<p class="admin-empty">No accounts have an email on file.</p>';
-  }
-
-  /* Admin-only data assistant -- a real, billed call to Anthropic per
-     question (see set_llm.py / assistant.py), so unlike every other card
-     here this never auto-runs anything on its own; it only ever fires
-     when the admin actually submits a question. The on/off check itself
-     is free (a local file read on the server), so that alone rides the
-     same refreshAll() cycle as everything else -- the log content is
-     untouched by that, only sendAsk() ever appends to it. */
-  function renderAsk() {
-    var card = $('#adminAskCard');
-    if (!card) return;
-    return fetch('__admin/ask/status', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : { enabled: false }; })
-      .then(function (j) {
-        card.style.display = '';
-        var on = !!(j && j.enabled);
-        $('#adminAskOff').style.display = on ? 'none' : '';
-        $('#adminAskForm').style.display = on ? '' : 'none';
-      });
-  }
-
-  function askLogTurn(question) {
-    var log = $('#adminAskLog');
-    var id = 'ask-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-    var turn = d.createElement('div');
-    turn.className = 'admin-ask-turn';
-    turn.innerHTML = '<div class="admin-ask-q">' + esc(question) + '</div>' +
-      '<div class="admin-ask-a pending" id="' + id + '">Thinking…</div>';
-    log.appendChild(turn);
-    log.scrollTop = log.scrollHeight;
-    return id;
-  }
-
-  function sendAsk(e) {
-    if (e) e.preventDefault();
-    var input = $('#adminAskInput');
-    var question = input.value.trim();
-    if (!question) return;
-    var btn = $('#adminAskSend');
-    input.value = '';
-    btn.disabled = true;
-    var answerId = askLogTurn(question);
-    api('__admin/ask', { method: 'POST', body: JSON.stringify({ question: question }) })
-      .then(function (r) {
-        btn.disabled = false;
-        var el = $('#' + answerId);
-        if (!el) return;
-        el.classList.remove('pending');
-        if (!r.ok || !r.body.ok) {
-          el.classList.add('err');
-          el.textContent = (r.body && r.body.error) || 'Could not reach the assistant.';
-          return;
-        }
-        el.textContent = r.body.answer;
-        $('#adminAskLog').scrollTop = $('#adminAskLog').scrollHeight;
-      });
   }
 
   function renderBroadcast() {
@@ -995,9 +939,6 @@
     var usageByMonth = $('#usageByMonth'), usageByDay = $('#usageByDay');
     if (usageByMonth) usageByMonth.addEventListener('click', function () { setUsageGroup('month'); });
     if (usageByDay) usageByDay.addEventListener('click', function () { setUsageGroup('day'); });
-
-    var askForm = $('#adminAskInputForm');
-    if (askForm) askForm.addEventListener('submit', sendAsk);
 
     var broadcastSend = $('#adminBroadcastSend');
     if (broadcastSend) broadcastSend.addEventListener('click', sendBroadcast);

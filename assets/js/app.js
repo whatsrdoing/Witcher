@@ -53,6 +53,7 @@
       if (w.ParasAdmin) w.ParasAdmin.checkAccess();
       if (w.ParasTwoFactor) w.ParasTwoFactor.refreshStatus();
       if (w.ParasChangelog) w.ParasChangelog.refreshDot();
+      if (w.ParasAsk) w.ParasAsk.reveal();
 
       w.Store.checkPersistence().then(function () {
         renderModeSwitch();

@@ -754,7 +754,33 @@ a{color:var(--brand-soft); text-decoration:none;}
   filter:saturate(122%) contrast(1.05);
 }
 .gate-photo-cover{object-fit:cover; object-position:center;}
-.gate-banner-left, .gate-banner-right{grid-column:span 2;}
+
+/* A slow, ambient Ken Burns drift on every photo -- the grid should read
+   as alive without ever competing for attention with the actual sign-in
+   form. Kept to a gentle 6% zoom and a couple of percent of pan, ~24-30s
+   per cycle, matching the pace of the background glows (drift1/drift2)
+   rather than anything a glance would register as "moving". Cells stay
+   clipped by .gate-photo-cell's overflow:hidden, so the zoom never spills
+   past its own tile. Each cell gets its own negative delay so all nine
+   don't breathe in lockstep; prefers-reduced-motion (see below) freezes
+   this along with every other animation in the app. */
+@keyframes kenburns{0%,100%{transform:scale(1) translate(0,0)}50%{transform:scale(1.06) translate(-1.5%,1%)}}
+.gate-photo-sharp{animation:kenburns 26s ease-in-out infinite;}
+.gate-photo-cell:nth-child(1) .gate-photo-sharp{animation-delay:-2s;}
+.gate-photo-cell:nth-child(2) .gate-photo-sharp{animation-delay:-9s;}
+.gate-photo-cell:nth-child(3) .gate-photo-sharp{animation-delay:-16s;}
+.gate-photo-cell:nth-child(4) .gate-photo-sharp{animation-delay:-23s;}
+.gate-photo-cell:nth-child(5) .gate-photo-sharp{animation-delay:-4s; animation-duration:30s;}
+.gate-photo-cell:nth-child(6) .gate-photo-sharp{animation-delay:-11s;}
+.gate-photo-cell:nth-child(7) .gate-photo-sharp{animation-delay:-18s;}
+.gate-photo-cell:nth-child(8) .gate-photo-sharp{animation-delay:-25s;}
+.gate-photo-cell:nth-child(9) .gate-photo-sharp{animation-delay:-6s;}
+
+.gate-banner-full{grid-column:span 4;}
+/* The PARAS HEALTH wordmark sits left-of-centre in the source photo --
+   biasing the cover-fit crop that way keeps it in frame at every width,
+   instead of a dead-centre crop clipping it on narrower viewports. */
+.gate-banner-photo{object-position:35% center;}
 .gate-photos::after{
   content:""; position:absolute; inset:0;
   /* Kept deliberately gentle -- an earlier, much darker version of this
@@ -775,7 +801,7 @@ a{color:var(--brand-soft); text-decoration:none;}
        equal row heights are what keeps every cell's aspect ratio matched. */
     grid-template-rows:repeat(5,1fr);
   }
-  .gate-banner-left, .gate-banner-right{grid-column:span 1;}
+  .gate-banner-full{grid-column:span 2;}
 }
 
 .gate-bg i{position:absolute; border-radius:50%; filter:blur(90px); display:block;}

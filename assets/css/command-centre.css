@@ -600,6 +600,15 @@ a{color:var(--brand-soft); text-decoration:none;}
      turned up from zero opacity. */
   animation:modalIn .26s var(--ease);
   transform-origin:center;
+  /* Capped to the scrim's own padding (24px each side) so a tall modal on a
+     short screen never runs past the viewport -- the modal scrolls within
+     itself instead. This also sidesteps a real flexbox bug: a centered
+     (align-items:center) child taller than its scrollable container gets
+     the top half of its overflow clipped with no way to scroll up to it,
+     only the bottom half is reachable. Capping height here means the
+     modal's own box never exceeds what .modal-scrim's centering can
+     already show in full, so that bug never gets a chance to bite. */
+  max-height:calc(100vh - 48px); overflow-y:auto;
 }
 @keyframes modalIn{
   from{opacity:0; transform:scale(.94) translateY(8px);}
@@ -835,6 +844,13 @@ a{color:var(--brand-soft); text-decoration:none;}
   background:var(--glass-2); border:1px solid var(--wire);
   backdrop-filter:blur(26px) saturate(180%); -webkit-backdrop-filter:blur(26px) saturate(180%);
   animation:gateIn .5s var(--ease) .07s both;
+  /* Capped to .gate's own padding (28px top/bottom) so the card -- sign-in,
+     reset, sign-up, whichever screen is showing -- never runs past the
+     viewport on a short screen; it scrolls within itself instead. Same fix
+     as .modal above, and for the same reason: .gate centers this with
+     align-items:center, and a centered child taller than its container has
+     its top overflow permanently unreachable by scroll otherwise. */
+  max-height:calc(100vh - 56px); overflow-y:auto;
 }
 :root:not([data-theme="light"]) .gate-card{background:rgba(23,34,58,.68); border-color:rgba(255,255,255,.13);}
 :root[data-theme="light"] .gate-card{background:rgba(255,255,255,.86);}

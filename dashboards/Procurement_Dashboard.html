@@ -486,7 +486,7 @@
       </div>
     </div>
 
-    <div class="chart-row1">
+    <div class="chart-row2">
       <div class="card">
         <h2>Daily PO Activity</h2>
         <p class="desc">One grouped bar per day — Total, Approved, Pending, Cancelled.</p>
@@ -500,6 +500,21 @@
         </div>
         <div class="legend" id="legendDaily"></div>
         <div class="chart-scroll"><canvas id="chartDaily"></canvas></div>
+      </div>
+      <div class="card">
+        <h2>PO by Item</h2>
+        <p class="desc">Total and average PO quantity and value per item, for one month at a time — each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
+        <div class="toolbar">
+          <label style="color:var(--sub);font-size:12px;">Month:</label>
+          <select id="itemMonthSelect"></select>
+        </div>
+        <div class="tbl-wrap" style="max-height:250px;">
+          <table>
+            <thead><tr><th>Item Code</th><th>Total PO Qty</th><th>Avg PO Qty</th><th>Total Value</th><th>Avg Value</th></tr></thead>
+            <tbody id="itemMonthTbody"></tbody>
+          </table>
+        </div>
+        <div class="note" id="itemMonthNote"></div>
       </div>
     </div>
 
@@ -909,7 +924,10 @@ function readFileText(file, progressEl, label){
 let allPoRows = [];
 let allGrnRows = [];
 let allLocalItems = []; // per-line-item rows for local purchase GRN lines
+let allPoLineItems = []; // per-line-item rows straight from the PO register, before the by-PO-No dedup below collapses them
 let poRows = [], grnRows = [], localItems = [];
+let poLineItems = [];
+let itemMonthSelectedKey = null; // 'YYYY-MM', null = most recent month with data
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
 let allStores = [];
@@ -965,6 +983,7 @@ function processPO(text, progressEl){
   const slashConvByUnit = detectUnitSlashConventions(lines, dateColIdxs, unitIdx);
   const seen = new Set();
   allPoRows = [];
+  allPoLineItems = [];
   const byNo = {};
   let processedLines=0;
   for(let i=1;i<lines.length;i++){
@@ -975,6 +994,18 @@ function processPO(text, progressEl){
     if(!poNo) continue;
     const amt = num(f[idx['PO Amount']]);
     const qty = num(f[idx['PO Qty.']]);
+    // Every row here is really one PO line item (one PO No can repeat across
+    // several rows, one per item) -- the dedup below collapses that down to
+    // one summed record per PO No for the rest of the dashboard, which loses
+    // which item contributed what. Captured here, per line, before that
+    // collapse happens, for the "PO by item" card further down.
+    const lineUnit = unitIdx>=0 ? (f[unitIdx]||'').trim() : 'DEFAULT';
+    const lineDt = parsePODate(f[idx['PO Date']], slashConvByUnit[lineUnit]);
+    allPoLineItems.push({
+      poNo, itemCode:(f[idx['Item Code']]||'Unknown Item').trim(),
+      store:(f[idx['Store Name']]||'').trim(), unit:lineUnit, dt:lineDt,
+      qty, amount:amt
+    });
     if(seen.has(poNo)){
       if(byNo[poNo]){ byNo[poNo].amount += amt; byNo[poNo].qty += qty; }
       continue;
@@ -983,8 +1014,8 @@ function processPO(text, progressEl){
     const rawStatus = (f[idx['Status']]||'').trim();
     const status = ['Approved','Cancelled','Rejected','Pending'].includes(rawStatus) ? rawStatus : 'Pending';
     const dateRaw = f[idx['PO Date']];
-    const unitForRow = unitIdx>=0 ? (f[unitIdx]||'').trim() : 'DEFAULT';
-    const dt = parsePODate(dateRaw, slashConvByUnit[unitForRow]);
+    const unitForRow = lineUnit;
+    const dt = lineDt;
     const approvedDateRaw = f[idx['Approved Date']];
     const approvedDt = parsePODate(approvedDateRaw, slashConvByUnit[unitForRow]);
     const rec = {
@@ -1097,6 +1128,7 @@ function recomputeAggregates(){
   poRows = allPoRows.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
   grnRows = allGrnRows.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
   localItems = allLocalItems.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit));
+  poLineItems = allPoLineItems.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
 
   dayMap = {}; monthMap = {}; localDayMap = {}; poWithGRN = new Set();
 
@@ -1882,6 +1914,48 @@ function render(){
   drawGroupedBar(document.getElementById('chartDaily'), usedDays.map(dayLabel), dailySeries,
     {groupWidth: manyMonths?42:52, height: manyMonths?170:220});
 
+  // PO by Item — one month at a time: total/average quantity and value across
+  // every PO line for that item that month (each PO line is one item on one
+  // PO, before the by-PO-No dedup above collapses that down to a per-PO
+  // total — see allPoLineItems in processPO).
+  {
+    const itemMonthKeys = Array.from(new Set(poLineItems.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
+    const selEl = document.getElementById('itemMonthSelect');
+    if(itemMonthKeys.length){
+      if(!itemMonthSelectedKey || itemMonthKeys.indexOf(itemMonthSelectedKey)===-1) itemMonthSelectedKey = itemMonthKeys[itemMonthKeys.length-1];
+      selEl.disabled = false;
+      selEl.innerHTML = itemMonthKeys.map(mk=>'<option value="'+mk+'"'+(mk===itemMonthSelectedKey?' selected':'')+'>'+monthLabel(mk)+'</option>').join('');
+    } else {
+      itemMonthSelectedKey = null;
+      selEl.disabled = true;
+      selEl.innerHTML = '<option value="">No dated PO rows</option>';
+    }
+
+    const itemAgg = {};
+    poLineItems.forEach(r=>{
+      if(!r.dt || r.dt.monthKey !== itemMonthSelectedKey) return;
+      if(!itemAgg[r.itemCode]) itemAgg[r.itemCode] = {qty:0, amount:0, lines:0};
+      itemAgg[r.itemCode].qty += r.qty;
+      itemAgg[r.itemCode].amount += r.amount;
+      itemAgg[r.itemCode].lines += 1;
+    });
+    const itemRows = Object.keys(itemAgg).map(code=>{
+      const a = itemAgg[code];
+      return {code, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0, totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0};
+    }).sort((a,b)=> b.totalValue-a.totalValue);
+
+    document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
+      '<tr><td>'+r.code+'</td>'+
+      '<td>'+Math.round(r.totalQty).toLocaleString('en-IN')+'</td>'+
+      '<td>'+r.avgQty.toFixed(1)+'</td>'+
+      '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
+      '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
+    ).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--sub)">No PO lines this month.</td></tr>';
+    document.getElementById('itemMonthNote').textContent = itemRows.length
+      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with a PO this month'
+      : '';
+  }
+
   // PO Approved — By Person (per month), sorted highest to lowest, fixed 6-category viewport.
   const approverTotal = (p)=> Object.values(approvedByMonthMap[p]).reduce((a,b)=>a+b,0);
   const approvers = Object.keys(approvedByMonthMap).sort((a,b)=> approverTotal(b)-approverTotal(a));
@@ -2162,6 +2236,10 @@ document.getElementById('processBtn').addEventListener('click', async ()=>{
   btn.disabled = false;
 });
 document.getElementById('dayRange').addEventListener('change', render);
+document.getElementById('itemMonthSelect').addEventListener('change', function(){
+  itemMonthSelectedKey = this.value || null;
+  render();
+});
 document.getElementById('localUnitMetric').addEventListener('change', (e)=>{
   localUnitMetric = e.target.value;
   render();

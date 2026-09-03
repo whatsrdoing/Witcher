@@ -59,7 +59,7 @@
       'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
       'background:rgba(8,12,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);');
     wrap.innerHTML =
-      '<div style="background:var(--panel-strong,var(--panel,#141b2b));color:var(--ink,#eef2f8);' +
+      '<div style="background:#141b2b;color:#eef2f8;' +
       'border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:26px 28px;max-width:340px;' +
       'text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5);' +
       'font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +

@@ -63,7 +63,7 @@
       'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
       'background:rgba(8,12,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);');
     wrap.innerHTML =
-      '<div style="background:var(--panel-strong,var(--panel,#141b2b));color:var(--ink,#eef2f8);' +
+      '<div style="background:#141b2b;color:#eef2f8;' +
       'border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:26px 28px;max-width:340px;' +
       'text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5);' +
       'font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +
@@ -506,10 +506,12 @@
     <div class="chart-row1">
       <div class="card">
         <h2>PO by Item</h2>
-        <p class="desc">Total PO count, total quantity, and average quantity per item, for one month at a time — each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
+        <p class="desc">Approved POs only (Cancelled, Pending and Rejected excluded) — total quantity and value per item and unit, for one month at a time. Each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
         <div class="toolbar">
           <label style="color:var(--sub);font-size:12px;">Month:</label>
           <select id="itemMonthSelect"></select>
+          <label style="color:var(--sub);font-size:12px;margin-left:12px;">Unit:</label>
+          <select id="itemUnitFilter"></select>
           <label style="color:var(--sub);font-size:12px;margin-left:12px;">Sort by Qty:</label>
           <select id="itemSortOrder">
             <option value="desc" selected>High to Low</option>
@@ -518,7 +520,7 @@
         </div>
         <div class="tbl-wrap" style="max-height:250px;">
           <table>
-            <thead><tr><th>Item Code</th><th>Total PO</th><th>Total PO Qty</th><th>Avg PO Qty</th></tr></thead>
+            <thead><tr><th>Item</th><th>Unit</th><th>Total PO</th><th>Total PO Qty</th><th>Avg PO Qty</th><th>Total Value</th><th>Avg PO Value</th></tr></thead>
             <tbody id="itemMonthTbody"></tbody>
           </table>
         </div>
@@ -937,6 +939,7 @@ let poRows = [], grnRows = [], localItems = [];
 let poLineItems = [];
 let itemMonthSelectedKey = null; // 'YYYY-MM', null = most recent month with data
 let itemSortOrder = 'desc'; // 'desc' = high to low, 'asc' = low to high, by Total PO Qty
+let itemUnitFilterSelected = null; // unit name, null = all units
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
 let allStores = [];
@@ -1010,18 +1013,19 @@ function processPO(text, progressEl){
     // collapse happens, for the "PO by item" card further down.
     const lineUnit = unitIdx>=0 ? (f[unitIdx]||'').trim() : 'DEFAULT';
     const lineDt = parsePODate(f[idx['PO Date']], slashConvByUnit[lineUnit]);
+    const rawStatus = (f[idx['Status']]||'').trim();
+    const status = ['Approved','Cancelled','Rejected','Pending'].includes(rawStatus) ? rawStatus : 'Pending';
     allPoLineItems.push({
       poNo, itemCode:(f[idx['Item Code']]||'Unknown Item').trim(),
+      itemName:(f[idx['Item Name']]||'').trim(),
       store:(f[idx['Store Name']]||'').trim(), unit:lineUnit, dt:lineDt,
-      qty, amount:amt
+      status, qty, amount:amt
     });
     if(seen.has(poNo)){
       if(byNo[poNo]){ byNo[poNo].amount += amt; byNo[poNo].qty += qty; }
       continue;
     }
     seen.add(poNo);
-    const rawStatus = (f[idx['Status']]||'').trim();
-    const status = ['Approved','Cancelled','Rejected','Pending'].includes(rawStatus) ? rawStatus : 'Pending';
     const dateRaw = f[idx['PO Date']];
     const unitForRow = lineUnit;
     const dt = lineDt;
@@ -1923,12 +1927,14 @@ function render(){
   drawGroupedBar(document.getElementById('chartDaily'), usedDays.map(dayLabel), dailySeries,
     {groupWidth: manyMonths?42:52, height: manyMonths?170:220});
 
-  // PO by Item — one month at a time: how many POs, total quantity, and
-  // average quantity per item that month (each PO line is one item on one
-  // PO, before the by-PO-No dedup above collapses that down to a per-PO
-  // total — see allPoLineItems in processPO).
+  // PO by Item — one month at a time, Approved POs only: how many POs, total
+  // quantity, and total/average value per item and unit that month (each PO
+  // line is one item on one PO, before the by-PO-No dedup above collapses
+  // that down to a per-PO total — see allPoLineItems in processPO).
   {
-    const itemMonthKeys = Array.from(new Set(poLineItems.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
+    const approvedLines = poLineItems.filter(r=>r.status==='Approved');
+
+    const itemMonthKeys = Array.from(new Set(approvedLines.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
     const selEl = document.getElementById('itemMonthSelect');
     if(itemMonthKeys.length){
       if(!itemMonthSelectedKey || itemMonthKeys.indexOf(itemMonthSelectedKey)===-1) itemMonthSelectedKey = itemMonthKeys[itemMonthKeys.length-1];
@@ -1940,26 +1946,42 @@ function render(){
       selEl.innerHTML = '<option value="">No dated PO rows</option>';
     }
 
+    const itemUnits = Array.from(new Set(approvedLines.map(r=>r.unit).filter(Boolean))).sort();
+    const unitSelEl = document.getElementById('itemUnitFilter');
+    if(itemUnitFilterSelected && itemUnits.indexOf(itemUnitFilterSelected)===-1) itemUnitFilterSelected = null;
+    unitSelEl.innerHTML = '<option value=""'+(itemUnitFilterSelected?'':' selected')+'>All Units</option>'+
+      itemUnits.map(u=>'<option value="'+u+'"'+(u===itemUnitFilterSelected?' selected':'')+'>'+u+'</option>').join('');
+
     const itemAgg = {};
-    poLineItems.forEach(r=>{
+    approvedLines.forEach(r=>{
       if(!r.dt || r.dt.monthKey !== itemMonthSelectedKey) return;
-      if(!itemAgg[r.itemCode]) itemAgg[r.itemCode] = {qty:0, lines:0};
-      itemAgg[r.itemCode].qty += r.qty;
-      itemAgg[r.itemCode].lines += 1;
+      if(itemUnitFilterSelected && r.unit !== itemUnitFilterSelected) return;
+      const key = r.itemCode+'|'+r.unit;
+      if(!itemAgg[key]) itemAgg[key] = {itemCode:r.itemCode, itemName:r.itemName, unit:r.unit, qty:0, amount:0, lines:0};
+      itemAgg[key].qty += r.qty;
+      itemAgg[key].amount += r.amount;
+      itemAgg[key].lines += 1;
     });
-    const itemRows = Object.keys(itemAgg).map(code=>{
-      const a = itemAgg[code];
-      return {code, totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0};
+    const itemRows = Object.keys(itemAgg).map(key=>{
+      const a = itemAgg[key];
+      return {
+        label: a.itemName || a.itemCode, unit: a.unit,
+        totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0,
+        totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0
+      };
     }).sort((a,b)=> itemSortOrder==='asc' ? a.totalQty-b.totalQty : b.totalQty-a.totalQty);
 
     document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
-      '<tr><td>'+r.code+'</td>'+
+      '<tr><td>'+r.label+'</td>'+
+      '<td>'+r.unit+'</td>'+
       '<td>'+r.totalPO.toLocaleString('en-IN')+'</td>'+
       '<td>'+Math.round(r.totalQty).toLocaleString('en-IN')+'</td>'+
-      '<td>'+r.avgQty.toFixed(1)+'</td></tr>'
-    ).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--sub)">No PO lines this month.</td></tr>';
+      '<td>'+r.avgQty.toFixed(1)+'</td>'+
+      '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
+      '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
+    ).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--sub)">No approved PO lines this month.</td></tr>';
     document.getElementById('itemMonthNote').textContent = itemRows.length
-      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with a PO this month'
+      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO this month'
       : '';
   }
 
@@ -2245,6 +2267,10 @@ document.getElementById('processBtn').addEventListener('click', async ()=>{
 document.getElementById('dayRange').addEventListener('change', render);
 document.getElementById('itemMonthSelect').addEventListener('change', function(){
   itemMonthSelectedKey = this.value || null;
+  render();
+});
+document.getElementById('itemUnitFilter').addEventListener('change', function(){
+  itemUnitFilterSelected = this.value || null;
   render();
 });
 document.getElementById('itemSortOrder').addEventListener('change', function(){

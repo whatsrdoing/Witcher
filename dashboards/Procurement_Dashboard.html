@@ -486,7 +486,7 @@
       </div>
     </div>
 
-    <div class="chart-row2">
+    <div class="chart-row1">
       <div class="card">
         <h2>Daily PO Activity</h2>
         <p class="desc">One grouped bar per day — Total, Approved, Pending, Cancelled.</p>
@@ -501,16 +501,24 @@
         <div class="legend" id="legendDaily"></div>
         <div class="chart-scroll"><canvas id="chartDaily"></canvas></div>
       </div>
+    </div>
+
+    <div class="chart-row1">
       <div class="card">
         <h2>PO by Item</h2>
-        <p class="desc">Total and average PO quantity and value per item, for one month at a time — each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
+        <p class="desc">Total PO count, total quantity, and average quantity per item, for one month at a time — each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
         <div class="toolbar">
           <label style="color:var(--sub);font-size:12px;">Month:</label>
           <select id="itemMonthSelect"></select>
+          <label style="color:var(--sub);font-size:12px;margin-left:12px;">Sort by Qty:</label>
+          <select id="itemSortOrder">
+            <option value="desc" selected>High to Low</option>
+            <option value="asc">Low to High</option>
+          </select>
         </div>
         <div class="tbl-wrap" style="max-height:250px;">
           <table>
-            <thead><tr><th>Item Code</th><th>Total PO Qty</th><th>Avg PO Qty</th><th>Total Value</th><th>Avg Value</th></tr></thead>
+            <thead><tr><th>Item Code</th><th>Total PO</th><th>Total PO Qty</th><th>Avg PO Qty</th></tr></thead>
             <tbody id="itemMonthTbody"></tbody>
           </table>
         </div>
@@ -928,6 +936,7 @@ let allPoLineItems = []; // per-line-item rows straight from the PO register, be
 let poRows = [], grnRows = [], localItems = [];
 let poLineItems = [];
 let itemMonthSelectedKey = null; // 'YYYY-MM', null = most recent month with data
+let itemSortOrder = 'desc'; // 'desc' = high to low, 'asc' = low to high, by Total PO Qty
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
 let allStores = [];
@@ -1914,8 +1923,8 @@ function render(){
   drawGroupedBar(document.getElementById('chartDaily'), usedDays.map(dayLabel), dailySeries,
     {groupWidth: manyMonths?42:52, height: manyMonths?170:220});
 
-  // PO by Item — one month at a time: total/average quantity and value across
-  // every PO line for that item that month (each PO line is one item on one
+  // PO by Item — one month at a time: how many POs, total quantity, and
+  // average quantity per item that month (each PO line is one item on one
   // PO, before the by-PO-No dedup above collapses that down to a per-PO
   // total — see allPoLineItems in processPO).
   {
@@ -1934,23 +1943,21 @@ function render(){
     const itemAgg = {};
     poLineItems.forEach(r=>{
       if(!r.dt || r.dt.monthKey !== itemMonthSelectedKey) return;
-      if(!itemAgg[r.itemCode]) itemAgg[r.itemCode] = {qty:0, amount:0, lines:0};
+      if(!itemAgg[r.itemCode]) itemAgg[r.itemCode] = {qty:0, lines:0};
       itemAgg[r.itemCode].qty += r.qty;
-      itemAgg[r.itemCode].amount += r.amount;
       itemAgg[r.itemCode].lines += 1;
     });
     const itemRows = Object.keys(itemAgg).map(code=>{
       const a = itemAgg[code];
-      return {code, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0, totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0};
-    }).sort((a,b)=> b.totalValue-a.totalValue);
+      return {code, totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0};
+    }).sort((a,b)=> itemSortOrder==='asc' ? a.totalQty-b.totalQty : b.totalQty-a.totalQty);
 
     document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
       '<tr><td>'+r.code+'</td>'+
+      '<td>'+r.totalPO.toLocaleString('en-IN')+'</td>'+
       '<td>'+Math.round(r.totalQty).toLocaleString('en-IN')+'</td>'+
-      '<td>'+r.avgQty.toFixed(1)+'</td>'+
-      '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
-      '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
-    ).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--sub)">No PO lines this month.</td></tr>';
+      '<td>'+r.avgQty.toFixed(1)+'</td></tr>'
+    ).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--sub)">No PO lines this month.</td></tr>';
     document.getElementById('itemMonthNote').textContent = itemRows.length
       ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with a PO this month'
       : '';
@@ -2238,6 +2245,10 @@ document.getElementById('processBtn').addEventListener('click', async ()=>{
 document.getElementById('dayRange').addEventListener('change', render);
 document.getElementById('itemMonthSelect').addEventListener('change', function(){
   itemMonthSelectedKey = this.value || null;
+  render();
+});
+document.getElementById('itemSortOrder').addEventListener('change', function(){
+  itemSortOrder = this.value;
   render();
 });
 document.getElementById('localUnitMetric').addEventListener('change', (e)=>{

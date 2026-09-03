@@ -448,34 +448,47 @@
         <button data-mode="local" aria-pressed="true"><span class="dot"></span>LOCAL</button>
         <button data-mode="session" aria-pressed="false"><span class="dot"></span>SESSION</button>
       </div>
-      <div class="live-tray" id="liveTray">
-        <button class="btn icon-only" id="liveBtn" title="Open dashboards" aria-label="Open dashboards">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3.5 12.5 8.5 4.7 8.5-4.7"/></svg>
-          <span class="live-count" id="liveCount" style="display:none">0</span>
+      <div class="live-tray" id="moreTray">
+        <button class="btn icon-only" id="moreBtn" title="More" aria-label="More">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
         </button>
-        <div class="pop" id="livePop" style="display:none">
-          <h4>Open dashboards</h4>
-          <div id="livePopList"></div>
-        </div>
-      </div>
-      <button class="btn icon-only" id="libraryBtn" title="Shared Data Library — drop every register here once" aria-label="Data Library">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4L10.5 7h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
-      </button>
-      <button class="btn icon-only" id="raiseBtn" title="Raise a request" aria-label="Raise a request">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.55.4.9.85 1.1 1.5l.1.6h4.4l.1-.6c.2-.65.55-1.1 1.1-1.5A6 6 0 0 0 12 3z"/></svg>
-      </button>
-      <button class="btn icon-only new-badge-anchor" id="whatsNewBtn" title="What's new" aria-label="What's new">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10z"/><path d="M10.3 19.5a1.9 1.9 0 0 0 3.4 0"/></svg>
-        <span class="new-dot" id="whatsNewDot" style="display:none"></span>
-      </button>
-      <div class="live-tray" id="adminNotifTray" style="display:none">
-        <button class="btn icon-only" id="adminNotifBtn" title="Pending requests" aria-label="Pending requests">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.3"/><path d="M8 8.5h8M8 12.5h8M8 16.5h4.5"/></svg>
-          <span class="live-count" id="adminNotifCount" style="display:none">0</span>
-        </button>
-        <div class="pop" id="adminNotifPop" style="display:none">
-          <h4>Pending requests</h4>
-          <div id="adminNotifList"></div>
+        <div class="pop more-pop" id="morePop" style="display:none">
+          <h4>More</h4>
+          <div class="live-tray" id="liveTray">
+            <button class="btn icon-only" id="liveBtn" title="Open dashboards" aria-label="Open dashboards">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3.5 12.5 8.5 4.7 8.5-4.7"/></svg>
+              <span class="more-label">Open dashboards</span>
+              <span class="live-count" id="liveCount" style="display:none">0</span>
+            </button>
+            <div class="pop" id="livePop" style="display:none">
+              <h4>Open dashboards</h4>
+              <div id="livePopList"></div>
+            </div>
+          </div>
+          <button class="btn icon-only" id="libraryBtn" title="Shared Data Library — drop every register here once" aria-label="Data Library">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4L10.5 7h9A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+            <span class="more-label">Data Library</span>
+          </button>
+          <button class="btn icon-only" id="raiseBtn" title="Raise a request" aria-label="Raise a request">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.55.4.9.85 1.1 1.5l.1.6h4.4l.1-.6c.2-.65.55-1.1 1.1-1.5A6 6 0 0 0 12 3z"/></svg>
+            <span class="more-label">Raise a request</span>
+          </button>
+          <button class="btn icon-only new-badge-anchor" id="whatsNewBtn" title="What's new" aria-label="What's new">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10z"/><path d="M10.3 19.5a1.9 1.9 0 0 0 3.4 0"/></svg>
+            <span class="more-label">What's new</span>
+            <span class="new-dot" id="whatsNewDot" style="display:none"></span>
+          </button>
+          <div class="live-tray" id="adminNotifTray" style="display:none">
+            <button class="btn icon-only" id="adminNotifBtn" title="Pending requests" aria-label="Pending requests">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.3"/><path d="M8 8.5h8M8 12.5h8M8 16.5h4.5"/></svg>
+              <span class="more-label">Pending requests</span>
+              <span class="live-count" id="adminNotifCount" style="display:none">0</span>
+            </button>
+            <div class="pop" id="adminNotifPop" style="display:none">
+              <h4>Pending requests</h4>
+              <div id="adminNotifList"></div>
+            </div>
+          </div>
         </div>
       </div>
       <button class="btn icon-only" id="adminBtn" title="Admin panel" aria-label="Admin panel" style="display:none">

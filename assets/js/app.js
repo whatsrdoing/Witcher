@@ -2290,6 +2290,27 @@
     });
     $('#dashClose').addEventListener('click', function () { if (current) unloadFrame(current); });
 
+    /* "More" tray -- Open Dashboards / Data Library / Raise a Request /
+       What's New / Pending Requests, collapsed behind one icon. The three
+       plain-action rows (library/raise/what's-new) close this tray the
+       moment they're clicked, since whatever they open lives outside it.
+       Open Dashboards and Pending Requests are left to close it themselves
+       (they don't -- see the .more-pop CSS comment): their own popovers are
+       nested inside this one, so closing #morePop first would hide an
+       ancestor of the very popover that click was trying to open. */
+    $('#moreBtn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var p = $('#morePop');
+      p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+    });
+    d.addEventListener('click', function (e) {
+      if (!e.target.closest('#moreTray')) $('#morePop').style.display = 'none';
+    });
+    ['#libraryBtn', '#raiseBtn', '#whatsNewBtn'].forEach(function (sel) {
+      var b = $(sel);
+      if (b) b.addEventListener('click', function () { $('#morePop').style.display = 'none'; });
+    });
+
     /* live tray popover */
     $('#liveBtn').addEventListener('click', function (e) {
       e.stopPropagation();

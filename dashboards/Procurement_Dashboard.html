@@ -158,7 +158,7 @@
 <title>Procurement Operations Dashboard</title>
 <style>
   :root{
-    --bg:#080b12; --panel:rgba(255,255,255,0.055); --panel2:rgba(255,255,255,0.085); --border:rgba(255,255,255,0.14);
+    --bg:#080b12; --panel:rgba(255,255,255,0.1); --panel2:rgba(255,255,255,0.085); --border:rgba(255,255,255,0.14);
     --text:#eef2f8; --sub:#93a0b3; --accent:#5b9df0; --accent2:#7fc8e8;
     --ok:#34d399; --warn:#fbbf24; --bad:#f87171; --local:#b794f6;
     --blur:22px;
@@ -179,13 +179,13 @@
      variable get their own targeted override. */
   :root[data-theme="light"]{
     --bg: #F4F5F7;
-    --panel: rgba(16,24,38,0.045);
+    --panel: rgba(16,24,38,0.075);
     --panel2: rgba(16,24,38,0.075);
     --border: rgba(16,24,38,0.13);
     --text:#101826; --sub:#4A5768;
     color-scheme: light;
   }
-  :root[data-theme="light"] header{ background:rgba(255,255,255,.72); }
+  :root[data-theme="light"] header{ background:rgba(255,255,255,.96); }
   :root[data-theme="light"] #processBtn:disabled{ background:rgba(16,24,38,.05); }
   :root[data-theme="light"] .chip{ background:rgba(16,24,38,.04); }
   :root[data-theme="light"] .chip.active{ color:#1b3f73; }
@@ -220,7 +220,7 @@
   .bg-blobs::before{width:520px;height:520px;top:-160px;left:-120px;background:radial-gradient(circle,#3d6fd6,transparent 70%);}
   .bg-blobs::after{width:480px;height:480px;bottom:-140px;right:-100px;background:radial-gradient(circle,#7c5ce0,transparent 70%);}
   .bg-blobs .blob3{width:420px;height:420px;top:40%;left:55%;background:radial-gradient(circle,#1fb3a8,transparent 70%);opacity:.22;}
-  header{padding:16px 28px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(10,14,22,0.55);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);z-index:20;box-shadow:0 4px 24px rgba(0,0,0,.25);}
+  header{padding:16px 28px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(10,14,22,0.92);z-index:20;box-shadow:0 4px 24px rgba(0,0,0,.25);}
   header h1{margin:0 0 4px;font-size:19px;font-weight:700;letter-spacing:.2px;color:var(--text);}
   header p{margin:0;color:var(--sub);font-size:13px;}
   .header-row{display:flex;align-items:center;gap:18px;max-width:1480px;margin:0 auto;}
@@ -232,7 +232,7 @@
   @media (max-width:640px){.header-byline{display:none;}}
   .wrap{max-width:1480px;margin:0 auto;padding:0 28px 60px;}
   .upload-bar{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:20px 0;}
-  .file-box{background:var(--panel);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);border:1px solid var(--border);border-radius:16px;padding:14px 16px;flex:1;min-width:260px;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
+  .file-box{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 16px;flex:1;min-width:260px;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
   .file-box label{display:block;font-size:12px;color:var(--sub);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
   .file-box input[type=file]{color:var(--text);font-size:13px;width:100%;}
   .file-box .status{margin-top:8px;font-size:12px;color:var(--sub);}
@@ -244,7 +244,7 @@
   .progress{font-size:12px;color:var(--sub);margin-top:6px;min-height:16px;}
   #app{display:none;}
 
-  .store-panel{background:var(--panel);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin:22px 0 4px;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
+  .store-panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 16px;margin:22px 0 4px;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
   .store-panel .head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .store-panel .head h3{margin:0;font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--sub);font-weight:700;}
   .store-actions{display:flex;gap:8px;}
@@ -255,7 +255,7 @@
   .chip input{accent-color:var(--accent);cursor:pointer;}
   .chip.active{border-color:var(--accent);background:rgba(91,157,240,.18);color:#cfe4ff;box-shadow:0 0 0 1px rgba(91,157,240,.3), 0 4px 14px rgba(91,157,240,.25);}
 
-  .filter-bar{background:var(--panel);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);border:1px solid var(--border);border-radius:16px;padding:14px 18px;margin:22px 0 12px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
+  .filter-bar{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px 18px;margin:22px 0 12px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;box-shadow:0 8px 28px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.06);}
   .filter-bar .flabel{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text);min-width:90px;}
   .unit-tabs{display:flex;gap:6px;flex-wrap:wrap;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:12px;padding:4px;}
   .unit-tab{background:transparent;border:none;color:var(--sub);padding:8px 14px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;letter-spacing:.3px;transition:all .15s;}
@@ -280,14 +280,14 @@
 
   .kpi-row-label{font-size:11px;color:var(--sub);text-transform:uppercase;letter-spacing:.6px;font-weight:700;margin:16px 2px 8px;}
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
-  .kpi{background:var(--panel);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);border:1px solid var(--border);border-radius:14px;padding:13px 15px;box-shadow:0 6px 20px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06);transition:transform .15s;}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:13px 15px;box-shadow:0 6px 20px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.06);transition:transform .15s;}
   .kpi:hover{transform:translateY(-2px);}
   .kpi .n{font-size:22px;font-weight:700;line-height:1.1;}
   .kpi .l{font-size:10.5px;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-top:6px;}
   .kpi.ok .n{color:var(--ok);} .kpi.bad .n{color:var(--bad);} .kpi.warn .n{color:var(--warn);}
   .kpi.local .n{color:var(--local);} .kpi.accent .n{color:var(--accent);} .kpi.store .n{color:#2fa3a3;}
 
-  .card{background:var(--panel);backdrop-filter:blur(var(--blur)) saturate(160%);-webkit-backdrop-filter:blur(var(--blur)) saturate(160%);border:1px solid var(--border);border-radius:18px;padding:18px;margin:0;box-shadow:0 10px 34px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:18px;padding:18px;margin:0;box-shadow:0 10px 34px rgba(0,0,0,.3), inset 0 1px 0 rgba(255,255,255,.06);}
   .card h2{margin:0 0 4px;font-size:14px;font-weight:700;}
   .card .desc{color:var(--sub);font-size:11.5px;margin:0 0 12px;}
   .legend{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;font-size:11px;color:var(--sub);}
@@ -305,7 +305,7 @@
   select{color-scheme:dark;}
   select option{background:#161b27;color:#eef2f8;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
-  th{text-align:left;color:var(--sub);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(22,27,38,.9);backdrop-filter:blur(10px);}
+  th{text-align:left;color:var(--sub);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(22,27,38,.96);}
   th.sortable{cursor:pointer;user-select:none;}
   th.sortable:hover{color:var(--text);}
   td{padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -508,7 +508,7 @@
     <div class="chart-row1">
       <div class="card">
         <h2>PO by Item</h2>
-        <p class="desc">Approved POs only (Cancelled, Pending and Rejected excluded) — total quantity and value per item and unit, for the selected month(s). Each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page. Click <b>Total PO Qty</b> or <b>Total Value</b> to sort.</p>
+        <p class="desc">Approved POs only (Cancelled, Pending and Rejected excluded) — total quantity and value per item and unit, for the selected month(s). Each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page. Click any total/avg column to sort.</p>
         <div class="toolbar">
           <label style="color:var(--sub);font-size:12px;">Month:</label>
           <div class="ms-dropdown" id="itemMonthDropdown" style="width:150px;margin-bottom:0;">
@@ -520,10 +520,15 @@
             <button class="ms-toggle" id="itemUnitToggle" type="button">—</button>
             <div class="ms-panel" id="itemUnitPanel"></div>
           </div>
+          <label style="color:var(--sub);font-size:12px;">Category:</label>
+          <div class="ms-dropdown" id="itemCategoryDropdown" style="width:150px;margin-bottom:0;">
+            <button class="ms-toggle" id="itemCategoryToggle" type="button">—</button>
+            <div class="ms-panel" id="itemCategoryPanel"></div>
+          </div>
         </div>
         <div class="tbl-wrap" style="max-height:250px;">
           <table>
-            <thead><tr><th>Item</th><th>Unit</th><th>Total PO</th><th class="sortable" id="itemSortQty">Total PO Qty</th><th>Avg PO Qty</th><th class="sortable" id="itemSortValue">Total Value</th><th>Avg PO Value</th></tr></thead>
+            <thead><tr><th>Item</th><th>Unit</th><th class="sortable" id="itemSortPO">Total PO</th><th class="sortable" id="itemSortQty">Total PO Qty</th><th class="sortable" id="itemSortAvgQty">Avg PO Qty</th><th class="sortable" id="itemSortValue">Total Value</th><th class="sortable" id="itemSortAvgValue">Avg PO Value</th></tr></thead>
             <tbody id="itemMonthTbody"></tbody>
           </table>
         </div>
@@ -944,7 +949,9 @@ let itemMonthSelectedKeys = new Set(); // multi-select: monthKey is included if 
 let itemMonthInited = false; // whether a default month selection has been picked for the current file
 let itemUnitSelectedUnits = new Set(); // multi-select: unit is included if present in this Set
 let itemUnitInited = false; // whether a default unit selection (all units) has been picked for the current file
-let itemSortColumn = null; // null (unsorted) | 'qty' | 'value'
+let itemCategorySelectedCategories = new Set(); // multi-select: category is included if present in this Set
+let itemCategoryInited = false; // whether a default category selection (all categories) has been picked for the current file
+let itemSortColumn = null; // null (unsorted) | 'po' | 'qty' | 'avgQty' | 'value' | 'avgValue'
 let itemSortDir = 'desc'; // 'desc' | 'asc' -- meaningless while itemSortColumn is null
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
@@ -982,6 +989,15 @@ function findUnitIdx(idx){
   if(!k) k = keys.find(h=> ['unitname','unitcode'].includes(norm(h)));
   return k ? idx[k] : -1;
 }
+/* Item category, e.g. "Drugs" / "Medical Consumable" -- optional column, not
+   every Purchase Register export includes one. Returns -1 (not '' the item
+   simply has no category) when absent, matching findUnitIdx's convention. */
+function findCategoryIdx(idx){
+  const keys = Object.keys(idx);
+  const norm = h => h.replace(/\s+/g,'').toLowerCase();
+  let k = keys.find(h=> ['itemcategory','category'].includes(norm(h)));
+  return k ? idx[k] : -1;
+}
 /* Strip a leading UTF-8 BOM, which some exports (e.g. Excel "CSV UTF-8") prepend to the file.
    Left in place, it silently attaches itself to the first header cell and breaks matching. */
 function stripBOM(text){
@@ -997,6 +1013,7 @@ function processPO(text, progressEl){
   const idx = {};
   header.forEach((h,i)=> idx[h.trim()] = i);
   const unitIdx = findUnitIdx(idx);
+  const categoryIdx = findCategoryIdx(idx);
   const dateColIdxs = [idx['PO Date'], idx['Approved Date']].filter(i=>i!==undefined);
   const slashConvByUnit = detectUnitSlashConventions(lines, dateColIdxs, unitIdx);
   const seen = new Set();
@@ -1004,6 +1021,7 @@ function processPO(text, progressEl){
   allPoLineItems = [];
   itemMonthInited = false;
   itemUnitInited = false;
+  itemCategoryInited = false;
   const byNo = {};
   let processedLines=0;
   for(let i=1;i<lines.length;i++){
@@ -1026,6 +1044,7 @@ function processPO(text, progressEl){
     allPoLineItems.push({
       poNo, itemCode:(f[idx['Item Code']]||'Unknown Item').trim(),
       itemName:(f[idx['Item Name']]||'').trim(),
+      category: categoryIdx>=0 ? (f[categoryIdx]||'').trim() : '',
       store:(f[idx['Store Name']]||'').trim(), unit:lineUnit, dt:lineDt,
       status, qty, amount:amt
     });
@@ -1827,6 +1846,92 @@ function updateDateInfo(fromKey, toKey){
 /* ---------------- Render ---------------- */
 function kpiCard(n,l,cls){ return '<div class="kpi '+(cls||'')+'"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>'; }
 
+/* PO by Item — Approved POs only: how many POs, total quantity, and
+   total/average value per item and unit across the selected month(s)/
+   unit(s)/category(ies) (each PO line is one item on one PO, before the
+   by-PO-No dedup in processPO collapses that down to a per-PO total — see
+   allPoLineItems there).
+
+   Deliberately its own function, not inlined into render(): render() also
+   redraws every chart and table on the page (each its own linear scan over
+   every PO/GRN row, plus canvas drawing), which is real work on a big file.
+   This card's own filters/sort should only ever recompute this card. */
+function renderItemByCard(){
+  const approvedLines = poLineItems.filter(r=>r.status==='Approved');
+
+  const itemMonthKeys = Array.from(new Set(approvedLines.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
+  if(!itemMonthInited){
+    itemMonthSelectedKeys = itemMonthKeys.length ? new Set([itemMonthKeys[itemMonthKeys.length-1]]) : new Set();
+    itemMonthInited = true;
+  }
+  renderMsDropdown('itemMonthToggle', 'itemMonthPanel', itemMonthKeys, itemMonthSelectedKeys, monthLabel, 'months', function(next){
+    itemMonthSelectedKeys = next; renderItemByCard();
+  });
+
+  const itemUnits = Array.from(new Set(approvedLines.map(r=>r.unit).filter(Boolean))).sort();
+  if(!itemUnitInited){
+    itemUnitSelectedUnits = new Set(itemUnits);
+    itemUnitInited = true;
+  }
+  renderMsDropdown('itemUnitToggle', 'itemUnitPanel', itemUnits, itemUnitSelectedUnits, u=>u, 'units', function(next){
+    itemUnitSelectedUnits = next; renderItemByCard();
+  });
+
+  const itemCategories = Array.from(new Set(approvedLines.map(r=>r.category).filter(Boolean))).sort();
+  if(!itemCategoryInited){
+    itemCategorySelectedCategories = new Set(itemCategories);
+    itemCategoryInited = true;
+  }
+  renderMsDropdown('itemCategoryToggle', 'itemCategoryPanel', itemCategories, itemCategorySelectedCategories, c=>c, 'categories', function(next){
+    itemCategorySelectedCategories = next; renderItemByCard();
+  });
+
+  const itemAgg = {};
+  approvedLines.forEach(r=>{
+    if(!r.dt || !itemMonthSelectedKeys.has(r.dt.monthKey)) return;
+    if(!itemUnitSelectedUnits.has(r.unit)) return;
+    if(itemCategories.length && !(r.category && itemCategorySelectedCategories.has(r.category))) return;
+    const key = r.itemCode+'|'+r.unit;
+    if(!itemAgg[key]) itemAgg[key] = {itemCode:r.itemCode, itemName:r.itemName, unit:r.unit, qty:0, amount:0, lines:0};
+    itemAgg[key].qty += r.qty;
+    itemAgg[key].amount += r.amount;
+    itemAgg[key].lines += 1;
+  });
+  const itemRows = Object.keys(itemAgg).map(key=>{
+    const a = itemAgg[key];
+    return {
+      label: a.itemName || a.itemCode, unit: a.unit,
+      totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0,
+      totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0
+    };
+  });
+  const ITEM_SORT_FIELDS = {po:'totalPO', qty:'totalQty', avgQty:'avgQty', value:'totalValue', avgValue:'avgValue'};
+  if(itemSortColumn && ITEM_SORT_FIELDS[itemSortColumn]){
+    const f = ITEM_SORT_FIELDS[itemSortColumn];
+    itemRows.sort((a,b)=> itemSortDir==='asc' ? a[f]-b[f] : b[f]-a[f]);
+  }
+
+  const sortArrow = (col)=> itemSortColumn===col ? (itemSortDir==='asc' ? ' ▲' : ' ▼') : '';
+  document.getElementById('itemSortPO').textContent = 'Total PO'+sortArrow('po');
+  document.getElementById('itemSortQty').textContent = 'Total PO Qty'+sortArrow('qty');
+  document.getElementById('itemSortAvgQty').textContent = 'Avg PO Qty'+sortArrow('avgQty');
+  document.getElementById('itemSortValue').textContent = 'Total Value'+sortArrow('value');
+  document.getElementById('itemSortAvgValue').textContent = 'Avg PO Value'+sortArrow('avgValue');
+
+  document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
+    '<tr><td>'+r.label+'</td>'+
+    '<td>'+r.unit+'</td>'+
+    '<td>'+r.totalPO.toLocaleString('en-IN')+'</td>'+
+    '<td>'+Math.round(r.totalQty).toLocaleString('en-IN')+'</td>'+
+    '<td>'+r.avgQty.toFixed(1)+'</td>'+
+    '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
+    '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
+  ).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--sub)">No approved PO lines in the selected month(s)/unit(s)/category(ies).</td></tr>';
+  document.getElementById('itemMonthNote').textContent = itemRows.length
+    ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO in the selected month(s)'
+    : '';
+}
+
 function render(){
   const totalPO = poRows.length;
   const approved = poRows.filter(r=>r.status==='Approved').length;
@@ -1935,69 +2040,7 @@ function render(){
   drawGroupedBar(document.getElementById('chartDaily'), usedDays.map(dayLabel), dailySeries,
     {groupWidth: manyMonths?42:52, height: manyMonths?170:220});
 
-  // PO by Item — Approved POs only: how many POs, total quantity, and
-  // total/average value per item and unit across the selected month(s) (each
-  // PO line is one item on one PO, before the by-PO-No dedup above collapses
-  // that down to a per-PO total — see allPoLineItems in processPO).
-  {
-    const approvedLines = poLineItems.filter(r=>r.status==='Approved');
-
-    const itemMonthKeys = Array.from(new Set(approvedLines.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
-    if(!itemMonthInited){
-      itemMonthSelectedKeys = itemMonthKeys.length ? new Set([itemMonthKeys[itemMonthKeys.length-1]]) : new Set();
-      itemMonthInited = true;
-    }
-    renderMsDropdown('itemMonthToggle', 'itemMonthPanel', itemMonthKeys, itemMonthSelectedKeys, monthLabel, 'months', function(next){
-      itemMonthSelectedKeys = next; render();
-    });
-
-    const itemUnits = Array.from(new Set(approvedLines.map(r=>r.unit).filter(Boolean))).sort();
-    if(!itemUnitInited){
-      itemUnitSelectedUnits = new Set(itemUnits);
-      itemUnitInited = true;
-    }
-    renderMsDropdown('itemUnitToggle', 'itemUnitPanel', itemUnits, itemUnitSelectedUnits, u=>u, 'units', function(next){
-      itemUnitSelectedUnits = next; render();
-    });
-
-    const itemAgg = {};
-    approvedLines.forEach(r=>{
-      if(!r.dt || !itemMonthSelectedKeys.has(r.dt.monthKey)) return;
-      if(!itemUnitSelectedUnits.has(r.unit)) return;
-      const key = r.itemCode+'|'+r.unit;
-      if(!itemAgg[key]) itemAgg[key] = {itemCode:r.itemCode, itemName:r.itemName, unit:r.unit, qty:0, amount:0, lines:0};
-      itemAgg[key].qty += r.qty;
-      itemAgg[key].amount += r.amount;
-      itemAgg[key].lines += 1;
-    });
-    const itemRows = Object.keys(itemAgg).map(key=>{
-      const a = itemAgg[key];
-      return {
-        label: a.itemName || a.itemCode, unit: a.unit,
-        totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0,
-        totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0
-      };
-    });
-    if(itemSortColumn==='qty') itemRows.sort((a,b)=> itemSortDir==='asc' ? a.totalQty-b.totalQty : b.totalQty-a.totalQty);
-    else if(itemSortColumn==='value') itemRows.sort((a,b)=> itemSortDir==='asc' ? a.totalValue-b.totalValue : b.totalValue-a.totalValue);
-
-    const sortArrow = (col)=> itemSortColumn===col ? (itemSortDir==='asc' ? ' ▲' : ' ▼') : '';
-    document.getElementById('itemSortQty').textContent = 'Total PO Qty'+sortArrow('qty');
-    document.getElementById('itemSortValue').textContent = 'Total Value'+sortArrow('value');
-
-    document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
-      '<tr><td>'+r.label+'</td>'+
-      '<td>'+r.unit+'</td>'+
-      '<td>'+r.totalPO.toLocaleString('en-IN')+'</td>'+
-      '<td>'+Math.round(r.totalQty).toLocaleString('en-IN')+'</td>'+
-      '<td>'+r.avgQty.toFixed(1)+'</td>'+
-      '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
-      '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
-    ).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--sub)">No approved PO lines in the selected month(s).</td></tr>';
-    document.getElementById('itemMonthNote').textContent = itemRows.length
-      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO in the selected month(s)'
-      : '';
-  }
+  renderItemByCard();
 
   // PO Approved — By Person (per month), sorted highest to lowest, fixed 6-category viewport.
   const approverTotal = (p)=> Object.values(approvedByMonthMap[p]).reduce((a,b)=>a+b,0);
@@ -2294,6 +2337,7 @@ function wireMsToggle(toggleId, panelId){
 }
 wireMsToggle('itemMonthToggle', 'itemMonthPanel');
 wireMsToggle('itemUnitToggle', 'itemUnitPanel');
+wireMsToggle('itemCategoryToggle', 'itemCategoryPanel');
 function renderMsDropdown(toggleId, panelId, allKeys, selectedSet, labelFn, noun, onChange){
   const toggle = document.getElementById(toggleId);
   const panel = document.getElementById(panelId);
@@ -2308,13 +2352,16 @@ function renderMsDropdown(toggleId, panelId, allKeys, selectedSet, labelFn, noun
     });
   });
 }
+document.getElementById('itemSortPO').addEventListener('click', ()=> cycleItemSort('po'));
 document.getElementById('itemSortQty').addEventListener('click', ()=> cycleItemSort('qty'));
+document.getElementById('itemSortAvgQty').addEventListener('click', ()=> cycleItemSort('avgQty'));
 document.getElementById('itemSortValue').addEventListener('click', ()=> cycleItemSort('value'));
+document.getElementById('itemSortAvgValue').addEventListener('click', ()=> cycleItemSort('avgValue'));
 function cycleItemSort(col){
   if(itemSortColumn !== col){ itemSortColumn = col; itemSortDir = 'desc'; }
   else if(itemSortDir === 'desc'){ itemSortDir = 'asc'; }
   else { itemSortColumn = null; itemSortDir = 'desc'; }
-  render();
+  renderItemByCard();
 }
 document.getElementById('localUnitMetric').addEventListener('change', (e)=>{
   localUnitMetric = e.target.value;

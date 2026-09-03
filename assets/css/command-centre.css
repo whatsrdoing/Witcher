@@ -601,12 +601,27 @@ a{color:var(--brand-soft); text-decoration:none;}
   border-bottom:1px solid var(--wire); background:color-mix(in srgb, var(--bg) 55%, transparent);
   backdrop-filter:blur(var(--blur)) saturate(170%); -webkit-backdrop-filter:blur(var(--blur)) saturate(170%);
   position:relative; z-index:20; overflow:hidden;
-  transition:height .26s var(--ease), border-color .26s var(--ease);
+  opacity:1; transform:translateY(0);
+  transition:height 0s linear 0s, opacity .16s var(--ease), transform .16s var(--ease), border-color .16s var(--ease);
 }
 /* Once a dashboard has built cleanly with nothing left to fix, this bar is
    allowed to tuck itself away while the page is scrolled -- .collapsed is
-   only ever added while .autohide is present, see app.js. */
-.dash-bar.collapsed{ height:0; border-bottom-color:transparent; }
+   only ever added while .autohide is present, see app.js.
+
+   height itself never animates -- it snaps instantly between 0 and
+   var(--subbar-h) -- because animating height on an element with
+   backdrop-filter forces the browser to recompute the blurred backdrop at
+   every intermediate height on every frame, which is what made this bar
+   visibly stutter while scrolling. The visible motion is opacity+transform
+   instead (compositor-only, cheap). The two rules below give height a
+   different delay per direction so the snap happens at the right end of
+   that fade: collapsing keeps full height until the fade-out finishes (a
+   0-height blurred bar has nothing left to hide), expanding restores full
+   height immediately so the fade-in has something to fade into. */
+.dash-bar.collapsed{
+  height:0; opacity:0; transform:translateY(-8px); border-bottom-color:transparent; pointer-events:none;
+  transition:height 0s linear .16s, opacity .16s var(--ease), transform .16s var(--ease), border-color .16s var(--ease);
+}
 .dash-bar .title{display:flex; align-items:center; gap:10px; min-width:0; flex:1 1 auto;}
 .dash-bar .title .card-ico{width:30px;height:30px;border-radius:9px;}
 .dash-bar .title .card-ico .icon{width:16px;height:16px;}

@@ -306,6 +306,8 @@
   select option{background:#161b27;color:#eef2f8;}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   th{text-align:left;color:var(--sub);font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--border);position:sticky;top:0;background:rgba(22,27,38,.9);backdrop-filter:blur(10px);}
+  th.sortable{cursor:pointer;user-select:none;}
+  th.sortable:hover{color:var(--text);}
   td{padding:7px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   tr:hover td{background:rgba(255,255,255,.05);}
   .tbl-wrap{max-height:420px;overflow:auto;border:1px solid var(--border);border-radius:12px;}
@@ -506,21 +508,22 @@
     <div class="chart-row1">
       <div class="card">
         <h2>PO by Item</h2>
-        <p class="desc">Approved POs only (Cancelled, Pending and Rejected excluded) — total quantity and value per item and unit, for one month at a time. Each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page.</p>
+        <p class="desc">Approved POs only (Cancelled, Pending and Rejected excluded) — total quantity and value per item and unit, for the selected month(s). Each PO line (one item on one PO) counted before same-PO-No lines get summed together elsewhere on this page. Click <b>Total PO Qty</b> or <b>Total Value</b> to sort.</p>
         <div class="toolbar">
           <label style="color:var(--sub);font-size:12px;">Month:</label>
-          <select id="itemMonthSelect"></select>
-          <label style="color:var(--sub);font-size:12px;margin-left:12px;">Unit:</label>
-          <select id="itemUnitFilter"></select>
-          <label style="color:var(--sub);font-size:12px;margin-left:12px;">Sort by Qty:</label>
-          <select id="itemSortOrder">
-            <option value="desc" selected>High to Low</option>
-            <option value="asc">Low to High</option>
-          </select>
+          <div class="ms-dropdown" id="itemMonthDropdown" style="width:150px;margin-bottom:0;">
+            <button class="ms-toggle" id="itemMonthToggle" type="button">—</button>
+            <div class="ms-panel" id="itemMonthPanel"></div>
+          </div>
+          <label style="color:var(--sub);font-size:12px;">Unit:</label>
+          <div class="ms-dropdown" id="itemUnitDropdown" style="width:150px;margin-bottom:0;">
+            <button class="ms-toggle" id="itemUnitToggle" type="button">—</button>
+            <div class="ms-panel" id="itemUnitPanel"></div>
+          </div>
         </div>
         <div class="tbl-wrap" style="max-height:250px;">
           <table>
-            <thead><tr><th>Item</th><th>Unit</th><th>Total PO</th><th>Total PO Qty</th><th>Avg PO Qty</th><th>Total Value</th><th>Avg PO Value</th></tr></thead>
+            <thead><tr><th>Item</th><th>Unit</th><th>Total PO</th><th class="sortable" id="itemSortQty">Total PO Qty</th><th>Avg PO Qty</th><th class="sortable" id="itemSortValue">Total Value</th><th>Avg PO Value</th></tr></thead>
             <tbody id="itemMonthTbody"></tbody>
           </table>
         </div>
@@ -937,9 +940,12 @@ let allLocalItems = []; // per-line-item rows for local purchase GRN lines
 let allPoLineItems = []; // per-line-item rows straight from the PO register, before the by-PO-No dedup below collapses them
 let poRows = [], grnRows = [], localItems = [];
 let poLineItems = [];
-let itemMonthSelectedKey = null; // 'YYYY-MM', null = most recent month with data
-let itemSortOrder = 'desc'; // 'desc' = high to low, 'asc' = low to high, by Total PO Qty
-let itemUnitFilterSelected = null; // unit name, null = all units
+let itemMonthSelectedKeys = new Set(); // multi-select: monthKey is included if present in this Set
+let itemMonthInited = false; // whether a default month selection has been picked for the current file
+let itemUnitSelectedUnits = new Set(); // multi-select: unit is included if present in this Set
+let itemUnitInited = false; // whether a default unit selection (all units) has been picked for the current file
+let itemSortColumn = null; // null (unsorted) | 'qty' | 'value'
+let itemSortDir = 'desc'; // 'desc' | 'asc' -- meaningless while itemSortColumn is null
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
 let allStores = [];
@@ -996,6 +1002,8 @@ function processPO(text, progressEl){
   const seen = new Set();
   allPoRows = [];
   allPoLineItems = [];
+  itemMonthInited = false;
+  itemUnitInited = false;
   const byNo = {};
   let processedLines=0;
   for(let i=1;i<lines.length;i++){
@@ -1927,35 +1935,35 @@ function render(){
   drawGroupedBar(document.getElementById('chartDaily'), usedDays.map(dayLabel), dailySeries,
     {groupWidth: manyMonths?42:52, height: manyMonths?170:220});
 
-  // PO by Item — one month at a time, Approved POs only: how many POs, total
-  // quantity, and total/average value per item and unit that month (each PO
-  // line is one item on one PO, before the by-PO-No dedup above collapses
+  // PO by Item — Approved POs only: how many POs, total quantity, and
+  // total/average value per item and unit across the selected month(s) (each
+  // PO line is one item on one PO, before the by-PO-No dedup above collapses
   // that down to a per-PO total — see allPoLineItems in processPO).
   {
     const approvedLines = poLineItems.filter(r=>r.status==='Approved');
 
     const itemMonthKeys = Array.from(new Set(approvedLines.map(r=>r.dt && r.dt.monthKey).filter(Boolean))).sort();
-    const selEl = document.getElementById('itemMonthSelect');
-    if(itemMonthKeys.length){
-      if(!itemMonthSelectedKey || itemMonthKeys.indexOf(itemMonthSelectedKey)===-1) itemMonthSelectedKey = itemMonthKeys[itemMonthKeys.length-1];
-      selEl.disabled = false;
-      selEl.innerHTML = itemMonthKeys.map(mk=>'<option value="'+mk+'"'+(mk===itemMonthSelectedKey?' selected':'')+'>'+monthLabel(mk)+'</option>').join('');
-    } else {
-      itemMonthSelectedKey = null;
-      selEl.disabled = true;
-      selEl.innerHTML = '<option value="">No dated PO rows</option>';
+    if(!itemMonthInited){
+      itemMonthSelectedKeys = itemMonthKeys.length ? new Set([itemMonthKeys[itemMonthKeys.length-1]]) : new Set();
+      itemMonthInited = true;
     }
+    renderMsDropdown('itemMonthToggle', 'itemMonthPanel', itemMonthKeys, itemMonthSelectedKeys, monthLabel, 'months', function(next){
+      itemMonthSelectedKeys = next; render();
+    });
 
     const itemUnits = Array.from(new Set(approvedLines.map(r=>r.unit).filter(Boolean))).sort();
-    const unitSelEl = document.getElementById('itemUnitFilter');
-    if(itemUnitFilterSelected && itemUnits.indexOf(itemUnitFilterSelected)===-1) itemUnitFilterSelected = null;
-    unitSelEl.innerHTML = '<option value=""'+(itemUnitFilterSelected?'':' selected')+'>All Units</option>'+
-      itemUnits.map(u=>'<option value="'+u+'"'+(u===itemUnitFilterSelected?' selected':'')+'>'+u+'</option>').join('');
+    if(!itemUnitInited){
+      itemUnitSelectedUnits = new Set(itemUnits);
+      itemUnitInited = true;
+    }
+    renderMsDropdown('itemUnitToggle', 'itemUnitPanel', itemUnits, itemUnitSelectedUnits, u=>u, 'units', function(next){
+      itemUnitSelectedUnits = next; render();
+    });
 
     const itemAgg = {};
     approvedLines.forEach(r=>{
-      if(!r.dt || r.dt.monthKey !== itemMonthSelectedKey) return;
-      if(itemUnitFilterSelected && r.unit !== itemUnitFilterSelected) return;
+      if(!r.dt || !itemMonthSelectedKeys.has(r.dt.monthKey)) return;
+      if(!itemUnitSelectedUnits.has(r.unit)) return;
       const key = r.itemCode+'|'+r.unit;
       if(!itemAgg[key]) itemAgg[key] = {itemCode:r.itemCode, itemName:r.itemName, unit:r.unit, qty:0, amount:0, lines:0};
       itemAgg[key].qty += r.qty;
@@ -1969,7 +1977,13 @@ function render(){
         totalPO:a.lines, totalQty:a.qty, avgQty: a.lines?a.qty/a.lines:0,
         totalValue:a.amount, avgValue: a.lines?a.amount/a.lines:0
       };
-    }).sort((a,b)=> itemSortOrder==='asc' ? a.totalQty-b.totalQty : b.totalQty-a.totalQty);
+    });
+    if(itemSortColumn==='qty') itemRows.sort((a,b)=> itemSortDir==='asc' ? a.totalQty-b.totalQty : b.totalQty-a.totalQty);
+    else if(itemSortColumn==='value') itemRows.sort((a,b)=> itemSortDir==='asc' ? a.totalValue-b.totalValue : b.totalValue-a.totalValue);
+
+    const sortArrow = (col)=> itemSortColumn===col ? (itemSortDir==='asc' ? ' ▲' : ' ▼') : '';
+    document.getElementById('itemSortQty').textContent = 'Total PO Qty'+sortArrow('qty');
+    document.getElementById('itemSortValue').textContent = 'Total Value'+sortArrow('value');
 
     document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
       '<tr><td>'+r.label+'</td>'+
@@ -1979,9 +1993,9 @@ function render(){
       '<td>'+r.avgQty.toFixed(1)+'</td>'+
       '<td>₹'+Math.round(r.totalValue).toLocaleString('en-IN')+'</td>'+
       '<td>₹'+Math.round(r.avgValue).toLocaleString('en-IN')+'</td></tr>'
-    ).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--sub)">No approved PO lines this month.</td></tr>';
+    ).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--sub)">No approved PO lines in the selected month(s).</td></tr>';
     document.getElementById('itemMonthNote').textContent = itemRows.length
-      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO this month'
+      ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO in the selected month(s)'
       : '';
   }
 
@@ -2265,18 +2279,43 @@ document.getElementById('processBtn').addEventListener('click', async ()=>{
   btn.disabled = false;
 });
 document.getElementById('dayRange').addEventListener('change', render);
-document.getElementById('itemMonthSelect').addEventListener('change', function(){
-  itemMonthSelectedKey = this.value || null;
+
+/* PO by Item -- Month/Unit multi-select dropdowns (reuses the same
+   .ms-dropdown/.ms-toggle/.ms-panel pattern as the Local Purchase reason
+   filter above, since their options are data-dependent the panel contents
+   get rebuilt on every render() rather than written once in markup). */
+function wireMsToggle(toggleId, panelId){
+  const toggle = document.getElementById(toggleId);
+  const panel = document.getElementById(panelId);
+  toggle.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.toggle('open'); });
+  document.addEventListener('click', (e)=>{
+    if(!panel.contains(e.target) && e.target!==toggle) panel.classList.remove('open');
+  });
+}
+wireMsToggle('itemMonthToggle', 'itemMonthPanel');
+wireMsToggle('itemUnitToggle', 'itemUnitPanel');
+function renderMsDropdown(toggleId, panelId, allKeys, selectedSet, labelFn, noun, onChange){
+  const toggle = document.getElementById(toggleId);
+  const panel = document.getElementById(panelId);
+  panel.innerHTML = allKeys.length ? allKeys.map(k=>
+    '<label class="ms-option"><input type="checkbox" value="'+k+'"'+(selectedSet.has(k)?' checked':'')+'>'+labelFn(k)+'</label>'
+  ).join('') : '<div class="ms-option" style="opacity:.6;cursor:default;">No data</div>';
+  const n = selectedSet.size, total = allKeys.length;
+  toggle.textContent = (total===0 ? 'No '+noun : n===total ? 'All '+total+' '+noun : n===0 ? 'None selected' : n+' of '+total+' selected') + ' ▾';
+  panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      onChange(new Set(Array.from(panel.querySelectorAll('input[type=checkbox]:checked')).map(c=>c.value)));
+    });
+  });
+}
+document.getElementById('itemSortQty').addEventListener('click', ()=> cycleItemSort('qty'));
+document.getElementById('itemSortValue').addEventListener('click', ()=> cycleItemSort('value'));
+function cycleItemSort(col){
+  if(itemSortColumn !== col){ itemSortColumn = col; itemSortDir = 'desc'; }
+  else if(itemSortDir === 'desc'){ itemSortDir = 'asc'; }
+  else { itemSortColumn = null; itemSortDir = 'desc'; }
   render();
-});
-document.getElementById('itemUnitFilter').addEventListener('change', function(){
-  itemUnitFilterSelected = this.value || null;
-  render();
-});
-document.getElementById('itemSortOrder').addEventListener('change', function(){
-  itemSortOrder = this.value;
-  render();
-});
+}
 document.getElementById('localUnitMetric').addEventListener('change', (e)=>{
   localUnitMetric = e.target.value;
   render();
@@ -2474,14 +2513,23 @@ document.addEventListener('parasthemechange', () => { if(document.getElementById
   // page is not embedded (opened on its own), since there is no parent to
   // tell and nothing here changes how the page behaves either way.
   if (w.parent !== w) {
-    var lastY = 0, dir = 'up', ticking = false;
+    // A wide dead zone -- small back-and-forth wobble (trackpads and touch
+    // scrolling rarely move in one perfectly monotonic direction) used to
+    // flip `dir` on almost every frame, which made the parent's toolbar
+    // toggle its collapse animation dozens of times a second during a single
+    // scroll gesture. Only sending on an actual change (not every frame)
+    // cuts that further, since the parent only re-renders on a real flip.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false;
     function sendScroll() {
       var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
       if (y <= 0) dir = 'up';
-      else if (y > lastY + 4) dir = 'down';
-      else if (y < lastY - 4) dir = 'up';
+      else if (y > lastY + 24) dir = 'down';
+      else if (y < lastY - 24) dir = 'up';
       lastY = y;
-      try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      if (dir !== sentDir) {
+        sentDir = dir;
+        try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      }
       ticking = false;
     }
     w.addEventListener('scroll', function () {

@@ -2559,14 +2559,23 @@ for(var p=0,v=0;p!==c.length;++p)if((v=c.charCodeAt(p))===n||v===i||v===34||f.fo
   // page is not embedded (opened on its own), since there is no parent to
   // tell and nothing here changes how the page behaves either way.
   if (w.parent !== w) {
-    var lastY = 0, dir = 'up', ticking = false;
+    // A wide dead zone -- small back-and-forth wobble (trackpads and touch
+    // scrolling rarely move in one perfectly monotonic direction) used to
+    // flip `dir` on almost every frame, which made the parent's toolbar
+    // toggle its collapse animation dozens of times a second during a single
+    // scroll gesture. Only sending on an actual change (not every frame)
+    // cuts that further, since the parent only re-renders on a real flip.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false;
     function sendScroll() {
       var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
       if (y <= 0) dir = 'up';
-      else if (y > lastY + 4) dir = 'down';
-      else if (y < lastY - 4) dir = 'up';
+      else if (y > lastY + 24) dir = 'down';
+      else if (y < lastY - 24) dir = 'up';
       lastY = y;
-      try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      if (dir !== sentDir) {
+        sentDir = dir;
+        try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      }
       ticking = false;
     }
     w.addEventListener('scroll', function () {

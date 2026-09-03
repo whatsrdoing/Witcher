@@ -533,6 +533,7 @@
           </table>
         </div>
         <div class="note" id="itemMonthNote"></div>
+        <div class="pager" id="itemPager"></div>
       </div>
     </div>
 
@@ -953,6 +954,7 @@ let itemCategorySelectedCategories = new Set(); // multi-select: category is inc
 let itemCategoryInited = false; // whether a default category selection (all categories) has been picked for the current file
 let itemSortColumn = null; // null (unsorted) | 'po' | 'qty' | 'avgQty' | 'value' | 'avgValue'
 let itemSortDir = 'desc'; // 'desc' | 'asc' -- meaningless while itemSortColumn is null
+let itemPage = 1; // real files can have thousands of item+unit rows here -- paginated like the PO/GRN detail tables (PAGE_SIZE)
 let dayMap = {}, monthMap = {}, localDayMap = {};
 let poWithGRN = new Set();
 let allStores = [];
@@ -1865,7 +1867,7 @@ function renderItemByCard(){
     itemMonthInited = true;
   }
   renderMsDropdown('itemMonthToggle', 'itemMonthPanel', itemMonthKeys, itemMonthSelectedKeys, monthLabel, 'months', function(next){
-    itemMonthSelectedKeys = next; renderItemByCard();
+    itemMonthSelectedKeys = next; itemPage = 1; renderItemByCard();
   });
 
   const itemUnits = Array.from(new Set(approvedLines.map(r=>r.unit).filter(Boolean))).sort();
@@ -1874,7 +1876,7 @@ function renderItemByCard(){
     itemUnitInited = true;
   }
   renderMsDropdown('itemUnitToggle', 'itemUnitPanel', itemUnits, itemUnitSelectedUnits, u=>u, 'units', function(next){
-    itemUnitSelectedUnits = next; renderItemByCard();
+    itemUnitSelectedUnits = next; itemPage = 1; renderItemByCard();
   });
 
   const itemCategories = Array.from(new Set(approvedLines.map(r=>r.category).filter(Boolean))).sort();
@@ -1883,7 +1885,7 @@ function renderItemByCard(){
     itemCategoryInited = true;
   }
   renderMsDropdown('itemCategoryToggle', 'itemCategoryPanel', itemCategories, itemCategorySelectedCategories, c=>c, 'categories', function(next){
-    itemCategorySelectedCategories = next; renderItemByCard();
+    itemCategorySelectedCategories = next; itemPage = 1; renderItemByCard();
   });
 
   const itemAgg = {};
@@ -1918,7 +1920,17 @@ function renderItemByCard(){
   document.getElementById('itemSortValue').textContent = 'Total Value'+sortArrow('value');
   document.getElementById('itemSortAvgValue').textContent = 'Avg PO Value'+sortArrow('avgValue');
 
-  document.getElementById('itemMonthTbody').innerHTML = itemRows.length ? itemRows.map(r=>
+  // Paginated like the PO/GRN detail tables below -- a real Purchase Register
+  // can group into thousands of item+unit rows here, and rendering all of
+  // them into the DOM at once (rather than just aggregating them, which is
+  // cheap) was the real cause of a multi-second stall on every filter/sort
+  // change at that scale.
+  const totalPages = Math.max(1, Math.ceil(itemRows.length/PAGE_SIZE));
+  if(itemPage>totalPages) itemPage = totalPages;
+  const pageStart = (itemPage-1)*PAGE_SIZE;
+  const pageRows = itemRows.slice(pageStart, pageStart+PAGE_SIZE);
+
+  document.getElementById('itemMonthTbody').innerHTML = pageRows.length ? pageRows.map(r=>
     '<tr><td>'+r.label+'</td>'+
     '<td>'+r.unit+'</td>'+
     '<td>'+r.totalPO.toLocaleString('en-IN')+'</td>'+
@@ -1930,6 +1942,14 @@ function renderItemByCard(){
   document.getElementById('itemMonthNote').textContent = itemRows.length
     ? itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+' with an approved PO in the selected month(s)'
     : '';
+  document.getElementById('itemPager').innerHTML = itemRows.length ?
+    '<button id="itemPrev" '+(itemPage<=1?'disabled':'')+'>Prev</button>'+
+    '<span>Page '+itemPage+' of '+totalPages+' ('+itemRows.length.toLocaleString('en-IN')+' item'+(itemRows.length===1?'':'s')+')</span>'+
+    '<button id="itemNext" '+(itemPage>=totalPages?'disabled':'')+'>Next</button>' : '';
+  const itemPrevBtn = document.getElementById('itemPrev');
+  if(itemPrevBtn) itemPrevBtn.onclick = ()=>{ itemPage--; renderItemByCard(); };
+  const itemNextBtn = document.getElementById('itemNext');
+  if(itemNextBtn) itemNextBtn.onclick = ()=>{ itemPage++; renderItemByCard(); };
 }
 
 function render(){
@@ -2332,7 +2352,16 @@ function wireMsToggle(toggleId, panelId){
   const panel = document.getElementById(panelId);
   toggle.addEventListener('click', (e)=>{ e.stopPropagation(); panel.classList.toggle('open'); });
   document.addEventListener('click', (e)=>{
-    if(!panel.contains(e.target) && e.target!==toggle) panel.classList.remove('open');
+    // Checking a box (or Select All/Clear All) inside the panel triggers
+    // renderMsDropdown(), which replaces the panel's contents -- including
+    // the very element that was just clicked -- before this bubbled-up
+    // listener runs. panel.contains(e.target) would then see that detached
+    // element as "outside" the panel and close it on every interaction.
+    // composedPath() is captured at dispatch time, before any of that
+    // rebuild happens, so it still reflects where the click actually
+    // started even after the DOM under it has since changed.
+    const path = e.composedPath ? e.composedPath() : [e.target];
+    if(path.indexOf(panel)===-1 && path.indexOf(toggle)===-1) panel.classList.remove('open');
   });
 }
 wireMsToggle('itemMonthToggle', 'itemMonthPanel');
@@ -2341,9 +2370,12 @@ wireMsToggle('itemCategoryToggle', 'itemCategoryPanel');
 function renderMsDropdown(toggleId, panelId, allKeys, selectedSet, labelFn, noun, onChange){
   const toggle = document.getElementById(toggleId);
   const panel = document.getElementById(panelId);
-  panel.innerHTML = allKeys.length ? allKeys.map(k=>
+  const actionsHtml = allKeys.length ? '<div class="store-actions" style="margin-bottom:8px;">'+
+    '<button type="button" class="ms-select-all">Select All</button>'+
+    '<button type="button" class="ms-clear-all">Clear All</button></div>' : '';
+  panel.innerHTML = actionsHtml + (allKeys.length ? allKeys.map(k=>
     '<label class="ms-option"><input type="checkbox" value="'+k+'"'+(selectedSet.has(k)?' checked':'')+'>'+labelFn(k)+'</label>'
-  ).join('') : '<div class="ms-option" style="opacity:.6;cursor:default;">No data</div>';
+  ).join('') : '<div class="ms-option" style="opacity:.6;cursor:default;">No data</div>');
   const n = selectedSet.size, total = allKeys.length;
   toggle.textContent = (total===0 ? 'No '+noun : n===total ? 'All '+total+' '+noun : n===0 ? 'None selected' : n+' of '+total+' selected') + ' ▾';
   panel.querySelectorAll('input[type=checkbox]').forEach(cb=>{
@@ -2351,6 +2383,10 @@ function renderMsDropdown(toggleId, panelId, allKeys, selectedSet, labelFn, noun
       onChange(new Set(Array.from(panel.querySelectorAll('input[type=checkbox]:checked')).map(c=>c.value)));
     });
   });
+  const selectAllBtn = panel.querySelector('.ms-select-all');
+  if(selectAllBtn) selectAllBtn.addEventListener('click', ()=> onChange(new Set(allKeys)));
+  const clearAllBtn = panel.querySelector('.ms-clear-all');
+  if(clearAllBtn) clearAllBtn.addEventListener('click', ()=> onChange(new Set()));
 }
 document.getElementById('itemSortPO').addEventListener('click', ()=> cycleItemSort('po'));
 document.getElementById('itemSortQty').addEventListener('click', ()=> cycleItemSort('qty'));
@@ -2361,6 +2397,7 @@ function cycleItemSort(col){
   if(itemSortColumn !== col){ itemSortColumn = col; itemSortDir = 'desc'; }
   else if(itemSortDir === 'desc'){ itemSortDir = 'asc'; }
   else { itemSortColumn = null; itemSortDir = 'desc'; }
+  itemPage = 1;
   renderItemByCard();
 }
 document.getElementById('localUnitMetric').addEventListener('change', (e)=>{
@@ -2566,15 +2603,26 @@ document.addEventListener('parasthemechange', () => { if(document.getElementById
     // toggle its collapse animation dozens of times a second during a single
     // scroll gesture. Only sending on an actual change (not every frame)
     // cuts that further, since the parent only re-renders on a real flip.
-    var lastY = 0, dir = 'up', sentDir = null, ticking = false;
+    // Also debounced in time, not just in distance: a real scroll gesture
+    // (trackpad inertia especially) can cross the 24px dead zone several
+    // times in quick succession even while "generally" going one way, and
+    // each crossing used to restart the parent's collapse/expand animation
+    // from scratch -- which is what made the bar look like it was stuck
+    // fading in and out instead of settling. Capping actual sends to once
+    // per MIN_INTERVAL bounds how often that animation can restart, no
+    // matter how choppy the underlying scroll events are.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false, lastSentAt = 0;
+    var MIN_INTERVAL = 220;
     function sendScroll() {
       var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
       if (y <= 0) dir = 'up';
       else if (y > lastY + 24) dir = 'down';
       else if (y < lastY - 24) dir = 'up';
       lastY = y;
-      if (dir !== sentDir) {
+      var now = w.performance && w.performance.now ? w.performance.now() : Date.now();
+      if (dir !== sentDir && (now - lastSentAt) >= MIN_INTERVAL) {
         sentDir = dir;
+        lastSentAt = now;
         try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
       }
       ticking = false;

@@ -2491,15 +2491,26 @@ document.getElementById('buildBtn').addEventListener('click', () => {
     // toggle its collapse animation dozens of times a second during a single
     // scroll gesture. Only sending on an actual change (not every frame)
     // cuts that further, since the parent only re-renders on a real flip.
-    var lastY = 0, dir = 'up', sentDir = null, ticking = false;
+    // Also debounced in time, not just in distance: a real scroll gesture
+    // (trackpad inertia especially) can cross the 24px dead zone several
+    // times in quick succession even while "generally" going one way, and
+    // each crossing used to restart the parent's collapse/expand animation
+    // from scratch -- which is what made the bar look like it was stuck
+    // fading in and out instead of settling. Capping actual sends to once
+    // per MIN_INTERVAL bounds how often that animation can restart, no
+    // matter how choppy the underlying scroll events are.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false, lastSentAt = 0;
+    var MIN_INTERVAL = 220;
     function sendScroll() {
       var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
       if (y <= 0) dir = 'up';
       else if (y > lastY + 24) dir = 'down';
       else if (y < lastY - 24) dir = 'up';
       lastY = y;
-      if (dir !== sentDir) {
+      var now = w.performance && w.performance.now ? w.performance.now() : Date.now();
+      if (dir !== sentDir && (now - lastSentAt) >= MIN_INTERVAL) {
         sentDir = dir;
+        lastSentAt = now;
         try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
       }
       ticking = false;

@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><!-- paras-command-centre-idle-timeout -->
+<script>
+/* Idle timeout -- "Are you there?"
+ *
+ * After 10 minutes with no activity anywhere in the app -- the hub itself,
+ * or inside any open dashboard -- a prompt appears. "Yes" dismisses it and
+ * the clock starts over; "No", or 30 seconds of silence after the prompt
+ * appears, signs out.
+ *
+ * Dashboards load inside iframes on the hub page (see app.js's
+ * openDashboard), which are separate browsing contexts: mouse/keyboard
+ * activity inside one does not reach the parent page's own listeners. This
+ * one script plays two different roles depending on where it ends up
+ * running, so the same file can be included everywhere (the hub directly,
+ * every dashboard via sync.py's ensure_idle_timeout) without needing two
+ * versions kept in sync:
+ *
+ *   - Inside a dashboard iframe: just relays "something happened" up to
+ *     the parent page, throttled -- it does not own a clock or a prompt of
+ *     its own, since a dashboard should not show its own competing dialog.
+ *   - On the hub page (the top frame): owns the actual 10-minute clock,
+ *     listens for its own activity plus relayed messages from every open
+ *     dashboard, and is the one place that shows the prompt and signs out.
+ */
+(function (w, d) {
+  // Overridable only for testing (set before this script runs) -- real
+  // usage always gets the 10-minute/30-second defaults.
+  var IDLE_MS = w.__PARAS_IDLE_MS_OVERRIDE__ || 10 * 60 * 1000;
+  var PROMPT_SECONDS = w.__PARAS_IDLE_PROMPT_SECONDS_OVERRIDE__ || 30;
+  var ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'wheel'];
+
+  if (w !== w.top) {
+    var lastSent = 0;
+    function relay() {
+      var now = Date.now();
+      if (now - lastSent < 2000) return;   // no need to message the parent on every pixel of mouse movement
+      lastSent = now;
+      try { w.parent.postMessage({ parasIdle: 'activity' }, '*'); } catch (e) {}
+    }
+    ACTIVITY_EVENTS.forEach(function (ev) { d.addEventListener(ev, relay, { passive: true, capture: true }); });
+    return;
+  }
+
+  var idleTimer = null, promptTimer = null, modal = null;
+
+  function resetIdle() {
+    if (modal) return;   // only an explicit Yes/No or the timeout resolves an open prompt -- background activity elsewhere should not silently dismiss it
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(showPrompt, IDLE_MS);
+  }
+
+  ACTIVITY_EVENTS.forEach(function (ev) { d.addEventListener(ev, resetIdle, { passive: true, capture: true }); });
+  w.addEventListener('message', function (e) {
+    if (e.data && e.data.parasIdle === 'activity') resetIdle();
+  });
+
+  function buildModal() {
+    var wrap = d.createElement('div');
+    wrap.id = 'idleCheck';
+    wrap.setAttribute('style',
+      'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(8,12,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);');
+    wrap.innerHTML =
+      '<div style="background:#141b2b;color:#eef2f8;' +
+      'border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:26px 28px;max-width:340px;' +
+      'text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5);' +
+      'font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +
+      '<div style="font-size:17px;font-weight:700;margin-bottom:8px;">Are you there?</div>' +
+      '<div style="opacity:.75;margin-bottom:18px;">Signing out in <span id="idleCheckSecs">' + PROMPT_SECONDS +
+      '</span>s if there is no answer.</div>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+      '<button id="idleCheckNo" type="button" style="padding:9px 18px;border-radius:10px;' +
+      'border:1px solid rgba(255,255,255,.2);background:transparent;color:inherit;font:inherit;cursor:pointer;">No</button>' +
+      '<button id="idleCheckYes" type="button" style="padding:9px 18px;border-radius:10px;border:none;' +
+      'background:#2f6fed;color:#fff;font:inherit;font-weight:600;cursor:pointer;">Yes, I\'m here</button>' +
+      '</div></div>';
+    return wrap;
+  }
+
+  function showPrompt() {
+    if (modal) return;
+    modal = buildModal();
+    d.body.appendChild(modal);
+    var secs = PROMPT_SECONDS;
+    var secsEl = modal.querySelector('#idleCheckSecs');
+    modal.querySelector('#idleCheckYes').addEventListener('click', dismissPrompt);
+    modal.querySelector('#idleCheckNo').addEventListener('click', signOut);
+    promptTimer = setInterval(function () {
+      secs -= 1;
+      if (secsEl) secsEl.textContent = String(Math.max(secs, 0));
+      if (secs <= 0) signOut();
+    }, 1000);
+  }
+
+  function teardownModal() {
+    clearInterval(promptTimer);
+    promptTimer = null;
+    if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+    modal = null;
+  }
+
+  function dismissPrompt() {
+    teardownModal();
+    resetIdle();
+  }
+
+  function signOut() {
+    teardownModal();
+    if (w.ParasGate && typeof w.ParasGate.lock === 'function') {
+      w.ParasGate.lock();
+    } else {
+      if (location.protocol !== 'file:') { try { fetch('__logout', { method: 'POST' }); } catch (e) {} }
+      w.location.reload();
+    }
+  }
+
+  resetIdle();
+})(window, document);
+</script>
+<!-- /paras-command-centre-idle-timeout -->
+<!-- paras-command-centre-session-guard -->
+<script>
+/* Makes a dashboard's own localStorage-based "remember my data" behave the
+ * same way the Command Centre's SESSION / LOCAL switch already behaves for
+ * the shell itself: SESSION starts every dashboard fresh, like a private
+ * window, and keeps whatever it saves only until this tab closes; LOCAL
+ * keeps what the dashboard saved, same as today.
+ *
+ * Must run before anything else on the page, because some dashboards read
+ * localStorage synchronously while parsing the body (auto-restoring a
+ * previous upload) -- by the time a script at the bottom of the page ran,
+ * that read would already have happened. Runs before the dashboard's own
+ * markup or scripts, and never touches how the dashboard's code is written.
+ *
+ * Dashboards share the same browser origin as the Command Centre shell, so
+ * this read of 'paras.cc.mode' sees the shell's real, current mode with no
+ * cross-window messaging needed. Session mode is backed by sessionStorage --
+ * the same "gone when this tab closes" store the shell itself already uses
+ * for its own Session-mode data -- so a reload mid-session still sees what
+ * was just saved, only a fresh tab starts clean.
+ */
+(function (w) {
+  'use strict';
+  try {
+    if (w.localStorage.getItem('paras.cc.mode') !== 'session') return;
+    Object.defineProperty(w, 'localStorage', {
+      value: w.sessionStorage, configurable: true, enumerable: true,
+    });
+  } catch (e) { /* storage unavailable or non-configurable -- leave real localStorage alone */ }
+})(window);
+</script>
+<!-- /paras-command-centre-session-guard -->
+
+<meta charset="UTF-8">
+<title>Hospital Pharmacy Space Calculator</title>
+<style>
+  :root{
+    --ink:#1b2430;
+    --ink-soft:#4a5568;
+    --muted:#6b7686;
+    --accent:#2b4c8c;
+    --accent-2:#4d7cd6;
+    --fixed:#a9772f;
+    --variable:#2b4c8c;
+    --floor:#a5453d;
+    --glass-border:rgba(255,255,255,0.55);
+    --glass-fill:rgba(255,255,255,0.38);
+    --glass-fill-strong:rgba(255,255,255,0.55);
+    --mono: 'SF Mono', 'JetBrains Mono', 'Courier New', monospace;
+    --sys: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+
+  /* ---------- Dark theme ----------
+     Follows the Command Centre shell's own dark/light toggle -- see the
+     "parasthemechange" bridge relay at the bottom of this file's script
+     (added by sync.py's ensure_bridge, same as every other dashboard).
+     This page's default palette above is light, so unlike most of the
+     other dashboards (dark-default, light overrides) this one goes the
+     other way: dark is the override, layered on top of the light base. */
+  :root[data-theme="dark"]{
+    --ink:#eef2f8;
+    --ink-soft:#c3ccd9;
+    --muted:#8b96a8;
+    --accent:#6f9ce8;
+    --accent-2:#7fb2f5;
+    --fixed:#d9a85a;
+    --variable:#6f9ce8;
+    --floor:#e2837a;
+    --glass-border:rgba(255,255,255,0.16);
+    --glass-fill:rgba(24,30,44,0.72);
+    --glass-fill-strong:rgba(24,30,44,0.82);
+  }
+  :root[data-theme="dark"] body{
+    background:
+      radial-gradient(ellipse 900px 700px at 12% -10%, rgba(63,111,214,0.28) 0%, transparent 60%),
+      radial-gradient(ellipse 900px 800px at 90% 0%, rgba(63,150,199,0.22) 0%, transparent 55%),
+      radial-gradient(ellipse 1000px 900px at 50% 110%, rgba(124,92,224,0.2) 0%, transparent 55%),
+      linear-gradient(160deg, #0a0d15 0%, #0c1120 45%, #090c13 100%);
+  }
+  :root[data-theme="dark"] body::before{ background:radial-gradient(circle, #3d6fd6 0%, transparent 70%); opacity:.3; }
+  :root[data-theme="dark"] body::after{ background:radial-gradient(circle, #4d7cd6 0%, transparent 70%); opacity:.22; }
+  :root[data-theme="dark"] .glass::before{ background:linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent); }
+  :root[data-theme="dark"] .glass{
+    box-shadow:
+      0 8px 30px rgba(0,0,0,0.45),
+      0 1px 0 rgba(255,255,255,0.05) inset,
+      0 -1px 12px rgba(255,255,255,0.02) inset;
+  }
+  :root[data-theme="dark"] .logo-row{ background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.14); box-shadow:0 2px 10px rgba(0,0,0,0.3); }
+  :root[data-theme="dark"] .credit{ background:rgba(255,255,255,0.06); border-color:rgba(255,255,255,0.12); }
+  :root[data-theme="dark"] input[type=number]{
+    background:rgba(255,255,255,0.06); border-color:rgba(255,255,255,0.16);
+    box-shadow:0 1px 0 rgba(255,255,255,0.06) inset, 0 4px 14px rgba(0,0,0,0.3);
+  }
+  :root[data-theme="dark"] input[type=number]:focus{ box-shadow:0 0 0 4px rgba(127,178,245,0.22), 0 1px 0 rgba(255,255,255,0.06) inset; }
+  :root[data-theme="dark"] .quick-set button{ background:rgba(255,255,255,0.06); border-color:rgba(255,255,255,0.14); box-shadow:0 1px 0 rgba(255,255,255,0.05) inset; }
+  :root[data-theme="dark"] .quick-set button:hover{ background:rgba(255,255,255,0.12); box-shadow:0 4px 12px rgba(0,0,0,0.3), 0 1px 0 rgba(255,255,255,0.06) inset; }
+  :root[data-theme="dark"] .headline .card.primary{ border-color:rgba(255,255,255,0.18); }
+  :root[data-theme="dark"] th{ border-bottom-color:rgba(255,255,255,0.14); }
+  :root[data-theme="dark"] td{ border-bottom-color:rgba(255,255,255,0.08); }
+  :root[data-theme="dark"] tbody tr:hover{ background:rgba(255,255,255,0.05); }
+  :root[data-theme="dark"] tr.total-row td{ border-top-color:rgba(255,255,255,0.18); }
+  :root[data-theme="dark"] .bar-wrap{ background:rgba(255,255,255,0.1); }
+  :root[data-theme="dark"] .ref-table td{ border-bottom-color:rgba(255,255,255,0.1); }
+  :root[data-theme="dark"] .ref-table tr:nth-child(even) td{ background:rgba(255,255,255,0.04); }
+  :root[data-theme="dark"] .fp-purchase-wrap{ border-top-color:rgba(255,255,255,0.18); }
+
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    color:var(--ink);
+    font-family:var(--sys);
+    padding:40px 20px 80px;
+    position:relative;
+    overflow-x:hidden;
+    background:
+      radial-gradient(ellipse 900px 700px at 12% -10%, #cfe0ff 0%, transparent 60%),
+      radial-gradient(ellipse 900px 800px at 90% 0%, #d8ecff 0%, transparent 55%),
+      radial-gradient(ellipse 1000px 900px at 50% 110%, #e8e2ff 0%, transparent 55%),
+      linear-gradient(160deg, #eef3fb 0%, #e3ecf9 45%, #eef2fb 100%);
+    background-attachment: fixed;
+  }
+  /* floating blurred color blobs for the liquid-glass backdrop */
+  body::before, body::after{
+    content:"";
+    position:fixed;
+    border-radius:50%;
+    filter:blur(60px);
+    z-index:-1;
+    opacity:.55;
+  }
+  body::before{
+    width:520px;height:520px;
+    top:-120px; left:-160px;
+    background:radial-gradient(circle, #7fa8ff 0%, transparent 70%);
+  }
+  body::after{
+    width:600px;height:600px;
+    bottom:-200px; right:-180px;
+    background:radial-gradient(circle, #a6c6ff 0%, transparent 70%);
+  }
+  .wrap{max-width:960px;margin:0 auto;position:relative;}
+
+  /* --- shared glass panel --- */
+  .glass{
+    background:var(--glass-fill);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    border:1px solid var(--glass-border);
+    border-radius:22px;
+    box-shadow:
+      0 8px 30px rgba(43,76,140,0.12),
+      0 1px 0 rgba(255,255,255,0.7) inset,
+      0 -1px 12px rgba(255,255,255,0.4) inset;
+    position:relative;
+  }
+  .glass::before{
+    content:"";
+    position:absolute;
+    top:0; left:12%; right:12%; height:1px;
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent);
+    border-radius:100%;
+  }
+
+  header{
+    padding:20px 26px;
+    margin-bottom:22px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:20px;
+    flex-wrap:wrap;
+  }
+  .brand-block{display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
+  .logo-row{
+    background:rgba(255,255,255,0.65);
+    padding:8px 14px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,0.7);
+    box-shadow:0 2px 10px rgba(43,76,140,0.08);
+  }
+  .logo-row img{height:30px;display:block;}
+  h1{
+    font-size:26px;
+    letter-spacing:-0.02em;
+    margin:0 0 3px;
+    font-weight:700;
+    color:var(--ink);
+  }
+  .subtitle{
+    color:var(--muted);
+    font-size:12.5px;
+    letter-spacing:.02em;
+  }
+  .credit{
+    font-size:12px;
+    color:var(--muted);
+    text-align:right;
+    background:rgba(255,255,255,0.5);
+    padding:8px 16px;
+    border-radius:14px;
+    border:1px solid rgba(255,255,255,0.7);
+  }
+  .credit .name{
+    color:var(--ink);
+    font-weight:600;
+    font-size:13.5px;
+    display:block;
+  }
+  .credit .role{
+    letter-spacing:.03em;
+    font-size:10.5px;
+    color:var(--accent);
+  }
+  .input-row{
+    display:flex;
+    align-items:flex-end;
+    gap:20px;
+    padding:22px 26px;
+    margin-bottom:24px;
+    flex-wrap:wrap;
+  }
+  .field label{
+    display:block;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--muted);
+    margin-bottom:7px;
+    font-weight:600;
+  }
+  input[type=number]{
+    font-family:var(--mono);
+    font-size:28px;
+    font-weight:600;
+    width:170px;
+    padding:10px 14px;
+    border:1px solid rgba(255,255,255,0.8);
+    border-radius:14px;
+    background:rgba(255,255,255,0.55);
+    color:var(--ink);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow:0 1px 0 rgba(255,255,255,0.8) inset, 0 4px 14px rgba(43,76,140,0.08);
+  }
+  input[type=number]:focus{
+    outline:none;
+    border-color:var(--accent-2);
+    box-shadow:0 0 0 4px rgba(77,124,214,0.18), 0 1px 0 rgba(255,255,255,0.8) inset;
+  }
+  .quick-set{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .quick-set button{
+    font-family:var(--sys);
+    font-size:12.5px;
+    font-weight:600;
+    padding:8px 14px;
+    background:rgba(255,255,255,0.45);
+    border:1px solid rgba(255,255,255,0.7);
+    border-radius:20px;
+    color:var(--ink-soft);
+    cursor:pointer;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow:0 1px 0 rgba(255,255,255,0.7) inset;
+    transition:all .18s ease;
+  }
+  .quick-set button:hover{
+    background:rgba(255,255,255,0.75);
+    transform:translateY(-1px);
+    box-shadow:0 4px 12px rgba(43,76,140,0.12), 0 1px 0 rgba(255,255,255,0.7) inset;
+  }
+  .headline{
+    display:flex;
+    gap:20px;
+    margin-bottom:24px;
+    flex-wrap:wrap;
+  }
+  .headline .card{
+    flex:1;
+    min-width:230px;
+    padding:26px 28px;
+    overflow:hidden;
+  }
+  .headline .card.primary{
+    background:linear-gradient(135deg, rgba(77,124,214,0.9) 0%, rgba(43,76,140,0.85) 100%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    backdrop-filter: blur(24px) saturate(180%);
+    color:#fff;
+    border:1px solid rgba(255,255,255,0.4);
+  }
+  .headline .card.primary::before{
+    background:linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+  }
+  .headline .card .num{
+    font-family:var(--mono);
+    font-size:42px;
+    font-weight:700;
+    line-height:1;
+    letter-spacing:-0.02em;
+  }
+  .headline .card .lbl{
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    opacity:.85;
+    margin-top:8px;
+    font-weight:600;
+  }
+  .headline .card.secondary .num{color:var(--ink);}
+  .headline .card.secondary .lbl{color:var(--muted);}
+
+  .table-panel{
+    padding:8px 10px 4px;
+    margin-bottom:22px;
+    overflow:hidden;
+  }
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:14px;
+  }
+  th, td{
+    padding:13px 16px;
+    text-align:left;
+  }
+  th{
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    color:var(--muted);
+    font-weight:700;
+    border-bottom:1px solid rgba(120,140,180,0.25);
+  }
+  td{border-bottom:1px solid rgba(120,140,180,0.14);}
+  tbody tr{transition:background .15s ease;}
+  tbody tr:hover{background:rgba(255,255,255,0.35);}
+  td.num, th.num{text-align:right;font-family:var(--mono);}
+  .tag{
+    display:inline-block;
+    font-size:10px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    padding:4px 10px;
+    border-radius:20px;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+  }
+  .tag.fixed{background:rgba(169,119,47,0.14);color:var(--fixed);}
+  .tag.variable{background:rgba(43,76,140,0.12);color:var(--variable);}
+  .tag.floor{background:rgba(165,69,61,0.12);color:var(--floor);}
+  .bar-wrap{
+    width:130px;
+    background:rgba(120,140,180,0.15);
+    height:7px;
+    border-radius:10px;
+    position:relative;
+    display:inline-block;
+    vertical-align:middle;
+    overflow:hidden;
+  }
+  .bar{
+    position:absolute;
+    left:0;top:0;bottom:0;
+    border-radius:10px;
+    background:linear-gradient(90deg, var(--accent-2), var(--accent));
+  }
+  tr.total-row td{
+    border-top:1px solid rgba(120,140,180,0.3);
+    border-bottom:none;
+    font-weight:700;
+    padding-top:16px;
+    padding-bottom:16px;
+    font-size:15px;
+  }
+  .foot-note{
+    font-size:12px;
+    color:var(--ink-soft);
+    padding:18px 24px;
+    line-height:1.65;
+  }
+  .foot-note strong{color:var(--ink);}
+  .legend{
+    display:flex;
+    gap:14px;
+    font-size:12px;
+    color:var(--muted);
+    margin:0 0 18px;
+    padding:12px 18px;
+    flex-wrap:wrap;
+  }
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .dot{width:9px;height:9px;display:inline-block;border-radius:50%;}
+
+  .floorplan-panel{
+    padding:24px 26px 28px;
+    margin-bottom:22px;
+  }
+  .fp-header h2{
+    font-size:17px;
+    margin:0 0 2px;
+    color:var(--ink);
+    letter-spacing:-0.01em;
+    font-weight:700;
+  }
+  .fp-sub{
+    font-size:11.5px;
+    color:var(--muted);
+  }
+  .fp-stack{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    margin-top:16px;
+  }
+  .fp-block{
+    border-radius:16px;
+    border:2px solid;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:8px 12px;
+    text-align:center;
+    transition:height .25s ease, flex .25s ease;
+  }
+  .fp-name{
+    font-weight:700;
+    font-size:13.5px;
+    color:var(--ink);
+  }
+  .fp-area{
+    font-family:var(--mono);
+    font-weight:700;
+    font-size:18px;
+    margin-top:3px;
+  }
+  .fp-meta{
+    font-size:10px;
+    color:var(--muted);
+    margin-top:3px;
+  }
+  .fp-row-split{
+    display:flex;
+    gap:10px;
+  }
+  .fp-purchase-wrap{
+    margin-top:20px;
+    padding-top:18px;
+    border-top:1px dashed rgba(120,140,180,0.4);
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:14px;
+  }
+  .fp-purchase-note{
+    font-size:11px;
+    color:var(--muted);
+    font-style:italic;
+    text-align:right;
+    max-width:180px;
+    line-height:1.4;
+  }
+  .fp-purchase{
+    width:200px;
+    min-height:72px;
+    border:2px dashed;
+    border-radius:16px;
+    padding:12px;
+    text-align:center;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+  }
+
+  .ref-panel{
+    padding:24px 26px 26px;
+    margin-bottom:22px;
+  }
+  .ref-panel h2{
+    font-size:17px;
+    margin:0 0 4px;
+    color:var(--ink);
+    letter-spacing:-0.01em;
+    font-weight:700;
+  }
+  .ref-panel h3{
+    font-size:13.5px;
+    margin:22px 0 8px;
+    color:var(--accent);
+    font-weight:700;
+  }
+  .ref-sub{
+    font-size:11.5px;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .ref-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:12.5px;
+    margin-top:6px;
+  }
+  .ref-table th{
+    text-align:left;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#fff;
+    background:var(--accent);
+    padding:9px 10px;
+    font-weight:700;
+  }
+  .ref-table th:first-child{border-radius:8px 0 0 0;}
+  .ref-table th:last-child{border-radius:0 8px 0 0;}
+  .ref-table td{
+    padding:9px 10px;
+    border-bottom:1px solid rgba(120,140,180,0.16);
+    vertical-align:top;
+    color:var(--ink-soft);
+    line-height:1.45;
+  }
+  .ref-table tr:nth-child(even) td{background:rgba(255,255,255,0.35);}
+  .ref-table td.strong{color:var(--ink);font-weight:600;}
+  .ref-note{
+    font-size:11px;
+    color:var(--muted);
+    font-style:italic;
+    margin-top:10px;
+    line-height:1.5;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="glass">
+    <div class="brand-block">
+      <div class="logo-row">
+        <img src="data:image/png;base64,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" alt="Paras Health">
+      </div>
+      <div>
+        <h1>Hospital Pharmacy Space Calculator</h1>
+        <div class="subtitle">Enter bed strength → total pharmacy area + store-wise breakdown (base model: 250 beds)</div>
+      </div>
+    </div>
+    <div class="credit">
+      <span class="name">Ritik Nagar</span>
+      <span class="role">Supply Chain Management</span>
+    </div>
+  </header>
+
+  <div class="input-row glass">
+    <div class="field">
+      <label for="beds">Total Beds</label>
+      <input type="number" id="beds" value="250" min="1" step="1">
+    </div>
+    <div class="quick-set">
+      <button data-v="100">100</button>
+      <button data-v="150">150</button>
+      <button data-v="200">200</button>
+      <button data-v="250">250</button>
+      <button data-v="300">300</button>
+      <button data-v="425">425</button>
+      <button data-v="500">500</button>
+      <button data-v="750">750</button>
+      <button data-v="1000">1000</button>
+    </div>
+  </div>
+
+  <div class="headline">
+    <div class="card primary glass">
+      <div class="num" id="totalArea">0</div>
+      <div class="lbl">Total Pharmacy Area (sq. ft.)</div>
+    </div>
+    <div class="card secondary glass">
+      <div class="num" id="areaPerBed">0</div>
+      <div class="lbl">Effective sq. ft. / bed</div>
+    </div>
+  </div>
+
+  <div class="legend glass">
+    <span><span class="dot" style="background:rgba(169,119,47,0.18);border:1px solid var(--fixed)"></span>Fixed — never scales</span>
+    <span><span class="dot" style="background:rgba(165,69,61,0.18);border:1px solid var(--floor)"></span>Proportional with floor — scales, min 100 sq ft</span>
+    <span><span class="dot" style="background:rgba(43,76,140,0.18);border:1px solid var(--variable)"></span>Variable — linear per-bed scaling</span>
+  </div>
+
+  <div class="table-panel glass">
+  <table>
+    <thead>
+      <tr>
+        <th>Store</th>
+        <th>Type</th>
+        <th class="num">Rate</th>
+        <th class="num">Area (sq. ft.)</th>
+        <th>Share</th>
+      </tr>
+    </thead>
+    <tbody id="storeRows"></tbody>
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="3">Total Pharmacy Area</td>
+        <td class="num" id="totalCell">0</td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  </div>
+
+  <div class="foot-note glass">
+    <strong>Model basis:</strong> Purchase area is fixed at 150 sq ft regardless of bed count. General Store scales proportionally with the bed multiplier relative to 250 beds, with a hard floor of 100 sq ft (never goes below, even for smaller hospitals). Fluid Store, IP Dispensing, IP Store, and Receiving Area all scale linearly on a sq ft/bed rate derived from the 250-bed base case (Fluid 0.72, Dispensing 0.88, IP Store 2.08, Receiving 1.52 sq ft/bed).
+    <br><br>
+    <strong>Statutory note:</strong> Schedule N of the Drugs & Cosmetics Rules, 1945 separately requires the dispensing area to be at least ~64.6 sq ft for one pharmacist plus ~21.5 sq ft per additional pharmacist — a staffing-based legal floor, independent of this bed-based model. Verify the IP Dispensing figure against actual pharmacist headcount before finalizing.
+  </div>
+
+  <div class="floorplan-panel glass">
+    <div class="fp-header">
+      <h2>Basic Pharmacy Layout</h2>
+      <div class="fp-sub">Indicative room arrangement — block size reflects relative area, not architectural scale</div>
+    </div>
+    <div id="floorplanBody"></div>
+  </div>
+
+  <div class="ref-panel glass">
+    <h2>Consolidated Summary — Environmental & Design Specifications</h2>
+    <div class="ref-sub">International benchmark vs. Indian statutory / applicable basis, by parameter</div>
+    <table class="ref-table">
+      <thead>
+        <tr><th>Parameter</th><th>International Benchmark</th><th>India — Statutory / Applicable Basis</th><th>Status in India</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="strong">Room temperature</td><td>20–25°C (USP CRT)</td><td>Schedule M: qualitative only, no fixed number</td><td>No numeric statutory figure — benchmark used informally</td></tr>
+        <tr><td class="strong">Cold storage temperature</td><td>2–8°C fridge / -15 to -25°C freezer</td><td>Matches WHO/UIP cold chain practice used nationally</td><td>Aligned — same figures adopted in India</td></tr>
+        <tr><td class="strong">Humidity</td><td>&lt;60% RH (cleanroom); 40–60% general</td><td>Schedule M: qualitative only</td><td>No numeric statutory figure</td></tr>
+        <tr><td class="strong">Lighting (dispensing)</td><td>500–1,500 lux depending on task</td><td>No pharmacy-specific Indian lux code found</td><td>International benchmark used by default</td></tr>
+        <tr><td class="strong">Flooring</td><td>Seamless epoxy / heat-welded vinyl, coved base</td><td>Schedule M: "smooth, washable, non-shedding" (qualitative)</td><td>Material choice left to designer; epoxy is de facto standard</td></tr>
+        <tr><td class="strong">Walls</td><td>Smooth, washable, coved, non-porous</td><td>Schedule M: same qualitative wording as flooring</td><td>Material choice left to designer</td></tr>
+        <tr><td class="strong">Ceiling height</td><td>2,700 mm recommended (health facility guidelines)</td><td>Indian Health Facility Guidelines (CPWD-aligned), not Drugs & Cosmetics Rules</td><td>India-specific benchmark exists, but outside pharmacy law</td></tr>
+        <tr><td class="strong">Paint colour</td><td>Light neutral tones; epoxy paint in cleanrooms</td><td>No source found, India or international, prescribing this by law</td><td>Pure design best-practice, non-statutory everywhere</td></tr>
+        <tr><td class="strong">Refrigerator type/temp</td><td>2–8°C fridge, medical-grade, alarmed, calibrated</td><td>Matches Indian UIP cold chain practice (ILR standard)</td><td>Aligned — same standard effectively applies in India</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="ref-panel glass">
+    <h2>Prohibited Items & Practices in the Pharmacy</h2>
+    <div class="ref-sub">Compiled from USP &lt;797&gt;/&lt;800&gt; cleanroom rules (international, applies where sterile/hazardous compounding occurs), Schedule N general premises rules (India, applies to all pharmacies), and NABH narcotic-control expectations (India, accreditation-linked)</div>
+
+    <h3>Prohibited Items — Physical Objects</h3>
+    <table class="ref-table">
+      <thead>
+        <tr><th>Item</th><th>Why Prohibited</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="strong">Cardboard boxes / particleboard inside cleanroom or sterile compounding areas</td><td>Sheds fibres and particles; harbours dust and pests</td><td>USP &lt;797&gt; — non-shedding material rule</td></tr>
+        <tr><td class="strong">Pencils, cotton items, and other particle-shedding stationery in buffer areas</td><td>Classified as "nonessential objects that shed particles"</td><td>USP &lt;797&gt;</td></tr>
+        <tr><td class="strong">Personal cellphones inside cleanroom/compounding areas</td><td>Contamination and distraction risk during sterile work</td><td>USP &lt;800&gt; checklist guidance</td></tr>
+        <tr><td class="strong">Cosmetics, visible jewellery (rings, bracelets, watches)</td><td>Harbour microbes; interfere with glove integrity and aseptic technique</td><td>USP &lt;800&gt; checklist guidance</td></tr>
+        <tr><td class="strong">Artificial nails, nail polish, or natural nails longer than ¼ inch</td><td>Nail polish can chip into preparations; long/artificial nails harbour bacteria under gloves</td><td>USP &lt;800&gt; checklist guidance</td></tr>
+        <tr><td class="strong">Wooden shelving or furniture in storage/dispensing areas</td><td>Porous, cannot be effectively disinfected, may harbour pests</td><td>General GMP/Schedule M principle — non-shedding, cleanable surfaces only</td></tr>
+        <tr><td class="strong">Uncalibrated household thermometers/refrigerators for drug or vaccine storage</td><td>Inaccurate readings risk cold-chain failure and product loss</td><td>CDC vaccine storage toolkit; WHO cold chain guidance</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Prohibited Practices — Personnel & Operations</h3>
+    <table class="ref-table">
+      <thead>
+        <tr><th>Practice</th><th>Why Prohibited</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="strong">Eating, drinking, chewing gum, or smoking inside the pharmacy/storage/compounding area</td><td>Contamination risk; standard GMP and cleanroom hygiene rule</td><td>USP &lt;797&gt;/&lt;800&gt;; general Schedule M hygiene principle</td></tr>
+        <tr><td class="strong">Dispensing or issuing expired, damaged, or recalled stock</td><td>Patient safety; core pharmacy practice rule</td><td>Schedule N — pharmacist's general duty of care; Schedule P storage/expiry rules</td></tr>
+        <tr><td class="strong">Unauthorised personnel accessing narcotic/controlled drug cabinets</td><td>Legal control of scheduled substances; prevents diversion</td><td>NDPS Act, 1985; NABH narcotic policy expectations</td></tr>
+        <tr><td class="strong">Storing narcotics/psychotropics in unlocked or shared cabinets</td><td>Mandatory secure, locked, access-controlled storage</td><td>NABH narcotic-control standard; NDPS Act</td></tr>
+        <tr><td class="strong">Leaving poison/schedule cupboards unlocked or containers unlabelled after use</td><td>Statutory duty to relock and correctly label after each use</td><td>Schedule N — general provisions</td></tr>
+        <tr><td class="strong">Running the pharmacy without a registered pharmacist's continuous supervision</td><td>Pharmacy must operate under continuous supervision of a registered pharmacist at all times</td><td>Schedule N — general provisions</td></tr>
+        <tr><td class="strong">Free-standing/portable humidifiers or dehumidifiers placed inside the cleanroom itself</td><td>Equipment must not be free-standing within the controlled environment; must be part of the designed HVAC system</td><td>Updated USP &lt;797&gt;</td></tr>
+        <tr><td class="strong">Floor drains inside the anteroom (sterile compounding areas)</td><td>Now prohibited in the updated USP &lt;797&gt; anteroom design</td><td>USP &lt;797&gt; (2023 revision)</td></tr>
+        <tr><td class="strong">Manual/undocumented temperature logging without calibrated, traceable instruments</td><td>Records must be reviewed and retrievable; uncalibrated logs are not inspection-ready</td><td>USP &lt;1079&gt;; WHO Good Distribution Practice</td></tr>
+      </tbody>
+    </table>
+    <div class="ref-note">This list is illustrative of the most commonly cited prohibitions and is not exhaustive. A full compliance checklist should be built against the current Schedule M/N text, NABH's latest accreditation standards edition, and (only where sterile/hazardous compounding is performed) USP &lt;797&gt;/&lt;800&gt;, since these are periodically revised.</div>
+  </div>
+</div>
+
+<script>
+const BASE_BEDS = 250;
+const stores = [
+  {name:"Purchase", type:"fixed", base:150},
+  {name:"General Store", type:"floor", base:100, floor:100},
+  {name:"Fluid Store", type:"variable", base:180},
+  {name:"IP Dispensing Area", type:"variable", base:220},
+  {name:"IP Store Area", type:"variable", base:520},
+  {name:"Receiving Area", type:"variable", base:380},
+];
+
+function calc(beds){
+  const multiplier = beds / BASE_BEDS;
+  return stores.map(s=>{
+    let area;
+    if(s.type === "fixed"){
+      area = s.base;
+    } else if(s.type === "floor"){
+      area = Math.max(s.base * multiplier, s.floor);
+    } else {
+      const rate = s.base / BASE_BEDS;
+      area = rate * beds;
+    }
+    return {...s, area, rate: s.type==="fixed" ? null : (s.base/BASE_BEDS)};
+  });
+}
+
+function fmt(n){
+  return Math.round(n).toLocaleString('en-IN');
+}
+
+function render(){
+  const beds = Math.max(1, parseInt(document.getElementById('beds').value) || 0);
+  const rows = calc(beds);
+  const total = rows.reduce((a,r)=>a+r.area,0);
+
+  document.getElementById('totalArea').textContent = fmt(total);
+  document.getElementById('areaPerBed').textContent = (total/beds).toFixed(2);
+  document.getElementById('totalCell').textContent = fmt(total) + ' sq ft';
+
+  const tagLabel = {fixed:'Fixed', floor:'Prop. + Floor', variable:'Variable'};
+  const tagClass = {fixed:'fixed', floor:'floor', variable:'variable'};
+
+  const rowsHtml = rows.map(r=>{
+    const pct = (r.area/total*100);
+    const rateTxt = r.type==='fixed' ? '—' : (r.rate.toFixed(2)+' /bed');
+    return `<tr>
+      <td>${r.name}</td>
+      <td><span class="tag ${tagClass[r.type]}">${tagLabel[r.type]}</span></td>
+      <td class="num">${rateTxt}</td>
+      <td class="num">${fmt(r.area)}</td>
+      <td>
+        <span class="bar-wrap"><span class="bar" style="width:${pct}%"></span></span>
+        <span style="font-family:Arial,sans-serif;font-size:11px;color:var(--muted);margin-left:6px;">${pct.toFixed(1)}%</span>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('storeRows').innerHTML = rowsHtml;
+  renderFloorplan(rows, total);
+}
+
+/* ---------- Basic pharmacy floor layout ---------- */
+const FP_COLORS = {
+  fixed:    {border:"#a9772f", fill:"rgba(199,154,75,0.16)", text:"#a9772f"},
+  floor:    {border:"#a5453d", fill:"rgba(165,69,61,0.14)", text:"#a5453d"},
+  variable: {border:"#2b4c8c", fill:"rgba(43,76,140,0.12)", text:"#2b4c8c"}
+};
+
+function fpBlock(r, total, heightPx, extraStyle){
+  const c = FP_COLORS[r.type];
+  const pct = (r.area/total*100).toFixed(1);
+  return `<div class="fp-block" style="height:${heightPx}px;border-color:${c.border};background:${c.fill};${extraStyle||''}">
+    <div class="fp-name">${r.name}</div>
+    <div class="fp-area" style="color:${c.text}">${fmt(r.area)} sq ft</div>
+    <div class="fp-meta">${pct}% of total</div>
+  </div>`;
+}
+
+function renderFloorplan(rows, total){
+  const byName = {};
+  rows.forEach(r=> byName[r.name]=r);
+  const maxArea = Math.max(...rows.map(r=>r.area));
+  const h = (area) => Math.round(56 + (area/maxArea)*150);
+
+  const dispensing = byName["IP Dispensing Area"];
+  const ipStore = byName["IP Store Area"];
+  const fluid = byName["Fluid Store"];
+  const general = byName["General Store"];
+  const receiving = byName["Receiving Area"];
+  const purchase = byName["Purchase"];
+
+  let html = '<div class="fp-stack">';
+  html += fpBlock(dispensing, total, h(dispensing.area));
+  html += fpBlock(ipStore, total, h(ipStore.area));
+  html += fpBlock(fluid, total, h(fluid.area));
+
+  const splitH = h(Math.max(general.area, receiving.area));
+  html += '<div class="fp-row-split">';
+  html += fpBlock(general, total, splitH, `flex:${general.area};`);
+  html += fpBlock(receiving, total, splitH, `flex:${receiving.area};`);
+  html += '</div>';
+  html += '</div>';
+
+  const pc = FP_COLORS[purchase.type];
+  html += `<div class="fp-purchase-wrap">
+    <div class="fp-purchase-note">Purchase is kept as a separate, standalone area — not part of the main material flow</div>
+    <div class="fp-purchase" style="border-color:${pc.border};background:${pc.fill}">
+      <div class="fp-name">${purchase.name}</div>
+      <div class="fp-area" style="color:${pc.text}">${fmt(purchase.area)} sq ft</div>
+      <div class="fp-meta">${(purchase.area/total*100).toFixed(1)}% of total</div>
+    </div>
+  </div>`;
+
+  document.getElementById('floorplanBody').innerHTML = html;
+}
+
+document.getElementById('beds').addEventListener('input', render);
+document.querySelectorAll('.quick-set button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.getElementById('beds').value = btn.dataset.v;
+    render();
+  });
+});
+
+render();
+</script>
+<!-- paras-command-centre-bridge -->
+<script>
+/* Paras Command Centre — dashboard bridge.
+ *
+ * Injected into each dashboard by sync.py. It adds nothing you can see and
+ * changes nothing the dashboard does in ordinary use: it only listens for the
+ * Command Centre handing over a file, and puts it in the dashboard's own
+ * upload box exactly as if you had picked it yourself.
+ *
+ * This exists because a page opened straight from disk (file://) is sealed off
+ * from every other page, so the Command Centre cannot reach in — but the two
+ * can still exchange messages. Remove the injected block and the dashboard
+ * carries on working; only the one-click fill stops.
+ *
+ * It also stops one specific bad outcome: picking an oversized file straight
+ * into this dashboard's own upload box, past what its own parser can hold in
+ * memory, crashes the browser tab. That is refused here, before the file ever
+ * reaches the dashboard's own code, in favour of the Command Centre's Data
+ * Library — which streams a file this size instead of loading it whole.
+ *
+ * It also relays the shell's dark/light theme toggle: whenever the Command
+ * Centre's own theme changes (and once immediately when this dashboard first
+ * loads), it stamps data-theme="dark"|"light" on this document's <html> and
+ * fires a "parasthemechange" event, so any dashboard that defines its own
+ * :root[data-theme="light"] palette follows the shell's toggle instead of
+ * carrying a separate one of its own. A dashboard with no light palette yet
+ * simply ignores the attribute -- this is a no-op until one is added.
+ *
+ * It also reports which way this dashboard's own page is being scrolled, so
+ * the Command Centre can tuck its "Back to Command Centre" bar away while
+ * reading and bring it back the moment the scroll direction reverses. This
+ * dashboard's markup and behaviour are otherwise untouched by it.
+ */
+(function (w, d) {
+  'use strict';
+  if (w.__parasBridge) return;
+  w.__parasBridge = 1;
+
+  // Mirrors assets/js/library.js's BIG_FILE. Duplicated because this file is
+  // injected standalone into a different page and has no import of its own.
+  var TOO_BIG = 40 * 1024 * 1024;
+
+  function warnTooBig(file) {
+    var mb = Math.round(file.size / 1048576);
+    try {
+      w.alert(
+        '"' + file.name + '" is ' + mb + ' MB.\n\n' +
+        'That is too large for this page to open directly \u2014 a file this size ' +
+        'can crash the browser tab partway through.\n\n' +
+        'Use the Data Library in the Paras Command Centre instead: add the file ' +
+        'there, press Condense, then Fill upload boxes. The condensed file keeps ' +
+        'every total exactly the same, just as far fewer rows, and opens here safely.'
+      );
+    } catch (e) {}
+  }
+
+  /* Runs before the dashboard's own listeners: capture-phase, on the
+     document, is reached on the way down the tree before the target (and its
+     bubble-phase handlers) sees the event at all. stopImmediatePropagation
+     here means the dashboard's own upload code never runs for this file. A
+     file the Command Centre hands over through postMessage (always well
+     under the limit, since it comes from the Data Library already condensed
+     if it needed to be) is untouched. */
+  d.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || t.tagName !== 'INPUT' || t.type !== 'file' || !t.files || !t.files.length) return;
+    var f = t.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    try { t.value = ''; } catch (e2) {}
+    warnTooBig(f);
+  }, true);
+
+  d.addEventListener('drop', function (ev) {
+    var dt = ev.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    var f = dt.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    warnTooBig(f);
+  }, true);
+
+  function label(inp, i) {
+    var t = '';
+    try {
+      if (inp.labels && inp.labels.length) t = inp.labels[0].textContent;
+      if (!t && inp.closest) { var l = inp.closest('label'); if (l) t = l.textContent; }
+      var box = inp.parentElement;
+      for (var k = 0; k < 3 && box && !t; k++) {
+        var q = box.querySelector('label, h3, h4, b, strong, .label');
+        if (q && q.textContent.trim()) t = q.textContent;
+        box = box.parentElement;
+      }
+      if (!t) t = inp.getAttribute('aria-label') || inp.getAttribute('title') || inp.name || inp.id || '';
+    } catch (e) {}
+    return String(t).replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  function inputs() {
+    return Array.prototype.slice.call(d.querySelectorAll('input[type=file]'));
+  }
+
+  function reply(src, id, body) {
+    try { src.postMessage(Object.assign({ __paras: 1, id: id }, body), '*'); } catch (e) {}
+  }
+
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || !m.action) return;
+    // Only the page that embedded this one may drive it.
+    if (w.parent === w || ev.source !== w.parent) return;
+
+    if (m.action === 'theme') {
+      try {
+        var theme = m.theme === 'light' ? 'light' : 'dark';
+        d.documentElement.setAttribute('data-theme', theme);
+        d.dispatchEvent(new CustomEvent('parasthemechange', { detail: { theme: theme } }));
+      } catch (e) {}
+      return;
+    }
+
+    if (m.action === 'probe') {
+      reply(ev.source, m.id, {
+        ok: true,
+        inputs: inputs().map(function (inp, i) {
+          return { index: i, label: label(inp, i), accept: inp.getAttribute('accept') || '' };
+        })
+      });
+      return;
+    }
+
+    if (m.action === 'fill') {
+      var list = inputs(), inp = list[m.index];
+      if (!inp) return reply(ev.source, m.id, { ok: false, error: 'no such upload box' });
+      try {
+        var file = (m.blob instanceof File) ? m.blob
+          : new File([m.blob], m.name || 'file', { type: m.type || (m.blob && m.blob.type) || '' });
+        var dt = new DataTransfer();
+        dt.items.add(file);
+        inp.files = dt.files;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        reply(ev.source, m.id, { ok: true });
+      } catch (e) {
+        reply(ev.source, m.id, { ok: false, error: String(e && e.message || e) });
+      }
+    }
+  }, false);
+
+  // Scroll-direction relay -- see header comment. Skipped entirely when this
+  // page is not embedded (opened on its own), since there is no parent to
+  // tell and nothing here changes how the page behaves either way.
+  if (w.parent !== w) {
+    // A wide dead zone -- small back-and-forth wobble (trackpads and touch
+    // scrolling rarely move in one perfectly monotonic direction) used to
+    // flip `dir` on almost every frame, which made the parent's toolbar
+    // toggle its collapse animation dozens of times a second during a single
+    // scroll gesture. Only sending on an actual change (not every frame)
+    // cuts that further, since the parent only re-renders on a real flip.
+    // Also debounced in time, not just in distance: a real scroll gesture
+    // (trackpad inertia especially) can cross the 24px dead zone several
+    // times in quick succession even while "generally" going one way, and
+    // each crossing used to restart the parent's collapse/expand animation
+    // from scratch -- which is what made the bar look like it was stuck
+    // fading in and out instead of settling. Capping actual sends to once
+    // per MIN_INTERVAL bounds how often that animation can restart, no
+    // matter how choppy the underlying scroll events are.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false, lastSentAt = 0;
+    var MIN_INTERVAL = 220;
+    function sendScroll() {
+      var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
+      if (y <= 0) dir = 'up';
+      else if (y > lastY + 24) dir = 'down';
+      else if (y < lastY - 24) dir = 'up';
+      lastY = y;
+      var now = w.performance && w.performance.now ? w.performance.now() : Date.now();
+      if (dir !== sentDir && (now - lastSentAt) >= MIN_INTERVAL) {
+        sentDir = dir;
+        lastSentAt = now;
+        try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      }
+      ticking = false;
+    }
+    w.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      (w.requestAnimationFrame || w.setTimeout)(sendScroll);
+    }, { passive: true });
+  }
+})(window, document);
+</script>
+<!-- /paras-command-centre-bridge -->
+</body>
+</html>

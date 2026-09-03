@@ -218,6 +218,24 @@ window.__PARAS_REGISTRY__ = {
       ]
     },
     {
+      "id": "pharmacy-space-calculator",
+      "name": "Pharmacy Space Calculator",
+      "category": "pharmacy",
+      "description": "Bed count → total pharmacy area and store-wise space breakdown, with a basic floor layout. No file upload — enter a bed count and it calculates.",
+      "file": "dashboards/Pharmacy_Area_Dashboard.html",
+      "icon": "grid",
+      "status": "live",
+      "order": 3,
+      "tags": [
+        "space",
+        "area",
+        "floorplan",
+        "layout",
+        "calculator",
+        "beds"
+      ]
+    },
+    {
       "id": "non-formulary-utilisation",
       "name": "Non-Formulary Utilisation",
       "category": "pharmacy",

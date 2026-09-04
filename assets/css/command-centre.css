@@ -368,6 +368,16 @@ a{color:var(--brand-soft); text-decoration:none;}
 .ask-widget.open .ask-panel{opacity:1; transform:none; pointer-events:auto;}
 
 .ask-panel-head{display:flex; align-items:center; gap:10px; padding:16px 8px 14px 16px; border-bottom:1px solid var(--wire); flex:0 0 auto;}
+/* Six rounded petals in Claude's own orange, not a traced copy of
+   Anthropic's actual mark (no source file for that) -- same family of
+   shape. Idles on its own the whole time the panel is open, independent of
+   hover, status, or whether a question is in flight. */
+.claude-mark{width:22px; height:22px; flex:0 0 auto; animation:claudeIdle 3.2s ease-in-out infinite; transform-origin:50% 50%;}
+.claude-mark svg{width:100%; height:100%; display:block;}
+@keyframes claudeIdle{
+  0%,100%{transform:scale(1) rotate(0deg);}
+  50%{transform:scale(1.12) rotate(10deg);}
+}
 .ask-panel-dot{width:9px; height:9px; border-radius:50%; background:var(--ink-3); flex:0 0 auto; transition:background .2s var(--ease);}
 .ask-panel-dot.on{background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent); animation:askDotBreathe 2.4s var(--ease) infinite;}
 @keyframes askDotBreathe{

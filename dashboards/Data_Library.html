@@ -270,7 +270,8 @@ header{
 .brand img{height:40px;display:block;filter:drop-shadow(0 2px 14px rgba(91,141,239,.4));}
 .brand-text h1{margin:0;font-size:16.5px;font-weight:700;color:#fff;letter-spacing:.2px;}
 .brand-text .tagline{font-size:11.5px;color:var(--text-muted);margin-top:2px;letter-spacing:.2px;}
-.persist-note{font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+.persist-note{font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;cursor:pointer;}
+.persist-note:hover{color:var(--text-muted);}
 .persist-note svg{width:13px;height:13px;}
 
 .hero-spacer{height:22px;}
@@ -405,6 +406,18 @@ select:focus, input[type=text]:focus{outline:none;border-color:var(--brand-blue)
 .modal-head h3{margin:0;flex:1;font-size:15.5px;font-weight:700;color:#fff;}
 :root[data-theme="light"] .modal-head h3{color:var(--text);}
 .modal-body{padding:18px 20px;}
+.where-lede{margin:0 0 14px;font-size:12.5px;line-height:1.55;color:var(--text-dim);}
+.where-row{display:flex;flex-direction:column;gap:4px;padding:11px 0;border-top:1px solid var(--glass-border-soft);}
+.where-row:first-child{border-top:none;padding-top:0;}
+.where-row .wr-label{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);}
+.where-row .wr-path-row{display:flex;align-items:center;gap:8px;}
+.where-row .wr-path{flex:1;min-width:0;font-family:var(--mono,monospace);font-size:12px;color:#fff;word-break:break-all;user-select:all;}
+:root[data-theme="light"] .where-row .wr-path{color:var(--text);}
+.where-row button{flex:0 0 auto;background:rgba(255,255,255,.06);border:1px solid var(--glass-border-soft);border-radius:8px;color:var(--text-dim);width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.where-row button:hover{background:rgba(255,255,255,.12);color:#fff;}
+.where-row button svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.where-warn{margin-top:12px;font-size:11.5px;line-height:1.5;color:var(--amber,#eab308);display:flex;gap:6px;align-items:flex-start;}
+.where-warn svg{width:14px;height:14px;flex:0 0 auto;margin-top:1px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
 .modal-foot{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--glass-border-soft);}
 .modal-close{background:none;border:none;color:var(--text-muted);cursor:pointer;width:28px;height:28px;
   display:flex;align-items:center;justify-content:center;border-radius:8px;}
@@ -585,6 +598,21 @@ footer b{color:var(--text-muted);}
   </div>
 </div>
 
+<div class="modal-scrim" id="whereModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Where is my data?</h3>
+      <button class="modal-close" id="whereClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="where-lede">Every register you've added to the database lives here, on this computer, whether or not the original file is still in the Library above.</p>
+      <div id="whereBody" class="where-body"></div>
+    </div>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -611,6 +639,7 @@ footer b{color:var(--text-muted);}
     inbox:'<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.6 5.2 3.5 13.5v4A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-4l-2.1-8.3A1.5 1.5 0 0 0 16.9 4H7.1a1.5 1.5 0 0 0-1.5 1.2z"/>',
     check:'<circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.6"/>',
     warn: '<path d="M12 4 2.5 20.5h19z"/><path d="M12 10v4.5M12 17.6v.4"/>',
+    copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>',
     lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
     grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>'
   };
@@ -1319,6 +1348,35 @@ footer b{color:var(--text-muted);}
     $('#sendModal').classList.add('open');
   }
   function closeSendPicker() { $('#sendModal').classList.remove('open'); sendFile = null; }
+
+  /* ===================== where is my data ================================== */
+  function whereRow(label, path) {
+    return '<div class="where-row"><span class="wr-label">' + esc(label) + '</span>' +
+      '<div class="wr-path-row"><span class="wr-path">' + esc(path) + '</span>' +
+      '<button type="button" data-copy="' + esc(path) + '" title="Copy">' + ico('copy') + '</button></div></div>';
+  }
+  function openWhereModal() {
+    var host = $('#whereBody');
+    host.innerHTML = '<div class="where-row"><span class="wr-label">Loading…</span></div>';
+    $('#whereModal').classList.add('open');
+    fetch('../__where', { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (info) {
+        var html = whereRow('Database — every register you have added, permanently, no matter what happens in the Library above', info.database) +
+          whereRow('Library — the files themselves (blobs), only for what is currently listed above', info.library);
+        if (info.inAppFolder) {
+          html += '<p class="where-warn">' + ico('warn') +
+            ' Could not use the normal fixed location — this is inside the app folder instead, ' +
+            'so it will NOT survive replacing this folder with a new version. Set PARAS_DATA_DIR, ' +
+            'or create the normal folder by hand, to fix this.</p>';
+        }
+        host.innerHTML = html;
+      })
+      .catch(function () {
+        host.innerHTML = '<div class="where-row"><span class="wr-label">Could not read this — sign in and try again.</span></div>';
+      });
+  }
+  function closeWhereModal() { $('#whereModal').classList.remove('open'); }
+
   function requestFill(dashId) {
     if (!sendFile) return;
     if (w.parent === w) {
@@ -1469,11 +1527,23 @@ footer b{color:var(--text-muted);}
     $('#sendClose').addEventListener('click', closeSendPicker);
     $('#sendModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeSendPicker(); });
 
+    $('#persistNote').addEventListener('click', openWhereModal);
+    $('#whereClose').addEventListener('click', closeWhereModal);
+    $('#whereModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeWhereModal(); });
+    $('#whereBody').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-copy]'); if (!b) return;
+      var path = b.dataset.copy;
+      (navigator.clipboard ? navigator.clipboard.writeText(path) : Promise.reject())
+        .then(function () { toast('Copied.', 'ok', 1500); })
+        .catch(function () { toast('Could not copy — select the text instead.', 'warn', 3000); });
+    });
+
     d.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       if ($('#importModal').classList.contains('open')) return closeImport();
       if ($('#condModal').classList.contains('open')) return closeCondense();
       if ($('#sendModal').classList.contains('open')) return closeSendPicker();
+      if ($('#whereModal').classList.contains('open')) return closeWhereModal();
     });
 
     ['dragover', 'drop'].forEach(function (n) {

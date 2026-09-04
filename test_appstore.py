@@ -137,6 +137,33 @@ def test_logs_and_reports():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_mail_llm_config():
+    tmp = tempfile.mkdtemp(prefix="paras-appstore-")
+    a = fresh_appstore(tmp)
+    try:
+        check("no mail config yet", a.read_mail_config() is None)
+        check("no llm config yet", a.read_llm_config() is None)
+
+        a.write_mail_config({"host": "smtp.example.com", "port": 587, "username": "u",
+                              "password": "p", "from": "Paras <n@example.com>", "ssl": False})
+        cfg = a.read_mail_config()
+        check("mail config round-trips", cfg is not None and cfg["host"] == "smtp.example.com")
+
+        a.write_llm_config({"apiKey": "sk-ant-xyz", "model": "claude-opus-5"})
+        lcfg = a.read_llm_config()
+        check("llm config round-trips", lcfg is not None and lcfg["apiKey"] == "sk-ant-xyz")
+
+        a.write_mail_config(None)
+        check("mail config cleared by writing None", a.read_mail_config() is None)
+        check("llm config untouched by clearing mail config",
+              a.read_llm_config() is not None and a.read_llm_config()["apiKey"] == "sk-ant-xyz")
+
+        a.write_llm_config(None)
+        check("llm config cleared by writing None", a.read_llm_config() is None)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_migration_from_legacy_json():
     tmp = tempfile.mkdtemp(prefix="paras-appstore-")
     try:
@@ -167,6 +194,10 @@ def test_migration_from_legacy_json():
         with open(os.path.join(tmp, "ask_usage.jsonl"), "w", encoding="utf-8") as fh:
             fh.write(json.dumps({"ts": int(time.time() * 1000), "model": "m",
                                   "inputTokens": 10, "outputTokens": 5}) + "\n")
+        with open(os.path.join(tmp, "mail_config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"host": "smtp.legacy.com", "username": "u", "password": "p", "from": "a@b.com"}, fh)
+        with open(os.path.join(tmp, "llm_config.json"), "w", encoding="utf-8") as fh:
+            json.dump({"apiKey": "sk-legacy"}, fh)
 
         a = fresh_appstore(tmp)
         back = a.read_auth()
@@ -179,6 +210,8 @@ def test_migration_from_legacy_json():
         check("migrated login_history skipped the bad line",
               len(a.read_history(limit=10)) == 2)
         check("migrated view_history", a.usage_report().get("admin") is not None)
+        check("migrated mail config", a.read_mail_config()["host"] == "smtp.legacy.com")
+        check("migrated llm config", a.read_llm_config()["apiKey"] == "sk-legacy")
 
         with open(os.path.join(tmp, "auth.json"), encoding="utf-8") as fh:
             check("original auth.json left untouched", json.load(fh) == auth)
@@ -195,7 +228,15 @@ def test_dashboard_overrides():
     tmp = tempfile.mkdtemp(prefix="paras-appstore-")
     a = fresh_appstore(tmp)
     try:
-        check("no overrides yet", a.read_dashboard_overrides() == {})
+        # Not necessarily empty: the one-time migration (see _connect() ->
+        # _migrate_from_json()) reads the real repo's dashboards.json, and
+        # any dashboard already shipped with adminOnly:true there (Data
+        # Library, Data Health Check) gets an explicit override row so an
+        # upgrade never un-hides them -- that's real, intended behaviour,
+        # not something this test's own tmp dir controls.
+        before = a.read_dashboard_overrides()
+        check("no override for a dashboard this test itself did not touch",
+              "procurement" not in before)
         a.set_dashboard_admin_only("procurement", True)
         check("override set", a.read_dashboard_overrides()["procurement"]["adminOnly"] is True)
         a.set_dashboard_admin_only("procurement", False)
@@ -217,6 +258,7 @@ def main():
     test_lists_round_trip()
     test_logs_and_reports()
     test_dashboard_overrides()
+    test_mail_llm_config()
     test_migration_from_legacy_json()
     print("\n%d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1

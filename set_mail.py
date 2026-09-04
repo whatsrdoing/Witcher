@@ -10,7 +10,7 @@ requests, sign-up email verification, and the admin broadcast tool.
     python3 set_mail.py --test you@parashealth.com                  # send a test email with the saved config
     python3 set_mail.py --remove                                    # turn email features off again
 
-Writes mail_config.json to the data folder (see paths.py) -- never inside
+Writes to appstore's mail_config table (see appstore.py) -- never inside
 the app folder, never mirrored anywhere the browser can read it, same
 reasoning as auth.json's password hashes. Run this on the machine that
 holds the data folder, not through the app itself: the password this asks
@@ -19,7 +19,6 @@ whatever your mail server issues), and it has no reason to ever pass
 through a browser or get typed into any web form.
 """
 import getpass
-import os
 import sys
 
 import mail
@@ -27,11 +26,11 @@ import mail
 
 def main(argv):
     if "--remove" in argv:
-        try:
-            os.remove(mail.MAIL_CONFIG_PATH)
-            print("Email is now off -- notifications, sign-up codes, and broadcasts are skipped silently.")
-        except OSError:
+        if mail.read_mail_config() is None:
             print("Nothing to remove.")
+        else:
+            mail.write_mail_config(None)
+            print("Email is now off -- notifications, sign-up codes, and broadcasts are skipped silently.")
         return 0
 
     test_to = None
@@ -92,7 +91,7 @@ def main(argv):
         sys.exit("host, username, password, and from are all required. Nothing was saved.")
 
     mail.write_mail_config(cfg)
-    print("Saved to %s" % mail.MAIL_CONFIG_PATH)
+    print("Saved.")
     print("Admin notifications, sign-up codes, and the broadcast tool will now send for real.")
 
     if test_to:

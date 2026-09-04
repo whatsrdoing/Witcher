@@ -95,6 +95,14 @@ def _init_schema(conn):
         dashboard_id TEXT PRIMARY KEY,
         data         TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS mail_config (
+        id   INTEGER PRIMARY KEY CHECK (id = 1),
+        data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS llm_config (
+        id   INTEGER PRIMARY KEY CHECK (id = 1),
+        data TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS login_history (
         id    INTEGER PRIMARY KEY AUTOINCREMENT,
         ts    INTEGER NOT NULL,
@@ -294,6 +302,52 @@ def read_dashboards_registry():
             for d in reg.get("dashboards") or []
         ]
     return reg
+
+
+# ---------------------------------------------------------------------------
+# mail_config.json / llm_config.json -- an SMTP credential and an Anthropic
+# API key, each set locally by set_mail.py / set_llm.py, never typed into
+# the app itself and never mirrored anywhere the browser can read. Same
+# single-row idiom as auth_meta; write with cfg=None to clear it (what
+# --remove used to do by deleting the file).
+# ---------------------------------------------------------------------------
+
+def read_mail_config():
+    conn = _connect()
+    with _LOCK:
+        row = conn.execute("SELECT data FROM mail_config WHERE id=1").fetchone()
+    return json.loads(row["data"]) if row else None
+
+
+def write_mail_config(cfg):
+    conn = _connect()
+    with _LOCK, conn:
+        if cfg is None:
+            conn.execute("DELETE FROM mail_config WHERE id=1")
+        else:
+            conn.execute(
+                "INSERT INTO mail_config (id, data) VALUES (1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (json.dumps(cfg, ensure_ascii=False),))
+
+
+def read_llm_config():
+    conn = _connect()
+    with _LOCK:
+        row = conn.execute("SELECT data FROM llm_config WHERE id=1").fetchone()
+    return json.loads(row["data"]) if row else None
+
+
+def write_llm_config(cfg):
+    conn = _connect()
+    with _LOCK, conn:
+        if cfg is None:
+            conn.execute("DELETE FROM llm_config WHERE id=1")
+        else:
+            conn.execute(
+                "INSERT INTO llm_config (id, data) VALUES (1, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (json.dumps(cfg, ensure_ascii=False),))
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +646,8 @@ def _migrate_from_json(conn):
         _migrate_view_history(conn, os.path.join(d, "view_history.jsonl"))
         _migrate_ask_usage(conn, os.path.join(d, "ask_usage.jsonl"))
         _migrate_dashboard_overrides(conn, DASHBOARDS_JSON)
+        _migrate_single_config(conn, os.path.join(d, "mail_config.json"), "mail_config")
+        _migrate_single_config(conn, os.path.join(d, "llm_config.json"), "llm_config")
     except Exception as exc:                          # noqa: BLE001
         # A migration problem must never stop the server from starting --
         # the originals are untouched either way, so nothing is lost; it
@@ -640,6 +696,21 @@ def _migrate_totp(conn, path):
     for login, val in data.items():
         conn.execute("INSERT OR REPLACE INTO totp (login, data) VALUES (?,?)",
                      (login, json.dumps(val, ensure_ascii=False)))
+
+
+def _migrate_single_config(conn, path, table):
+    """mail_config.json / llm_config.json -- each one plain object, one row."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, ValueError):
+        return
+    if not isinstance(cfg, dict):
+        return
+    conn.execute("INSERT OR REPLACE INTO %s (id, data) VALUES (1, ?)" % table,
+                 (json.dumps(cfg, ensure_ascii=False),))
 
 
 def _migrate_dashboard_overrides(conn, path):

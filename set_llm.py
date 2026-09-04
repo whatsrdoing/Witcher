@@ -16,9 +16,9 @@ the workspace picker (top left) for the workspace your key belongs to, open
 Settings for that workspace, and copy its ID (starts with "wrkspc_") into
 --workspace. A plain (non-identity-linked) key doesn't need this at all.
 
-Writes llm_config.json to the data folder (see paths.py) -- never inside
+Writes to appstore's llm_config table (see appstore.py) -- never inside
 the app folder, never mirrored anywhere the browser can read it, same
-reasoning as auth.json's password hashes and mail_config.json's SMTP
+reasoning as auth.json's password hashes and mail_config's SMTP
 credentials. Run this on the machine that holds the data folder, not
 through the app itself: this is a real Anthropic API key from
 console.anthropic.com (a different account and a different bill than a
@@ -36,12 +36,11 @@ import assistant
 
 def main(argv):
     if "--remove" in argv:
-        try:
-            import os
-            os.remove(llm.LLM_CONFIG_PATH)
-            print("Assistant is now off -- __admin/ask will say so plainly instead of answering.")
-        except OSError:
+        if llm.read_llm_config() is None:
             print("Nothing to remove.")
+        else:
+            llm.write_llm_config(None)
+            print("Assistant is now off -- __admin/ask will say so plainly instead of answering.")
         return 0
 
     test_q = None
@@ -85,7 +84,7 @@ def main(argv):
     cfg.update(values)
     cfg.setdefault("model", llm.DEFAULT_MODEL)
     llm.write_llm_config(cfg)
-    print("Saved to %s" % llm.LLM_CONFIG_PATH)
+    print("Saved.")
     print("The admin-only assistant will now answer for real -- each question is billed by "
           "Anthropic per use; check console.anthropic.com for current pricing and usage.")
 

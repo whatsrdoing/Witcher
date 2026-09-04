@@ -3,44 +3,31 @@ codes, and the admin broadcast tool.
 
 Deliberately plain smtplib, no third-party dependency: this app installs
 nothing beyond the Python standard library, and that shouldn't change just
-because a mail server entered the picture. Credentials live in their own
-file under the data folder (see paths.data_dir()) -- set with `set_mail.py`,
-run locally on the machine that holds the folder, never typed into the app
-itself or committed to the app's own files.
+because a mail server entered the picture. Credentials live in appstore's
+mail_config table (see appstore.py) -- set with `set_mail.py`, run locally
+on the machine that holds the data folder, never typed into the app itself
+or committed to the app's own files.
 
 Every send in here is best-effort: a mail server being down, misconfigured,
 or simply not set up yet must never break the sign-up/request/broadcast
 flow that triggered the send. Callers get a bool back and, on failure, a
 line on the server console -- nothing more.
 """
-import json
-import os
 import smtplib
 import ssl
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 
-import paths
-
-MAIL_CONFIG_PATH = os.path.join(paths.data_dir(), "mail_config.json")
+import appstore
 
 
 def read_mail_config():
-    try:
-        with open(MAIL_CONFIG_PATH, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return None
+    return appstore.read_mail_config()
 
 
 def write_mail_config(cfg):
-    os.makedirs(os.path.dirname(MAIL_CONFIG_PATH), exist_ok=True)
-    tmp = MAIL_CONFIG_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(cfg, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, MAIL_CONFIG_PATH)
+    appstore.write_mail_config(cfg)
 
 
 def mail_enabled():

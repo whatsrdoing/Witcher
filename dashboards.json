@@ -10,6 +10,13 @@
   },
   "categories": [
     {
+      "id": "library",
+      "name": "Data Library",
+      "icon": "folder",
+      "accent": "#5B8DEF",
+      "order": 0
+    },
+    {
       "id": "procurement",
       "name": "Procurement",
       "icon": "cart",
@@ -67,6 +74,23 @@
     }
   ],
   "dashboards": [
+    {
+      "id": "data-library",
+      "name": "Data Library",
+      "category": "library",
+      "description": "Drop every register here once — CSV or Excel. The Command Centre reads each file's columns, offers it to every dashboard that needs it, and files it month-by-month into the shared database.",
+      "file": "dashboards/Data_Library.html",
+      "icon": "folder",
+      "status": "live",
+      "order": 1,
+      "tags": [
+        "upload",
+        "import",
+        "registers",
+        "files",
+        "database"
+      ]
+    },
     {
       "id": "procurement-operations",
       "name": "Procurement Operations",

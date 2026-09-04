@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><!-- paras-command-centre-idle-timeout -->
+<script>
+/* Idle timeout -- "Are you there?"
+ *
+ * After 10 minutes with no activity anywhere in the app -- the hub itself,
+ * or inside any open dashboard -- a prompt appears. "Yes" dismisses it and
+ * the clock starts over; "No", or 30 seconds of silence after the prompt
+ * appears, signs out.
+ *
+ * Dashboards load inside iframes on the hub page (see app.js's
+ * openDashboard), which are separate browsing contexts: mouse/keyboard
+ * activity inside one does not reach the parent page's own listeners. This
+ * one script plays two different roles depending on where it ends up
+ * running, so the same file can be included everywhere (the hub directly,
+ * every dashboard via sync.py's ensure_idle_timeout) without needing two
+ * versions kept in sync:
+ *
+ *   - Inside a dashboard iframe: just relays "something happened" up to
+ *     the parent page, throttled -- it does not own a clock or a prompt of
+ *     its own, since a dashboard should not show its own competing dialog.
+ *   - On the hub page (the top frame): owns the actual 10-minute clock,
+ *     listens for its own activity plus relayed messages from every open
+ *     dashboard, and is the one place that shows the prompt and signs out.
+ */
+(function (w, d) {
+  // Overridable only for testing (set before this script runs) -- real
+  // usage always gets the 10-minute/30-second defaults.
+  var IDLE_MS = w.__PARAS_IDLE_MS_OVERRIDE__ || 10 * 60 * 1000;
+  var PROMPT_SECONDS = w.__PARAS_IDLE_PROMPT_SECONDS_OVERRIDE__ || 30;
+  var ACTIVITY_EVENTS = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'wheel'];
+
+  if (w !== w.top) {
+    var lastSent = 0;
+    function relay() {
+      var now = Date.now();
+      if (now - lastSent < 2000) return;   // no need to message the parent on every pixel of mouse movement
+      lastSent = now;
+      try { w.parent.postMessage({ parasIdle: 'activity' }, '*'); } catch (e) {}
+    }
+    ACTIVITY_EVENTS.forEach(function (ev) { d.addEventListener(ev, relay, { passive: true, capture: true }); });
+    return;
+  }
+
+  var idleTimer = null, promptTimer = null, modal = null;
+
+  function resetIdle() {
+    if (modal) return;   // only an explicit Yes/No or the timeout resolves an open prompt -- background activity elsewhere should not silently dismiss it
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(showPrompt, IDLE_MS);
+  }
+
+  ACTIVITY_EVENTS.forEach(function (ev) { d.addEventListener(ev, resetIdle, { passive: true, capture: true }); });
+  w.addEventListener('message', function (e) {
+    if (e.data && e.data.parasIdle === 'activity') resetIdle();
+  });
+
+  function buildModal() {
+    var wrap = d.createElement('div');
+    wrap.id = 'idleCheck';
+    wrap.setAttribute('style',
+      'position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(8,12,22,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);');
+    wrap.innerHTML =
+      '<div style="background:#141b2b;color:#eef2f8;' +
+      'border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:26px 28px;max-width:340px;' +
+      'text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5);' +
+      'font:14px/1.5 -apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;">' +
+      '<div style="font-size:17px;font-weight:700;margin-bottom:8px;">Are you there?</div>' +
+      '<div style="opacity:.75;margin-bottom:18px;">Signing out in <span id="idleCheckSecs">' + PROMPT_SECONDS +
+      '</span>s if there is no answer.</div>' +
+      '<div style="display:flex;gap:10px;justify-content:center;">' +
+      '<button id="idleCheckNo" type="button" style="padding:9px 18px;border-radius:10px;' +
+      'border:1px solid rgba(255,255,255,.2);background:transparent;color:inherit;font:inherit;cursor:pointer;">No</button>' +
+      '<button id="idleCheckYes" type="button" style="padding:9px 18px;border-radius:10px;border:none;' +
+      'background:#2f6fed;color:#fff;font:inherit;font-weight:600;cursor:pointer;">Yes, I\'m here</button>' +
+      '</div></div>';
+    return wrap;
+  }
+
+  function showPrompt() {
+    if (modal) return;
+    modal = buildModal();
+    d.body.appendChild(modal);
+    var secs = PROMPT_SECONDS;
+    var secsEl = modal.querySelector('#idleCheckSecs');
+    modal.querySelector('#idleCheckYes').addEventListener('click', dismissPrompt);
+    modal.querySelector('#idleCheckNo').addEventListener('click', signOut);
+    promptTimer = setInterval(function () {
+      secs -= 1;
+      if (secsEl) secsEl.textContent = String(Math.max(secs, 0));
+      if (secs <= 0) signOut();
+    }, 1000);
+  }
+
+  function teardownModal() {
+    clearInterval(promptTimer);
+    promptTimer = null;
+    if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+    modal = null;
+  }
+
+  function dismissPrompt() {
+    teardownModal();
+    resetIdle();
+  }
+
+  function signOut() {
+    teardownModal();
+    if (w.ParasGate && typeof w.ParasGate.lock === 'function') {
+      w.ParasGate.lock();
+    } else {
+      if (location.protocol !== 'file:') { try { fetch('__logout', { method: 'POST' }); } catch (e) {} }
+      w.location.reload();
+    }
+  }
+
+  resetIdle();
+})(window, document);
+</script>
+<!-- /paras-command-centre-idle-timeout -->
+<!-- paras-command-centre-session-guard -->
+<script>
+/* Makes a dashboard's own localStorage-based "remember my data" behave the
+ * same way the Command Centre's SESSION / LOCAL switch already behaves for
+ * the shell itself: SESSION starts every dashboard fresh, like a private
+ * window, and keeps whatever it saves only until this tab closes; LOCAL
+ * keeps what the dashboard saved, same as today.
+ *
+ * Must run before anything else on the page, because some dashboards read
+ * localStorage synchronously while parsing the body (auto-restoring a
+ * previous upload) -- by the time a script at the bottom of the page ran,
+ * that read would already have happened. Runs before the dashboard's own
+ * markup or scripts, and never touches how the dashboard's code is written.
+ *
+ * Dashboards share the same browser origin as the Command Centre shell, so
+ * this read of 'paras.cc.mode' sees the shell's real, current mode with no
+ * cross-window messaging needed. Session mode is backed by sessionStorage --
+ * the same "gone when this tab closes" store the shell itself already uses
+ * for its own Session-mode data -- so a reload mid-session still sees what
+ * was just saved, only a fresh tab starts clean.
+ */
+(function (w) {
+  'use strict';
+  try {
+    if (w.localStorage.getItem('paras.cc.mode') !== 'session') return;
+    Object.defineProperty(w, 'localStorage', {
+      value: w.sessionStorage, configurable: true, enumerable: true,
+    });
+  } catch (e) { /* storage unavailable or non-configurable -- leave real localStorage alone */ }
+})(window);
+</script>
+<!-- /paras-command-centre-session-guard -->
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paras Health — Data Library</title>
+<!-- Offline vendored by the Command Centre (identical library versions, served from ../assets/vendor).
+     Loaded eagerly (not lazily, unlike library.js's own loadXLSX/loadPapa) so this page never tries
+     the relative 'assets/vendor/...' path those helpers use, which resolves against index.html's own
+     folder and would 404 one level down under dashboards/. Library.sniff/profile/condense see w.XLSX
+     and w.Papa already here and skip fetching a second copy. -->
+<script src="../assets/vendor/papaparse-5.4.1.min.js"></script>
+<script src="../assets/vendor/xlsx-0.18.5.full.min.js"></script>
+<script src="../assets/js/storage.js"></script>
+<script src="../assets/js/library.js"></script>
+<!-- Registry: dashboards.json is the source of truth; dashboards.js is the offline mirror that lets
+     this also work when the app is opened straight from disk (file://). Same pair index.html loads,
+     one folder up. -->
+<script src="../dashboards.js" onerror="void 0"></script>
+<script src="../assets/js/registry.js"></script>
+<style>
+:root{
+  --bg-deep:#05070a;
+  --glass-bg: rgba(255,255,255,0.055);
+  --glass-bg-strong: rgba(255,255,255,0.095);
+  --glass-border: rgba(255,255,255,0.14);
+  --glass-border-soft: rgba(255,255,255,0.09);
+  --brand-blue:#5B8DEF;
+  --brand-blue-deep:#2f5ca2;
+  --teal:#2DD4BF;
+  --amber:#FBBF24;
+  --rose:#FB7185;
+  --violet:#A78BFA;
+  --emerald:#34D399;
+  --text:#EAEFF4;
+  --text-muted:#93A1AD;
+  --text-dim:#5C6773;
+  --danger-bg: rgba(251,113,133,0.12);
+  --danger-border: rgba(251,113,133,0.45);
+  --ok-bg: rgba(45,212,191,0.12);
+  --ok-border: rgba(45,212,191,0.45);
+}
+:root[data-theme="light"]{
+  --bg-deep:#F4F5F7;
+  --glass-bg: rgba(20,22,28,0.04);
+  --glass-bg-strong: rgba(20,22,28,0.07);
+  --glass-border: rgba(20,22,28,0.12);
+  --glass-border-soft: rgba(20,22,28,0.075);
+  --text:#16181D;
+  --text-muted:#585C64;
+  --text-dim:#84878E;
+  --danger-bg: rgba(192,57,46,0.08);
+  --danger-border: rgba(192,57,46,0.35);
+  --ok-bg: rgba(18,128,90,0.10);
+  --ok-border: rgba(18,128,90,0.35);
+  color-scheme: light;
+}
+:root[data-theme="light"] body{ background:#F4F5F7; }
+:root[data-theme="light"] header{background:rgba(255,255,255,.72);}
+:root[data-theme="light"] .brand-text h1,
+:root[data-theme="light"] .panel h2,
+:root[data-theme="light"] .file-name,
+:root[data-theme="light"] .sec-name,
+:root[data-theme="light"] .sm-head{ color:var(--text); }
+:root[data-theme="light"] .dropzone{ background:rgba(20,22,28,.02); }
+:root[data-theme="light"] input[type=file]::file-selector-button{ background:rgba(20,22,28,.06); color:var(--text); }
+:root[data-theme="light"] .sec-box{ background:rgba(20,22,28,.02); }
+:root[data-theme="light"] .file-row{ background:rgba(20,22,28,.015); }
+:root[data-theme="light"] .search-input, :root[data-theme="light"] select, :root[data-theme="light"] input[type=text]{
+  background:rgba(20,22,28,.04); color:var(--text);
+}
+:root[data-theme="light"] .search-input::placeholder{ color:var(--text-dim); }
+:root[data-theme="light"] thead th{ background:#EBECEF; color:var(--text); }
+:root[data-theme="light"] ::-webkit-scrollbar-track{ background:rgba(20,22,28,.04); }
+:root[data-theme="light"] ::-webkit-scrollbar-thumb{ background:rgba(20,22,28,.16); }
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; min-height:100vh;
+  background:
+    radial-gradient(circle at 12% -8%, rgba(91,141,239,0.20), transparent 42%),
+    radial-gradient(circle at 92% 6%, rgba(45,212,191,0.12), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgba(167,139,250,0.08), transparent 45%),
+    linear-gradient(180deg, #05070a 0%, #090c11 35%, #0b0f16 100%);
+  background-attachment:fixed;
+  color:var(--text);
+  font-family:-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 70px;}
+
+.glass{
+  background:var(--glass-bg);
+  backdrop-filter:blur(26px) saturate(180%);
+  -webkit-backdrop-filter:blur(26px) saturate(180%);
+  border:1px solid var(--glass-border-soft);
+  border-radius:18px;
+  box-shadow:0 10px 34px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  position:relative;
+}
+.glass::before{
+  content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:linear-gradient(135deg, rgba(255,255,255,.09) 0%, rgba(255,255,255,0) 35%);
+}
+
+header{
+  position:sticky; top:0; z-index:100;
+  background:rgba(6,8,12,.62);
+  backdrop-filter:blur(30px) saturate(200%);
+  -webkit-backdrop-filter:blur(30px) saturate(200%);
+  border-bottom:1px solid var(--glass-border-soft);
+  padding:16px 0;
+  box-shadow:0 4px 30px rgba(0,0,0,.35);
+}
+.header-inner{max-width:1180px;margin:0 auto;padding:0 24px;display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;}
+.brand{display:flex;align-items:center;gap:16px;}
+.brand img{height:40px;display:block;filter:drop-shadow(0 2px 14px rgba(91,141,239,.4));}
+.brand-text h1{margin:0;font-size:16.5px;font-weight:700;color:#fff;letter-spacing:.2px;}
+.brand-text .tagline{font-size:11.5px;color:var(--text-muted);margin-top:2px;letter-spacing:.2px;}
+.persist-note{font-size:11.5px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+.persist-note svg{width:13px;height:13px;}
+
+.hero-spacer{height:22px;}
+.panel{padding:22px 24px;margin:0 0 20px;}
+.panel h2{margin:0 0 4px;font-size:16px;color:#fff;font-weight:700;}
+.panel .hint{color:var(--text-muted);font-size:12.5px;margin:0 0 16px;line-height:1.5;}
+
+/* ---------- dropzone ---------- */
+.dropzone{
+  border:1.5px dashed var(--glass-border); border-radius:14px; padding:26px;
+  text-align:center; cursor:pointer; transition:all .16s;
+  background:rgba(255,255,255,.02);
+}
+.dropzone:hover{border-color:var(--brand-blue); }
+.dropzone.hot{border-color:var(--brand-blue); background:rgba(91,141,239,.1); }
+.dropzone svg{width:26px;height:26px;stroke:var(--text-muted);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-bottom:8px;}
+.dropzone b{display:block;color:#fff;font-size:13.5px;margin-bottom:3px;}
+.dropzone span{color:var(--text-dim);font-size:12px;}
+
+/* ---------- sections ---------- */
+.section-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:16px;}
+.sec-box{
+  text-align:left; border:1px solid var(--glass-border-soft); border-radius:12px; padding:10px 12px;
+  background:rgba(255,255,255,.025); cursor:pointer; transition:all .14s; color:inherit; font:inherit;
+}
+.sec-box:hover{background:rgba(255,255,255,.05); border-color:var(--glass-border);}
+.sec-box.on{border-color:var(--brand-blue); background:rgba(91,141,239,.14); box-shadow:0 0 0 1px var(--brand-blue) inset;}
+.sec-box.hot{border-color:var(--teal); background:rgba(45,212,191,.14);}
+.sec-box .sec-name{display:block;font-size:12.5px;font-weight:700;color:#fff;margin-bottom:3px;}
+.sec-box .sec-sub{display:block;font-size:10.5px;color:var(--text-dim);font-weight:600;}
+.sec-box.part .sec-sub em{font-style:normal;font-weight:700;color:var(--teal);}
+.sec-all{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 4px;margin-bottom:2px;}
+.sec-all b{font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;}
+.sec-all button{background:none;border:none;color:var(--brand-blue);font-size:12px;font-weight:700;cursor:pointer;padding:0;}
+.section-months{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--glass-border-soft);}
+.sm-head{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);margin-right:4px;}
+.sm-empty{font-size:12px;color:var(--text-dim);}
+.sm-pill{background:rgba(255,255,255,.05);border:1px solid var(--glass-border-soft);border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.sm-pill b{color:#fff;font-weight:700;}
+
+/* ---------- file list ---------- */
+.file-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+.search-input{
+  flex:1;min-width:200px;background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:9px;
+  padding:9px 14px;font-size:12.5px;color:#fff;
+}
+.search-input::placeholder{color:var(--text-dim);}
+.search-input:focus{outline:none;border-color:var(--teal);background:rgba(255,255,255,.07);}
+.file-tally{font-size:11.5px;color:var(--text-dim);white-space:nowrap;}
+
+.file-row{
+  display:flex;align-items:flex-start;gap:12px;padding:12px 10px;border-radius:12px;
+  border:1px solid transparent; transition:background .12s;
+}
+.file-row:hover, .file-row:focus-within{background:rgba(255,255,255,.035);border-color:var(--glass-border-soft);}
+.file-ico{
+  flex:0 0 auto;width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+  font-size:9.5px;font-weight:800;letter-spacing:.02em;background:rgba(255,255,255,.06);color:var(--text-muted);
+}
+.file-ico.csv{color:var(--teal);background:rgba(45,212,191,.12);}
+.file-ico.xls{color:var(--emerald);background:rgba(52,211,153,.12);}
+.file-ico.pdf{color:var(--rose);background:rgba(251,113,133,.12);}
+.file-ico.img{color:var(--violet);background:rgba(167,139,250,.12);}
+.file-meta{flex:1 1 auto;min-width:0;}
+.file-name{color:#fff;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.file-name-input{width:100%;background:rgba(255,255,255,.06);border:1px solid var(--brand-blue);border-radius:7px;
+  padding:5px 8px;font-size:13px;color:#fff;font-weight:600;}
+.file-sub{font-size:11px;color:var(--text-dim);margin-top:2px;}
+.file-uses{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;}
+.file-uses span{background:rgba(91,141,239,.12);color:var(--brand-blue);border:1px solid rgba(91,141,239,.28);
+  border-radius:10px;padding:2px 8px;font-size:10px;font-weight:700;}
+.file-uses.none{font-size:10.5px;color:var(--text-dim);font-style:italic;}
+.file-warn{font-size:11px;color:var(--amber);margin-top:5px;}
+.file-acts{flex:0 0 auto;display:flex;gap:4px;align-items:center;}
+.file-acts button{
+  width:30px;height:30px;border-radius:8px;border:1px solid transparent;background:transparent;
+  color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .12s;
+}
+.file-acts button:hover{background:rgba(255,255,255,.08);color:#fff;border-color:var(--glass-border-soft);}
+.file-acts button.del:hover{color:var(--rose);background:var(--danger-bg);}
+.file-acts button.cond{color:var(--amber);}
+.file-acts svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.empty-state{padding:34px;text-align:center;color:var(--text-dim);font-size:13px;}
+.empty-state svg{width:34px;height:34px;stroke:var(--text-dim);fill:none;stroke-width:1.5;margin-bottom:10px;}
+.empty-state h3{margin:0 0 6px;color:var(--text-muted);font-size:14px;}
+.empty-state p{margin:0;max-width:420px;margin:0 auto;}
+
+/* ---------- buttons / form fields ---------- */
+.btn{
+  background:rgba(255,255,255,.05);border:1px solid var(--glass-border);color:var(--text-muted);
+  border-radius:9px;padding:9px 16px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .14s;
+  display:inline-flex;align-items:center;gap:7px;
+}
+.btn:hover{background:rgba(255,255,255,.09);color:#fff;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+.btn.primary{background:linear-gradient(135deg, var(--brand-blue) 0%, #4A6FD4 100%);color:#fff;border-color:rgba(255,255,255,.18);
+  box-shadow:0 6px 20px rgba(91,141,239,.3);}
+.btn.primary:hover{filter:brightness(1.08);}
+.btn.danger{color:var(--rose);}
+.btn.danger:hover{background:var(--danger-bg);border-color:var(--danger-border);}
+.btn.sm{padding:7px 12px;font-size:11.5px;}
+.btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;}
+
+.gate-label{display:block;font-size:11.5px;font-weight:700;color:var(--text-muted);margin:14px 0 6px;text-transform:uppercase;letter-spacing:.4px;}
+.gate-label:first-child{margin-top:0;}
+select, input[type=text]{
+  width:100%;background:rgba(255,255,255,.05);border:1px solid var(--glass-border);border-radius:9px;
+  padding:10px 12px;font-size:13px;color:#fff;font-family:inherit;
+}
+select:focus, input[type=text]:focus{outline:none;border-color:var(--brand-blue);}
+.gate-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.gate-msg{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.5;background:rgba(255,255,255,.04);color:var(--text-muted);}
+.gate-msg.warn{background:rgba(251,191,36,.1);color:var(--amber);border:1px solid rgba(251,191,36,.25);}
+.gate-msg.err{background:var(--danger-bg);color:var(--rose);border:1px solid var(--danger-border);}
+.import-guess{font-size:11.5px;color:var(--text-dim);margin:8px 0 0;}
+
+/* ---------- modals ---------- */
+.modal-scrim{
+  position:fixed;inset:0;z-index:500;background:rgba(4,6,10,.6);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;padding:20px;
+}
+.modal-scrim.open{display:flex;}
+.modal{
+  background:#12161f;border:1px solid var(--glass-border);border-radius:18px;max-width:460px;width:100%;
+  max-height:88vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.55);
+}
+:root[data-theme="light"] .modal{background:#fff;}
+.modal-head{display:flex;align-items:center;gap:10px;padding:18px 20px;border-bottom:1px solid var(--glass-border-soft);}
+.modal-head h3{margin:0;flex:1;font-size:15.5px;font-weight:700;color:#fff;}
+:root[data-theme="light"] .modal-head h3{color:var(--text);}
+.modal-body{padding:18px 20px;}
+.modal-foot{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--glass-border-soft);}
+.modal-close{background:none;border:none;color:var(--text-muted);cursor:pointer;width:28px;height:28px;
+  display:flex;align-items:center;justify-content:center;border-radius:8px;}
+.modal-close:hover{background:rgba(255,255,255,.08);color:#fff;}
+.import-file-name{color:var(--text-muted);font-size:12.5px;margin:0 0 4px;word-break:break-all;}
+
+.cond-col{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;font-size:12.5px;cursor:pointer;}
+.cond-col:hover{background:rgba(255,255,255,.04);}
+.cond-name{flex:1;color:var(--text-muted);}
+.cond-col.num .cond-name{color:#fff;}
+.cond-tag{font-size:10px;color:var(--text-dim);}
+.cond-stats{font-size:12px;color:var(--text-dim);margin-top:10px;}
+.cond-loading{padding:20px;text-align:center;color:var(--text-dim);font-size:12.5px;}
+
+.send-list{display:flex;flex-direction:column;gap:6px;max-height:340px;overflow:auto;}
+.send-row{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:11px;border:1px solid var(--glass-border-soft);
+  background:rgba(255,255,255,.02);cursor:pointer;text-align:left;color:inherit;font:inherit;}
+.send-row:hover{background:rgba(91,141,239,.1);border-color:var(--brand-blue);}
+.send-row .ico{width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+.send-row .ico svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8;}
+.send-row b{display:block;font-size:12.5px;color:#fff;}
+.send-row span{display:block;font-size:11px;color:var(--text-dim);margin-top:2px;}
+
+/* ---------- toasts ---------- */
+#toasts{position:fixed;right:18px;bottom:18px;z-index:900;display:flex;flex-direction:column;gap:8px;max-width:360px;}
+.toast{
+  background:#151a25;border:1px solid var(--glass-border);border-radius:11px;padding:11px 14px;
+  font-size:12.5px;color:var(--text);display:flex;align-items:flex-start;gap:9px;box-shadow:0 12px 30px rgba(0,0,0,.4);
+  animation:toastIn .18s ease;
+}
+:root[data-theme="light"] .toast{background:#fff;}
+.toast.warn{border-color:var(--danger-border);}
+.toast.err{border-color:var(--danger-border);}
+.toast svg{width:15px;height:15px;flex:0 0 auto;margin-top:1px;stroke:currentColor;fill:none;stroke-width:2;}
+.toast.ok svg{color:var(--emerald);}
+.toast.warn svg{color:var(--amber);}
+.toast.err svg{color:var(--rose);}
+.toast.out{animation:toastOut .22s ease forwards;}
+@keyframes toastIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+@keyframes toastOut{to{opacity:0;transform:translateY(6px);}}
+
+footer{text-align:center;color:var(--text-dim);font-size:12px;padding:24px 0 0;}
+footer b{color:var(--text-muted);}
+::-webkit-scrollbar{height:9px;width:9px;}
+::-webkit-scrollbar-track{background:rgba(255,255,255,.03);}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:10px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.22);}
+@media (max-width:640px){ .gate-2col{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAXQAAACICAYAAAD3RBCFAAAss0lEQVR4nO2deXwU9f3/XzN772YTkpBLiCkkAYIgGDk0HAbkiAVUFKoiWoX22yr9tt6lVqnV1vq1tqgt2FoSq6LATzCVSy4hAolcBgKBBHM1RiAHOTd734zn98e6S8LObHY3e2X5PB8PHg+Szc58dmfmNe95nwwhBBQKhUIZ+LChXgCFQqFQ/AMVdAqFQokQqKBTKBRKhEAFnUKhUCIEKugUCoUSIVBBp1AolAiBCjqFQqFECFTQKRQKJUKggk6hUCgRgjTUCxDCyvHYdaiKtLQbkBCrRt60TEYmofceCoVCcQcTbqX/h0vryf1//AI8AVgG4L9f3v974XZMzU5jQru68KO04lJAD6BKIYVMJoFWLUfcIHXY3FirG9pIV7dZ9PUhiVokxUcF9Xxpau0mF5p1QdufSiFFXIwKapWc0arlQduvr1g5Hme+aXJ7vo4dkRQ255gYVo5HdX0rOVd7GQ2XOtHUbkRDczfadGaYzByUCgkUMglS4lS4PlmL1CQt0lJikJWeyMTHqAK6trAS9OqGNjLmsS0YFat0ea2s0YBz/7wHWcMTqKh/j5Xjob0rn2ilEkgY/x9HjvT+qnU2DqkaGcakxmDU9YMwYXQyxo1MQkZqXNCPSeZ9/yYdZl7wc3OEwdhkDfb/476izrpljGikFxfg9ZFhqLDy0Bl4hHmVh5aMhZdSjFB+q9YOR7VDe6kHMUhYICTFXCJHKtjT2WrHrspO7GnpxdG2blR3O9DrEmB1CzC7BAiiCIVMglglR6JGgSHRakyPjcbUuGgUxukwOkEDpcz3nrl6DP9WvyoInCVN6XI4CoJl9dGGBEg0MzP8AoARFJd28RiUAAAAAElFTkSuQmCC" alt="Paras Health" id="brandLogo">
+      <div class="brand-text">
+        <h1>Data Library</h1>
+        <div class="tagline">Supply Chain Management</div>
+      </div>
+    </div>
+    <div class="persist-note" id="persistNote"></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="hero-spacer"></div>
+
+  <div class="panel glass" id="uploadPanel">
+    <h2>Add a file</h2>
+    <p class="hint">Registers, GRN, transfers — dropped once, then offered to every dashboard that needs them. <b style="color:#fff">.xlsx, .xls or .csv</b> go straight into the database once you pick a section below; anything else is just kept in the library. Everything stays on this computer.</p>
+    <div class="dropzone" id="dropzone">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V8"/><path d="m7.5 12 4.5-4.5 4.5 4.5"/><path d="M4.5 4.5h15"/></svg>
+      <b>Drop files here, or click to browse</b>
+      <span id="dropHint">Choose a section below first, so it can be filed correctly</span>
+    </div>
+    <input type="file" id="filePick" multiple hidden>
+
+    <div class="sec-all">
+      <b id="sectionSubtitle">Which register is this?</b>
+      <button type="button" id="sectionClear" style="display:none">Show everything</button>
+    </div>
+    <div id="sectionGrid" class="section-grid"></div>
+    <div id="sectionMonths" class="section-months" style="display:none"></div>
+  </div>
+
+  <div class="panel glass" id="listPanel">
+    <h2 id="listTitle">All files</h2>
+    <p class="hint" id="listHint">Everything attached so far, across every section.</p>
+    <div class="file-toolbar">
+      <input class="search-input" id="fileSearchInput" type="search" placeholder="Search files…" autocomplete="off">
+      <span class="file-tally" id="fileTally">0 files</span>
+    </div>
+    <div id="fileList"></div>
+  </div>
+
+  <footer>Paras Health — <b>SCM Gen-Dash</b> — Data Library</footer>
+</div>
+
+<!-- ============================== MODALS =============================== -->
+<div class="modal-scrim" id="importModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Add to the database</h3>
+      <button class="modal-close" id="importClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="import-file-name" id="importFile">file.csv</p>
+
+      <div id="importSheetWrap" style="display:none">
+        <label class="gate-label" for="importSheet">Which sheet?</label>
+        <select id="importSheet"></select>
+      </div>
+
+      <label class="gate-label" for="importSection">Section</label>
+      <select id="importSection"></select>
+
+      <div id="importPartWrap" style="display:none">
+        <label class="gate-label" for="importPart">Which part</label>
+        <select id="importPart"></select>
+      </div>
+
+      <label class="gate-label">Which month is this data for?</label>
+      <div class="gate-2col">
+        <select id="importMonth" aria-label="Month"></select>
+        <select id="importYear" aria-label="Year"></select>
+      </div>
+      <p class="import-guess" id="importGuess"></p>
+
+      <div class="gate-msg warn" id="importMismatch" style="display:none"></div>
+      <div class="gate-msg warn" id="importDup" style="display:none"></div>
+      <div class="gate-msg" id="importMsg" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="importCancel">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="importGo">Add to database</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="condModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="condTitle">Condense</h3>
+      <button class="modal-close" id="condClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12.5px;color:var(--text-muted);line-height:1.5;margin:0 0 14px">A file this big cannot be opened in a browser tab. Keep only the columns
+        a dashboard actually reads, and rows that agree on all of them get added together —
+        every total comes out the same.</p>
+      <div id="condCols"></div>
+      <p class="cond-stats" id="condStats"></p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="condCancel">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="condRun">Condense</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="sendModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="sendTitle">Send to a dashboard</h3>
+      <button class="modal-close" id="sendClose" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="send-list" id="sendList"></div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+(function (w, d) {
+  'use strict';
+
+  var $ = function (s, r) { return (r || d).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || d).querySelectorAll(s)); };
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+
+  var ICONS = {
+    csv:  '<path d="M13.5 3H7a1.5 1.5 0 0 0-1.5 1.5v15A1.5 1.5 0 0 0 7 21h10a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M13.5 3v5h5"/>',
+    xls:  '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9.5 9.5V19.5"/>',
+    open: '<path d="M14 4h6v6"/><path d="m20 4-8.5 8.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+    dl:   '<path d="M12 4v11"/><path d="m7.5 11 4.5 4.5 4.5-4.5"/><path d="M4.5 19.5h15"/>',
+    pencil:'<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m14.5 6.5 3 3"/>',
+    trash:'<path d="M4.5 7h15"/><path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7"/><path d="M6.5 7 7.4 19a1.5 1.5 0 0 0 1.5 1.4h6.2A1.5 1.5 0 0 0 16.6 19L17.5 7"/>',
+    send: '<path d="M12 19V8"/><path d="m7.5 12 4.5-4.5 4.5 4.5"/><path d="M4.5 4.5h15"/>',
+    bolt: '<path d="M13 3 5.5 13.5H11L10 21l8-11h-5.5z"/>',
+    inbox:'<path d="M3.5 13.5h4l1.5 3h6l1.5-3h4"/><path d="M5.6 5.2 3.5 13.5v4A1.5 1.5 0 0 0 5 19h14a1.5 1.5 0 0 0 1.5-1.5v-4l-2.1-8.3A1.5 1.5 0 0 0 16.9 4H7.1a1.5 1.5 0 0 0-1.5 1.2z"/>',
+    check:'<circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.6"/>',
+    warn: '<path d="M12 4 2.5 20.5h19z"/><path d="M12 10v4.5M12 17.6v.4"/>',
+    lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+    grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/>'
+  };
+  function ico(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (ICONS[name] || ICONS.grid) + '</svg>'; }
+
+  function toast(msg, kind, ms) {
+    var el = d.createElement('div');
+    el.className = 'toast ' + (kind || 'ok');
+    el.innerHTML = ico(kind === 'err' ? 'warn' : kind === 'warn' ? 'warn' : 'check') + '<span>' + esc(msg) + '</span>';
+    $('#toasts').appendChild(el);
+    setTimeout(function () {
+      el.classList.add('out');
+      setTimeout(function () { el.remove(); }, 260);
+    }, ms || 3600);
+  }
+
+  /* ===================== registry / state ================================ */
+  var REG = null;
+  var section = '';        // '' = show everything, otherwise a dataset id
+  var sectionPart = '';
+  var dbSummary = null;
+  var renaming = null;
+  var ALL_FILES = ' all';
+
+  function sectionScope(id) { return 'ds:' + id; }
+  function scopeFor() { return section ? sectionScope(section) : ALL_FILES; }
+  function sectionById(id) {
+    var list = (REG && REG.datasets) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+    return null;
+  }
+  function partsOf(dsId) {
+    var ds = sectionById(dsId);
+    return (ds && ds.parts && ds.parts.length) ? ds.parts : null;
+  }
+  function partName(dsId, partId) {
+    var ps = partsOf(dsId) || [];
+    for (var i = 0; i < ps.length; i++) if (ps[i].id === partId) return ps[i].name;
+    return '';
+  }
+
+  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+  function guessPeriod(name) {
+    var s = String(name || '');
+    var m = /(20\d{2})[-_ ]?(0[1-9]|1[0-2])(?!\d)/.exec(s);
+    if (m) return m[1] + '-' + m[2];
+    m = /(0[1-9]|1[0-2])[-_ ]?(20\d{2})(?!\d)/.exec(s);
+    if (m) return m[2] + '-' + m[1];
+    m = /([a-z]{3,9})[-_ ]?(20\d{2}|\d{2})(?!\d)/i.exec(s);
+    if (m) {
+      var mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
+      if (mo) { var y = m[2].length === 2 ? '20' + m[2] : m[2]; return y + '-' + (mo < 10 ? '0' : '') + mo; }
+    }
+    return '';
+  }
+
+  function kindOf(name, type) {
+    var e = (String(name).split('.').pop() || '').toLowerCase();
+    if (e === 'pdf') return 'pdf';
+    if (['xlsx', 'xls', 'xlsm', 'ods'].indexOf(e) >= 0) return 'xls';
+    if (['csv', 'tsv'].indexOf(e) >= 0) return 'csv';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].indexOf(e) >= 0) return 'img';
+    if (/^image\//.test(type || '')) return 'img';
+    return e.slice(0, 4) || 'file';
+  }
+  function fmtSize(n) {
+    if (!n && n !== 0) return '';
+    var u = ['B', 'KB', 'MB', 'GB'], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + ' ' + u[i];
+  }
+  function fmtDate(t) {
+    try { return new Date(t).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+    catch (e) { return ''; }
+  }
+  function isBig(r) { return r.size > w.Library.BIG_FILE && /\.(csv|tsv|txt)$/i.test(r.name); }
+
+  /* ===================== database summary ================================ */
+  function loadDbSummary() {
+    if (!w.Store.Files.onDisk()) return Promise.resolve(null);
+    var attempt = function (retryOn401) {
+      return fetch('../__data', { cache: 'no-store' }).then(function (r) {
+        if (r.status === 401 && retryOn401) {
+          return new Promise(function (res) { setTimeout(res, 300); }).then(function () { return attempt(false); });
+        }
+        return r.ok ? r.json() : null;
+      });
+    };
+    return attempt(true).then(function (j) { dbSummary = (j && j.datasets) || []; return dbSummary; })
+      .catch(function () { return null; });
+  }
+  function storedFor(id) {
+    return (dbSummary || []).filter(function (d) { return d.dataset === id; })[0] || null;
+  }
+
+  /* ===================== section picker ==================================== */
+  function renderSectionPicker() {
+    var host = $('#sectionGrid');
+    var list = (REG && REG.datasets) || [];
+    $('#sectionClear').style.display = section ? 'inline' : 'none';
+    $('#sectionSubtitle').textContent = section ? 'Filed into ' + ((sectionById(section) || {}).name || section) : 'Which register is this?';
+    if (!list.length) { host.innerHTML = ''; return; }
+
+    var html = [];
+    list.forEach(function (ds) {
+      var st = storedFor(ds.id);
+      var parts = (ds.parts && ds.parts.length) ? ds.parts : null;
+
+      if (!parts) {
+        var sub = st && st.periods.length
+          ? st.periods.length + (st.periods.length === 1 ? ' month · ' : ' months · ') + st.rows.toLocaleString() + ' rows'
+          : 'nothing stored yet';
+        html.push('<button type="button" class="sec-box' + (section === ds.id && !sectionPart ? ' on' : '') +
+          '" data-sec="' + esc(ds.id) + '" data-part="" title="' + esc(ds.hint || ds.name) + '">' +
+          '<span class="sec-name">' + esc(ds.name) + '</span><span class="sec-sub">' + esc(sub) + '</span></button>');
+        return;
+      }
+      parts.forEach(function (pt) {
+        var months = 0, rows = 0;
+        ((st && st.periods) || []).forEach(function (per) {
+          (per.parts || []).forEach(function (pp) { if (pp.part === pt.id) { months++; rows += pp.rows || 0; } });
+        });
+        var psub = months ? months + (months === 1 ? ' month · ' : ' months · ') + rows.toLocaleString() + ' rows' : 'nothing stored yet';
+        html.push('<button type="button" class="sec-box part' + (section === ds.id && sectionPart === pt.id ? ' on' : '') +
+          '" data-sec="' + esc(ds.id) + '" data-part="' + esc(pt.id) + '" title="' + esc(ds.name + ' — ' + pt.name) + '">' +
+          '<span class="sec-name">' + esc(pt.name) + '</span><span class="sec-sub"><em>' + esc(ds.name) + '</em> · ' + esc(psub) + '</span></button>');
+      });
+    });
+    host.innerHTML = html.join('');
+  }
+
+  function renderSectionMonths() {
+    var box = $('#sectionMonths');
+    if (!section) { box.style.display = 'none'; return; }
+    var ds = storedFor(section);
+    box.style.display = 'flex';
+    if (!ds || !ds.periods.length) { box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>'; return; }
+    var pills = [], total = 0;
+    ds.periods.forEach(function (p) {
+      if (sectionPart) {
+        var mine = (p.parts || []).filter(function (pp) { return pp.part === sectionPart; })[0];
+        if (!mine) return;
+        total += mine.rows;
+        pills.push({ period: p.period, rows: mine.rows, source: mine.source });
+      } else {
+        total += p.rows;
+        var made = (p.parts || []).filter(function (pp) { return pp.part; });
+        pills.push({ period: p.period, rows: p.rows, source: made.length > 1
+          ? made.length + ' files: ' + made.map(function (pp) { return partName(section, pp.part) || pp.part; }).join(', ')
+          : p.source });
+      }
+    });
+    if (!pills.length) { box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>'; return; }
+    box.innerHTML = '<span class="sm-head">' + total.toLocaleString() + ' rows stored</span>' +
+      pills.map(function (p) {
+        return '<span class="sm-pill" title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows">' +
+          esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b></span>';
+      }).join('');
+  }
+
+  function chooseSection(id, part) {
+    section = id || '';
+    sectionPart = section ? (part || '') : '';
+    invalidateFiles();
+    renderSectionPicker(); renderSectionMonths(); renderListHead(); renderFiles();
+  }
+
+  function renderListHead() {
+    var sec = section ? sectionById(section) : null;
+    var pn = sec && sectionPart ? partName(section, sectionPart) : '';
+    $('#listTitle').textContent = sec ? (pn ? sec.name + ' — ' + pn : sec.name) : 'All files';
+    $('#listHint').textContent = sec
+      ? (pn ? 'One of the ' + sec.name + ' files for a month.' : (sec.hint || 'Filed by month into the database.'))
+      : 'Everything attached so far — choose a section above to file a new one.';
+    $('#dropHint').textContent = sec
+      ? 'Name it with the month, e.g. "2026-07 ' + (pn || sec.name) + '.csv"'
+      : 'Choose a section above first, so it can be filed correctly';
+  }
+
+  /* ===================== file list ========================================= */
+  var fileCache = { scope: null, rows: null };
+  function invalidateFiles() { fileCache.scope = null; fileCache.rows = null; }
+
+  function libraryFiles() {
+    return w.Store.Files.listAll().then(function (rows) {
+      return rows.filter(function (r) { return r.dashboardId === w.Library.ID || /^ds:/.test(r.dashboardId || ''); });
+    });
+  }
+  function loadFiles(scope) {
+    if (fileCache.scope === scope && fileCache.rows) return Promise.resolve(fileCache.rows);
+    var got = scope === ALL_FILES ? libraryFiles() : w.Store.Files.list(scope);
+    return got.then(function (rows) {
+      rows = rows.slice().sort(function (a, b) { return b.addedAt - a.addedAt; });
+      fileCache.scope = scope; fileCache.rows = rows;
+      return rows;
+    });
+  }
+
+  var usedByCache = Object.create(null);
+  function usedBy(file) {
+    var ck = file.id + '' + file.name;
+    if (usedByCache[ck]) return usedByCache[ck];
+    var scored = [];
+    (REG.dashboards || []).forEach(function (db) {
+      if (db.id === 'data-library') return;
+      (db.inputs || []).forEach(function (slot) {
+        var r = w.Library.score(file, slot);
+        if (r.score >= 70) scored.push({ id: db.id, name: db.name, slot: slot.label, score: r.score });
+      });
+    });
+    scored.sort(function (a, b) { return b.score - a.score; });
+    var seen = {}, out = [];
+    scored.forEach(function (x) { if (seen[x.slot]) return; seen[x.slot] = 1; out.push(x); });
+    out = out.slice(0, 3);
+    usedByCache[ck] = out;
+    return out;
+  }
+  function usedByHtml(file) {
+    var uses = usedBy(file);
+    if (!uses.length) return '<div class="file-uses none">No dashboard matched — use Send to pick one by hand</div>';
+    return '<div class="file-uses">' + uses.map(function (u) {
+      return '<span title="' + esc(u.name) + ' · ' + esc(u.slot) + '">' + esc(u.slot) + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function renderFiles() {
+    var scope = scopeFor();
+    var q = ($('#fileSearchInput').value || '').trim().toLowerCase();
+    loadFiles(scope).then(function (rows) {
+      var shown = q ? rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) >= 0; }) : rows;
+      var host = $('#fileList');
+      if (!shown.length) {
+        var d0 = (!q && section) ? storedFor(section) : null;
+        var hasDbRows = d0 && d0.periods.length &&
+          (!sectionPart || d0.periods.some(function (p) { return (p.parts || []).some(function (pp) { return pp.part === sectionPart; }); }));
+        host.innerHTML = '<div class="empty-state">' + ico('inbox') +
+          '<h3>' + (q ? 'Nothing matches' : 'No files attached') + '</h3>' +
+          '<p>' + (q ? 'Try a different search.' : (hasDbRows
+            ? 'That is normal here: the data above is already in the database and does not need its source file to stay attached. Drop a file to add another month, or to replace one.'
+            : 'Drop your registers here once. The Command Centre reads each file\'s columns and offers it to every dashboard that needs it.')) + '</p></div>';
+      } else {
+        host.innerHTML = shown.map(function (r) {
+          var k = kindOf(r.name, r.type);
+          var isRen = renaming === r.id;
+          return '<div class="file-row" data-fid="' + esc(r.id) + '" data-ftype="' + esc(r.type || '') + '" data-fsize="' + esc(r.size || 0) + '">' +
+            '<div class="file-ico ' + esc(k) + '">' + esc(k.toUpperCase()) + '</div>' +
+            '<div class="file-meta">' +
+              (isRen
+                ? '<input class="file-name-input" value="' + esc(r.name) + '" data-rename-input="' + esc(r.id) + '">'
+                : '<div class="file-name" title="' + esc(r.name) + '">' + esc(r.name) + '</div>') +
+              '<div class="file-sub">' + esc(fmtSize(r.size)) + ' · ' + esc(fmtDate(r.addedAt)) +
+                (r.headers && r.headers.length ? ' · ' + r.headers.length + ' columns' : '') + '</div>' +
+              usedByHtml(r) +
+              (isBig(r) ? '<div class="file-warn">' + esc(fmtSize(r.size)) + ' — too large to send to a dashboard directly. Condense it first (⚡).</div>' : '') +
+            '</div>' +
+            '<div class="file-acts">' +
+              (isBig(r) ? '<button class="cond" data-fcond="' + esc(r.id) + '" title="Too large — condense it">' + ico('bolt') + '</button>' : '') +
+              '<button data-fsend="' + esc(r.id) + '" title="Send to a dashboard">' + ico('send') + '</button>' +
+              '<button data-ftab="' + esc(r.id) + '" title="Open in a new tab">' + ico('open') + '</button>' +
+              '<button data-fdl="' + esc(r.id) + '" title="Download">' + ico('dl') + '</button>' +
+              '<button data-fren="' + esc(r.id) + '" title="Rename">' + ico('pencil') + '</button>' +
+              '<button class="del" data-fdel="' + esc(r.id) + '" title="Delete">' + ico('trash') + '</button>' +
+            '</div></div>';
+        }).join('');
+        var inp = $('[data-rename-input]', host);
+        if (inp) { inp.focus(); inp.select(); }
+      }
+      $('#fileTally').textContent = rows.length + (rows.length === 1 ? ' file' : ' files') +
+        (rows.length ? ' · ' + fmtSize(rows.reduce(function (n, r) { return n + (r.size || 0); }, 0)) : '');
+      $('#persistNote').innerHTML = w.Store.Files.persistent()
+        ? ico('lock') + '<span>Saved on this computer</span>'
+        : ico('bolt') + '<span>Temporary (this tab only)</span>';
+    });
+  }
+
+  /* ===================== add / rename / delete ============================ */
+  function addFiles(scope, fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    if (scope === ALL_FILES) {
+      toast('Choose a section above first — that is what decides where the file is filed.', 'warn', 7000);
+      return;
+    }
+    var sec = section ? sectionById(section) : null;
+    var where = sec ? sec.name : 'the Data Library';
+    if (files.length > 1 || files[0].size > 2e6) toast('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…', 'ok', 2000);
+    Promise.all(files.map(function (f) {
+      return w.Library.sniff(f).then(function (headers) { return w.Store.Files.add(scope, f, headers); });
+    }))
+      .then(function (added) {
+        invalidateFiles(); usedByCache = Object.create(null);
+        renderFiles(); renderSectionPicker(); renderSectionMonths();
+        var fellBack = (added || []).some(function (m) { return m && m.keptInBrowser; });
+        if (fellBack) {
+          toast('The local server is not answering, so ' + (files.length === 1 ? 'that file was' : 'those files were') +
+            ' kept in this browser, not in data/library. Start serve.py again, then re-add.', 'warn', 12000);
+        } else {
+          toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
+        }
+        if (section && w.Store.Files.onDisk()) offerImports(added || []);
+        else if (section && !w.Store.Files.onDisk()) {
+          toast('Filed as a file, but the database is not reachable, so nothing was added to ' +
+            ((sectionById(section) || {}).name || 'the section') + '. Start serve.py and drop it again.', 'warn', 10000);
+        }
+      })
+      .catch(function (e) {
+        var msg = (e && e.message) || String(e);
+        if (/failed to fetch|networkerror|load failed/i.test(msg)) msg = 'the local server is not running. Start serve.py and try again.';
+        toast('Could not attach: ' + msg, 'err', 10000);
+      });
+  }
+
+  function commitRename(id, name) {
+    name = (name || '').trim();
+    renaming = null;
+    if (!name) { renderFiles(); return; }
+    w.Store.Files.rename(id, name).then(function () {
+      invalidateFiles(); usedByCache = Object.create(null); renderFiles(); toast('Renamed.', 'ok');
+    });
+  }
+
+  function deleteFile(id, name) {
+    if (!w.confirm('Delete "' + name + '"? The file is removed from this workspace. Your original copy on disk is untouched.')) return;
+    w.Store.Files.remove(id).then(function () {
+      invalidateFiles(); usedByCache = Object.create(null); renderFiles();
+      toast('File deleted.', 'ok');
+    });
+  }
+
+  function withBlob(id, fn) {
+    w.Store.Files.blob(id).then(function (b) {
+      if (!b) return toast('That file is no longer in the workspace.', 'warn');
+      fn(b);
+    });
+  }
+  function downloadFile(id, name) {
+    withBlob(id, function (b) {
+      var url = URL.createObjectURL(b);
+      var a = d.createElement('a');
+      a.href = url; a.download = name || 'file';
+      d.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 20000);
+    });
+  }
+  function openInTab(id, name) {
+    withBlob(id, function (b) {
+      var url = URL.createObjectURL(b);
+      w.open(url, '_blank', 'noopener');
+      setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
+    });
+  }
+
+  /* ===================== condensing an oversized export ==================== */
+  var condenseFile = null, condenseCols = null, condenseBlob = null;
+  function suggestedKeep(fileMeta) {
+    var best = null, bestScore = 0;
+    (REG.dashboards || []).forEach(function (db) {
+      (db.inputs || []).forEach(function (slot) {
+        if (!slot.keep || !slot.keep.length) return;
+        var r = w.Library.score(fileMeta, slot);
+        if (r.score > bestScore) { bestScore = r.score; best = slot.keep; }
+      });
+    });
+    return bestScore >= 60 ? best : null;
+  }
+  function openCondense(fileMeta) {
+    condenseFile = fileMeta;
+    $('#condTitle').textContent = 'Condense "' + fileMeta.name + '"';
+    $('#condCols').innerHTML = '<div class="cond-loading">Reading the columns…</div>';
+    $('#condStats').textContent = fmtSize(fileMeta.size) + ' — too large for a browser tab to open directly.';
+    $('#condRun').disabled = true;
+    $('#condModal').classList.add('open');
+
+    w.Store.Files.blob(fileMeta.id).then(function (blob) {
+      if (!blob) throw new Error('that file is no longer in the workspace');
+      condenseBlob = blob;
+      return w.Library.profile(blob, 400);
+    }).then(function (cols) {
+      condenseCols = cols;
+      var suggested = suggestedKeep(fileMeta);
+      $('#condCols').innerHTML = cols.map(function (c, i) {
+        var on = !suggested || suggested.some(function (k) { return w.Library.tokens(k).join(' ') === w.Library.tokens(c.name).join(' '); });
+        return '<label class="cond-col' + (c.numeric ? ' num' : '') + '">' +
+          '<input type="checkbox" data-col="' + i + '"' + (on ? ' checked' : '') + '>' +
+          '<span class="cond-name">' + esc(c.name) + '</span><span class="cond-tag">' + (c.numeric ? 'Σ added up' : 'grouped') + '</span></label>';
+      }).join('');
+      $('#condRun').disabled = false;
+      $('#condStats').textContent = fmtSize(fileMeta.size) + ' · ' + cols.length + ' columns. Ticked columns are kept; number columns are added up.';
+    }).catch(function (e) {
+      $('#condCols').innerHTML = '<div class="cond-loading">Could not read the columns: ' + esc(e && e.message || e) + '</div>';
+    });
+  }
+  function closeCondense() {
+    $('#condModal').classList.remove('open');
+    condenseFile = null; condenseCols = null; condenseBlob = null;
+  }
+  function runCondense() {
+    if (!condenseFile || !condenseCols) return;
+    var picked = $$('#condCols input[type=checkbox]').filter(function (b) { return b.checked; }).map(function (b) { return condenseCols[+b.dataset.col]; });
+    if (!picked.length) return toast('Tick at least one column.', 'warn');
+    var keys = picked.filter(function (c) { return !c.numeric; }).map(function (c) { return c.name; });
+    var sums = picked.filter(function (c) { return c.numeric; }).map(function (c) { return c.name; });
+    var meta = condenseFile;
+    $('#condRun').disabled = true;
+    $('#condStats').textContent = 'Reading… this runs in the background and never loads the whole file.';
+    var haveBlob = condenseBlob ? Promise.resolve(condenseBlob) : w.Store.Files.blob(meta.id);
+    haveBlob.then(function (blob) {
+      if (!blob) throw new Error('that file is no longer in the workspace');
+      return w.Library.condense(blob, { keys: keys, sums: sums, onProgress: function (p) {
+        $('#condStats').textContent = p.read.toLocaleString() + ' rows read · ' + p.kept.toLocaleString() + ' combined rows so far';
+      } });
+    }).then(function (out) {
+      var name = meta.name.replace(/\.[^.]+$/, '') + ' (condensed).csv';
+      var file = new File([out.blob], name, { type: 'text/csv' });
+      var fileScope = section ? sectionScope(section) : w.Library.ID;
+      return w.Library.sniff(file).then(function (headers) { return w.Store.Files.add(fileScope, file, headers); })
+        .then(function () {
+          $('#condRun').disabled = false;
+          closeCondense();
+          invalidateFiles(); usedByCache = Object.create(null);
+          renderFiles(); renderSectionPicker(); renderSectionMonths();
+          toast(out.rowsIn.toLocaleString() + ' rows became ' + out.rowsOut.toLocaleString() + ' — ' +
+            fmtSize(meta.size) + ' down to ' + fmtSize(out.blob.size) + '. Totals are unchanged.', 'ok', 9000);
+        });
+    }).catch(function (e) {
+      $('#condRun').disabled = false;
+      $('#condStats').textContent = '';
+      toast('Could not condense: ' + (e && e.message || e), 'err', 11000);
+    });
+  }
+
+  /* ===================== spreadsheets ====================================== */
+  var SHEET_EXT = /\.(xlsx|xlsm|xlsb|xls|ods)$/i;
+  function readWorkbook(blob) {
+    return blob.arrayBuffer().then(function (buf) {
+      try { return readWorkbookInWorker(buf); } catch (e) { return readWorkbookHere(buf); }
+    });
+  }
+  function readWorkbookInWorker(buf) {
+    return new Promise(function (resolve, reject) {
+      var worker = new Worker('../assets/js/xlsx-worker.js');
+      var settled = false;
+      function fail(msg) { if (settled) return; settled = true; worker.terminate(); reject(new Error(msg)); }
+      worker.onerror = function (e) { e.preventDefault && e.preventDefault(); fail((e && e.message) || 'could not read that spreadsheet'); };
+      worker.onmessage = function (e) {
+        var msg = e.data || {};
+        if (msg.type === 'names') {
+          if (settled) return;
+          settled = true;
+          resolve({
+            names: msg.names,
+            toCsv: function (name) {
+              return new Promise(function (res2, rej2) {
+                var mh = function (e2) {
+                  var m2 = e2.data || {};
+                  if (m2.type === 'csv' && m2.name === name) { worker.removeEventListener('message', mh); worker.terminate(); res2(m2.csv); }
+                  else if (m2.type === 'error') { worker.removeEventListener('message', mh); worker.terminate(); rej2(new Error(m2.message)); }
+                };
+                worker.addEventListener('message', mh);
+                worker.postMessage({ type: 'sheet', name: name });
+              });
+            }
+          });
+        } else if (msg.type === 'error') { fail(msg.message); }
+      };
+      worker.postMessage({ type: 'open', bytes: buf }, [buf]);
+    });
+  }
+  function readWorkbookHere(buf) {
+    return w.Library.loadXLSX().then(function (XLSX) {
+      var wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true, cellDates: true });
+      var names = (wb.SheetNames || []).filter(function (n) { var ws = wb.Sheets[n]; return ws && (ws['!ref'] || (ws.length || 0) > 0); });
+      return {
+        names: names.length ? names : (wb.SheetNames || []),
+        toCsv: function (name) {
+          var ws = wb.Sheets[name];
+          if (!ws) return Promise.reject(new Error('sheet "' + name + '" is not in that file'));
+          return Promise.resolve(XLSX.utils.sheet_to_csv(ws, { dateNF: 'dd-mmm-yyyy', blankrows: false }));
+        }
+      };
+    });
+  }
+
+  /* ===================== filing into the database ========================== */
+  var importQueue = [], pendingImport = null, pendingBook = null;
+
+  function offerImports(added) {
+    var can = [], cannot = [];
+    (added || []).forEach(function (m) {
+      if (!m || !m.name) return;
+      if (/\.(csv|tsv|txt)$/i.test(m.name) || SHEET_EXT.test(m.name)) can.push(m); else cannot.push(m.name);
+    });
+    if (cannot.length) {
+      toast(cannot.length === 1
+        ? '"' + cannot[0] + '" was attached, but only spreadsheets and CSV files can go into the database.'
+        : cannot.length + ' files were attached but cannot go into the database — only spreadsheets and CSV files can.', 'warn', 9000);
+    }
+    importQueue = can.slice(1);
+    if (can.length) askImport(can[0]);
+  }
+  function nextImport() {
+    var nxt = importQueue.shift();
+    if (nxt) setTimeout(function () { askImport(nxt); }, 250);
+  }
+  function sectionFit(ds, headers) {
+    var d0 = sectionById(ds);
+    var needs = (d0 && d0.needs) || [];
+    if (!needs.length || !headers || !headers.length) return null;
+    var hit = needs.filter(function (n) {
+      var nn = String(n).toLowerCase().replace(/[^a-z0-9]+/g, '');
+      return headers.some(function (h) { var hh = String(h).toLowerCase().replace(/[^a-z0-9]+/g, ''); return hh === nn || hh.indexOf(nn) >= 0 || nn.indexOf(hh) >= 0; });
+    });
+    return { hit: hit.length, need: needs.length, missing: needs.filter(function (n) { return hit.indexOf(n) < 0; }) };
+  }
+  function bestSection(headers) {
+    var best = null;
+    ((REG && REG.datasets) || []).forEach(function (d0) {
+      var f = sectionFit(d0.id, headers);
+      if (!f || !f.need) return;
+      var r = f.hit / f.need;
+      if (r >= 0.6 && (!best || r > best.ratio)) best = { id: d0.id, name: d0.name, ratio: r };
+    });
+    return best;
+  }
+
+  function askImport(fileMeta) {
+    pendingImport = fileMeta;
+    $('#importSection').innerHTML = ((REG && REG.datasets) || []).map(function (d0) {
+      return '<option value="' + esc(d0.id) + '"' + (d0.id === section ? ' selected' : '') + '>' + esc(d0.name) + '</option>';
+    }).join('');
+
+    var now = new Date(), yNow = now.getFullYear();
+    var g = guessPeriod(fileMeta.name);
+    var gy = g ? +g.slice(0, 4) : yNow;
+    var gm = g ? +g.slice(5, 7) : now.getMonth() + 1;
+    $('#importMonth').innerHTML = MONTH_NAMES.map(function (n, i) {
+      return '<option value="' + (i + 1) + '"' + (i + 1 === gm ? ' selected' : '') + '>' + n + '</option>';
+    }).join('');
+    var years = [];
+    for (var y = yNow + 1; y >= yNow - 6; y--) years.push(y);
+    if (years.indexOf(gy) < 0) years.unshift(gy);
+    $('#importYear').innerHTML = years.map(function (y2) {
+      return '<option value="' + y2 + '"' + (y2 === gy ? ' selected' : '') + '>' + y2 + '</option>';
+    }).join('');
+
+    renderImportPart();
+    $('#importFile').textContent = fileMeta.name;
+    $('#importGuess').textContent = g ? 'Month and year read from the file name. Change them if that is not right.' : 'Could not tell the month from the file name — please choose it.';
+    $('#importMsg').style.display = 'none';
+    $('#importSheetWrap').style.display = 'none';
+    $('#importSheet').innerHTML = '';
+    pendingBook = null;
+    $('#importModal').classList.add('open');
+
+    if (SHEET_EXT.test(fileMeta.name)) {
+      $('#importMsg').style.display = 'block'; $('#importMsg').className = 'gate-msg'; $('#importMsg').textContent = 'Opening the spreadsheet…';
+      $('#importGo').disabled = true;
+      w.Store.Files.blob(fileMeta.id).then(function (blob) {
+        if (!blob) throw new Error('that file is no longer in the workspace');
+        return readWorkbook(blob);
+      }).then(function (book) {
+        if (pendingImport !== fileMeta) return;
+        pendingBook = book;
+        $('#importGo').disabled = false;
+        $('#importMsg').style.display = 'none';
+        $('#importSheet').innerHTML = book.names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+        $('#importSheetWrap').style.display = book.names.length > 1 ? 'block' : 'none';
+        checkDup();
+      }).catch(function (e) {
+        $('#importGo').disabled = false;
+        $('#importMsg').style.display = 'block'; $('#importMsg').className = 'gate-msg err';
+        $('#importMsg').textContent = 'Could not read that spreadsheet: ' + (e && e.message || e);
+      });
+      return;
+    }
+    checkDup();
+  }
+  function importPart() {
+    var ds = $('#importSection').value;
+    var ps = partsOf(ds);
+    if (!ps) return '';
+    var chosen = $('#importPart') && $('#importPart').value;
+    return chosen || (ds === section ? sectionPart : '') || ps[0].id;
+  }
+  function renderImportPart() {
+    var ds = $('#importSection').value;
+    var ps = partsOf(ds);
+    var wrap = $('#importPartWrap');
+    if (!ps) { wrap.style.display = 'none'; $('#importPart').innerHTML = ''; return; }
+    var want = (ds === section && sectionPart) ? sectionPart : ps[0].id;
+    $('#importPart').innerHTML = ps.map(function (pt) {
+      return '<option value="' + esc(pt.id) + '"' + (pt.id === want ? ' selected' : '') + '>' + esc(pt.name) + '</option>';
+    }).join('');
+    wrap.style.display = 'block';
+  }
+  function importPeriod() {
+    var m = +$('#importMonth').value, y = +$('#importYear').value;
+    if (!m || !y) return '';
+    return y + '-' + (m < 10 ? '0' : '') + m;
+  }
+  function checkDup() {
+    var ds = $('#importSection').value, per = importPeriod();
+    var box = $('#importDup');
+    var mm = $('#importMismatch');
+    var fit = sectionFit(ds, (pendingImport && pendingImport.headers) || []);
+    if (fit && fit.hit / fit.need < 0.5) {
+      var elsewhere = bestSection(pendingImport.headers);
+      mm.style.display = 'block';
+      mm.textContent = 'This does not look like ' + (sectionById(ds) || {}).name + ' — only ' + fit.hit + ' of ' + fit.need + ' expected columns are there' +
+        (fit.missing.length ? ' (missing ' + fit.missing.slice(0, 3).join(', ') + ')' : '') + '.' +
+        (elsewhere && elsewhere.id !== ds ? ' It looks like ' + elsewhere.name + '.' : '') + ' Add it anyway only if you are sure.';
+    } else { mm.style.display = 'none'; }
+    var d0 = storedFor(ds);
+    var hit = d0 && d0.periods.filter(function (p) { return p.period === per; })[0];
+    if (hit) {
+      box.style.display = 'block';
+      box.textContent = per + ' is already in ' + (sectionById(ds) || {}).name + ' — ' + hit.rows.toLocaleString() + ' rows from "' + hit.source + '". Adding this replaces it.';
+    } else { box.style.display = 'none'; }
+    $('#importGo').disabled = !per;
+  }
+  function closeImport(skipQueue) {
+    $('#importModal').classList.remove('open');
+    pendingImport = null; pendingBook = null;
+    $('#importGo').disabled = false;
+    if (!skipQueue) nextImport();
+  }
+  function runImport() {
+    if (!pendingImport) return;
+    var ds = $('#importSection').value, per = importPeriod();
+    if (!per) return;
+    var btn = $('#importGo');
+    btn.disabled = true;
+    $('#importMsg').style.display = 'block'; $('#importMsg').className = 'gate-msg'; $('#importMsg').textContent = 'Reading the file into the database…';
+
+    var send;
+    if (pendingBook) {
+      var sheet = $('#importSheet').value || pendingBook.names[0];
+      var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
+      send = pendingBook.toCsv(sheet).then(function (csv) {
+        var blob = new Blob([csv], { type: 'text/csv' });
+        var url = '../__data/import?dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per) +
+                    '&part=' + encodeURIComponent(importPart()) + '&source=' + encodeURIComponent(label);
+        return function () { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8' }, body: blob }); };
+      }, function (e) { throw new Error('Could not read that sheet: ' + (e && e.message || e)); });
+    } else {
+      var url2 = '../__data/import?fileId=' + encodeURIComponent(pendingImport.id) + '&dataset=' + encodeURIComponent(ds) +
+                  '&period=' + encodeURIComponent(per) + '&part=' + encodeURIComponent(importPart());
+      send = Promise.resolve(function () { return fetch(url2, { method: 'POST' }); });
+    }
+    send.then(function (doFetch) {
+      var attempt = function (retryOn401) {
+        return doFetch().then(function (r) {
+          if (r.status === 401 && retryOn401) return new Promise(function (res) { setTimeout(res, 300); }).then(function () { return attempt(false); });
+          return r.json().then(function (j) { return { ok: r.ok, j: j }; });
+        });
+      };
+      return attempt(true);
+    }).then(function (res) {
+      btn.disabled = false;
+      if (!res.ok) throw new Error(res.j.error || 'import failed');
+      closeImport();
+      return loadDbSummary().then(function () {
+        renderSectionPicker(); renderSectionMonths();
+        var pnm = res.j.part ? partName(ds, res.j.part) : '';
+        toast(res.j.rows.toLocaleString() + ' rows added to ' + (sectionById(ds) || {}).name + (pnm ? ' — ' + pnm : '') + ' for ' + per + '.', 'ok', 6000);
+      });
+    }).catch(function (e) {
+      btn.disabled = false;
+      $('#importMsg').className = 'gate-msg err';
+      $('#importMsg').textContent = /^Could not read that sheet/.test(e && e.message || '') ? e.message : 'Could not add it: ' + (e && e.message || e);
+    });
+  }
+
+  /* ===================== send a file into a dashboard ====================== */
+  var sendFile = null;
+  function openSendPicker(file) {
+    sendFile = file;
+    var candidates = [];
+    (REG.dashboards || []).forEach(function (db) {
+      if (db.id === 'data-library' || !db.file) return;
+      var best = 0, bestSlot = null;
+      (db.inputs || []).forEach(function (slot) {
+        var r = w.Library.score(file, slot);
+        if (r.score > best) { best = r.score; bestSlot = slot; }
+      });
+      if (best >= 70) candidates.push({ db: db, slot: bestSlot, score: best });
+    });
+    candidates.sort(function (a, b) { return b.score - a.score; });
+    $('#sendTitle').textContent = 'Send "' + file.name + '" to…';
+    var host = $('#sendList');
+    if (!candidates.length) {
+      host.innerHTML = '<div class="empty-state">' + ico('inbox') + '<h3>No obvious match</h3>' +
+        '<p>This file\'s columns did not clearly match any dashboard\'s upload box. Open the dashboard you want and use its own "Choose file" instead, or rename this file to match what that register is usually called.</p></div>';
+    } else {
+      host.innerHTML = candidates.map(function (c) {
+        return '<button type="button" class="send-row" data-dash="' + esc(c.db.id) + '">' +
+          '<span class="ico" style="color:' + esc(c.db.accent || '#7B8792') + '">' + ico('grid') + '</span>' +
+          '<span><b>' + esc(c.db.name) + '</b><span>' + esc(c.slot ? c.slot.label : '') + '</span></span></button>';
+      }).join('');
+    }
+    $('#sendModal').classList.add('open');
+  }
+  function closeSendPicker() { $('#sendModal').classList.remove('open'); sendFile = null; }
+  function requestFill(dashId) {
+    if (!sendFile) return;
+    if (w.parent === w) {
+      toast('Open this page from inside the Command Centre to send a file to a dashboard.', 'warn', 8000);
+      return;
+    }
+    try {
+      w.parent.postMessage({ __paras: 1, action: 'requestFill', dashId: dashId, fileId: sendFile.id, name: sendFile.name, type: sendFile.type }, '*');
+    } catch (e) {}
+    var name = sendFile.name;
+    var dbName = ((REG.dashboards || []).filter(function (x) { return x.id === dashId; })[0] || {}).name || dashId;
+    closeSendPicker();
+    toast('Sending "' + name + '" to ' + dbName + '…', 'ok', 4200);
+  }
+
+  /* ===================== wiring ============================================ */
+  /* dashboard-bridge.js (injected into every dashboard, this one included)
+     watches 'change' and 'drop' in the capture phase on `document` and
+     refuses any file over its size limit, before a dashboard's own listener
+     ever sees it -- the crash guard described in its own header comment.
+     This page is the one place that guard must not apply: it is the tool a
+     dashboard's own "too big" message points you at, and it streams a large
+     upload straight to the server instead of reading it whole in the
+     browser, so the failure mode the guard exists to prevent does not exist
+     here. Rather than change that shared, injected file (which would touch
+     every OTHER dashboard's copy of it too), these two handlers are
+     registered on `window` with capture: true -- an ancestor of `document`
+     in the capture path, so they are reached first and can act before the
+     bridge's own document-level listener runs, without editing it at all. */
+  function wireUploads() {
+    $('#dropzone').addEventListener('click', function () { $('#filePick').click(); });
+
+    w.addEventListener('change', function (e) {
+      var t = e.target;
+      if (!t || t.id !== 'filePick') return;
+      e.stopImmediatePropagation();
+      if (t.files && t.files.length) addFiles(scopeFor(), t.files);
+      t.value = '';
+    }, true);
+
+    ['dragenter', 'dragover'].forEach(function (n) { $('#dropzone').addEventListener(n, function (e) { e.preventDefault(); $('#dropzone').classList.add('hot'); }); });
+    ['dragleave', 'drop'].forEach(function (n) { $('#dropzone').addEventListener(n, function () { $('#dropzone').classList.remove('hot'); }); });
+
+    w.addEventListener('drop', function (e) {
+      if (!e.target || !e.target.closest || !e.target.closest('#dropzone')) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      if (e.dataTransfer && e.dataTransfer.files) addFiles(scopeFor(), e.dataTransfer.files);
+    }, true);
+  }
+
+  function wire() {
+    wireUploads();
+
+    $('#sectionGrid').addEventListener('click', function (e) {
+      var box = e.target.closest('.sec-box'); if (!box) return;
+      var same = box.dataset.sec === section && (box.dataset.part || '') === sectionPart;
+      if (same) chooseSection('', ''); else chooseSection(box.dataset.sec, box.dataset.part || '');
+    });
+    $('#sectionClear').addEventListener('click', function () { chooseSection('', ''); });
+    ['dragenter', 'dragover'].forEach(function (n) {
+      $('#sectionGrid').addEventListener(n, function (e) {
+        var box = e.target.closest('.sec-box'); if (!box) return;
+        var t = e.dataTransfer && e.dataTransfer.types;
+        if (!t || Array.prototype.indexOf.call(t, 'Files') < 0) return;
+        e.preventDefault(); box.classList.add('hot');
+      });
+    });
+    ['dragleave', 'dragend'].forEach(function (n) {
+      $('#sectionGrid').addEventListener(n, function (e) { var box = e.target.closest('.sec-box'); if (box) box.classList.remove('hot'); });
+    });
+    // Capture-phase on window, same reasoning as wireUploads' drop handler
+    // above: reaches a drop onto a section box before dashboard-bridge.js's
+    // own document-level size guard can refuse it.
+    w.addEventListener('drop', function (e) {
+      var box = e.target && e.target.closest && e.target.closest('.sec-box');
+      if (!box) return;
+      var t = e.dataTransfer && e.dataTransfer.types;
+      if (!t || Array.prototype.indexOf.call(t, 'Files') < 0) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      box.classList.remove('hot');
+      chooseSection(box.dataset.sec, box.dataset.part || '');
+      addFiles(scopeFor(), e.dataTransfer.files);
+    }, true);
+
+    $('#fileSearchInput').addEventListener('input', renderFiles);
+
+    $('#fileList').addEventListener('click', function (e) {
+      var row = e.target.closest('.file-row'); if (!row) return;
+      var id = row.dataset.fid;
+      var name = ($('.file-name', row) || {}).textContent || 'file';
+      if (e.target.closest('[data-fcond]')) {
+        return w.Store.Files.list(scopeFor()).then(function (rows) {
+          var rec = rows.filter(function (x) { return x.id === id; })[0];
+          if (rec) openCondense(rec);
+        });
+      }
+      if (e.target.closest('[data-fsend]')) {
+        var size = +row.dataset.fsize || 0;
+        if (isBig({ name: name, size: size })) {
+          toast('"' + name + '" is ' + fmtSize(size) + ' — too large to hand to a dashboard directly. Condense it first (⚡).', 'warn', 8000);
+          return;
+        }
+        // The scoring in openSendPicker needs this file's column headers (the
+        // same thing usedBy/usedByHtml already read for the chips under its
+        // name) -- not just what the row's dataset attributes happen to
+        // carry, so look the full record up from the already-loaded list
+        // rather than reconstructing a stripped-down stand-in for it.
+        return loadFiles(scopeFor()).then(function (rows) {
+          var rec = rows.filter(function (x) { return x.id === id; })[0] ||
+            { id: id, name: name, type: row.dataset.ftype || '', size: size, headers: [] };
+          openSendPicker(rec);
+        });
+      }
+      if (e.target.closest('[data-ftab]')) return openInTab(id, name);
+      if (e.target.closest('[data-fdl]')) return downloadFile(id, name);
+      if (e.target.closest('[data-fren]')) { renaming = id; renderFiles(); return; }
+      if (e.target.closest('[data-fdel]')) return deleteFile(id, name);
+    });
+    $('#fileList').addEventListener('keydown', function (e) {
+      var inp = e.target.closest('[data-rename-input]'); if (!inp) return;
+      if (e.key === 'Enter') commitRename(inp.dataset.renameInput, inp.value);
+      if (e.key === 'Escape') { renaming = null; renderFiles(); }
+    });
+    $('#fileList').addEventListener('focusout', function (e) {
+      var inp = e.target.closest('[data-rename-input]');
+      if (inp && renaming) commitRename(inp.dataset.renameInput, inp.value);
+    });
+
+    $('#importSection').addEventListener('change', function () { renderImportPart(); checkDup(); });
+    $('#importMonth').addEventListener('change', checkDup);
+    $('#importYear').addEventListener('change', checkDup);
+    $('#importCancel').addEventListener('click', function () { closeImport(); });
+    $('#importClose').addEventListener('click', function () { closeImport(); });
+    $('#importGo').addEventListener('click', runImport);
+    $('#importModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeImport(); });
+
+    $('#condCancel').addEventListener('click', closeCondense);
+    $('#condClose').addEventListener('click', closeCondense);
+    $('#condRun').addEventListener('click', runCondense);
+    $('#condModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeCondense(); });
+
+    $('#sendList').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-dash]'); if (!b) return;
+      requestFill(b.dataset.dash);
+    });
+    $('#sendClose').addEventListener('click', closeSendPicker);
+    $('#sendModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeSendPicker(); });
+
+    d.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if ($('#importModal').classList.contains('open')) return closeImport();
+      if ($('#condModal').classList.contains('open')) return closeCondense();
+      if ($('#sendModal').classList.contains('open')) return closeSendPicker();
+    });
+
+    ['dragover', 'drop'].forEach(function (n) {
+      w.addEventListener(n, function (e) {
+        var t = e.dataTransfer && e.dataTransfer.types;
+        var hasFiles = !!t && Array.prototype.indexOf.call(t, 'Files') >= 0;
+        if (hasFiles && !e.target.closest('#dropzone, .sec-box')) e.preventDefault();
+      });
+    });
+  }
+
+  /* ===================== boot ================================================ */
+  function boot() {
+    w.Registry.load().then(function (reg) {
+      REG = reg;
+      renderSectionPicker();
+      renderListHead();
+      wire();
+      w.Store.checkPersistence().then(function () {
+        return loadDbSummary();
+      }).then(function () {
+        renderSectionPicker(); renderSectionMonths(); renderFiles();
+      });
+    });
+  }
+  if (d.readyState === 'loading') d.addEventListener('DOMContentLoaded', boot); else boot();
+})(window, document);
+</script>
+
+<!-- paras-command-centre-bridge -->
+<script>
+/* Paras Command Centre — dashboard bridge.
+ *
+ * Injected into each dashboard by sync.py. It adds nothing you can see and
+ * changes nothing the dashboard does in ordinary use: it only listens for the
+ * Command Centre handing over a file, and puts it in the dashboard's own
+ * upload box exactly as if you had picked it yourself.
+ *
+ * This exists because a page opened straight from disk (file://) is sealed off
+ * from every other page, so the Command Centre cannot reach in — but the two
+ * can still exchange messages. Remove the injected block and the dashboard
+ * carries on working; only the one-click fill stops.
+ *
+ * It also stops one specific bad outcome: picking an oversized file straight
+ * into this dashboard's own upload box, past what its own parser can hold in
+ * memory, crashes the browser tab. That is refused here, before the file ever
+ * reaches the dashboard's own code, in favour of the Command Centre's Data
+ * Library — which streams a file this size instead of loading it whole.
+ *
+ * It also relays the shell's dark/light theme toggle: whenever the Command
+ * Centre's own theme changes (and once immediately when this dashboard first
+ * loads), it stamps data-theme="dark"|"light" on this document's <html> and
+ * fires a "parasthemechange" event, so any dashboard that defines its own
+ * :root[data-theme="light"] palette follows the shell's toggle instead of
+ * carrying a separate one of its own. A dashboard with no light palette yet
+ * simply ignores the attribute -- this is a no-op until one is added.
+ *
+ * It also reports which way this dashboard's own page is being scrolled, so
+ * the Command Centre can tuck its "Back to Command Centre" bar away while
+ * reading and bring it back the moment the scroll direction reverses. This
+ * dashboard's markup and behaviour are otherwise untouched by it.
+ */
+(function (w, d) {
+  'use strict';
+  if (w.__parasBridge) return;
+  w.__parasBridge = 1;
+
+  // Mirrors assets/js/library.js's BIG_FILE. Duplicated because this file is
+  // injected standalone into a different page and has no import of its own.
+  var TOO_BIG = 40 * 1024 * 1024;
+
+  function warnTooBig(file) {
+    var mb = Math.round(file.size / 1048576);
+    try {
+      w.alert(
+        '"' + file.name + '" is ' + mb + ' MB.\n\n' +
+        'That is too large for this page to open directly \u2014 a file this size ' +
+        'can crash the browser tab partway through.\n\n' +
+        'Use the Data Library in the Paras Command Centre instead: add the file ' +
+        'there, press Condense, then Fill upload boxes. The condensed file keeps ' +
+        'every total exactly the same, just as far fewer rows, and opens here safely.'
+      );
+    } catch (e) {}
+  }
+
+  /* Runs before the dashboard's own listeners: capture-phase, on the
+     document, is reached on the way down the tree before the target (and its
+     bubble-phase handlers) sees the event at all. stopImmediatePropagation
+     here means the dashboard's own upload code never runs for this file. A
+     file the Command Centre hands over through postMessage (always well
+     under the limit, since it comes from the Data Library already condensed
+     if it needed to be) is untouched. */
+  d.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || t.tagName !== 'INPUT' || t.type !== 'file' || !t.files || !t.files.length) return;
+    var f = t.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    try { t.value = ''; } catch (e2) {}
+    warnTooBig(f);
+  }, true);
+
+  d.addEventListener('drop', function (ev) {
+    var dt = ev.dataTransfer;
+    if (!dt || !dt.files || !dt.files.length) return;
+    var f = dt.files[0];
+    if (f.size <= TOO_BIG) return;
+    ev.stopImmediatePropagation();
+    ev.preventDefault();
+    warnTooBig(f);
+  }, true);
+
+  function label(inp, i) {
+    var t = '';
+    try {
+      if (inp.labels && inp.labels.length) t = inp.labels[0].textContent;
+      if (!t && inp.closest) { var l = inp.closest('label'); if (l) t = l.textContent; }
+      var box = inp.parentElement;
+      for (var k = 0; k < 3 && box && !t; k++) {
+        var q = box.querySelector('label, h3, h4, b, strong, .label');
+        if (q && q.textContent.trim()) t = q.textContent;
+        box = box.parentElement;
+      }
+      if (!t) t = inp.getAttribute('aria-label') || inp.getAttribute('title') || inp.name || inp.id || '';
+    } catch (e) {}
+    return String(t).replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  function inputs() {
+    return Array.prototype.slice.call(d.querySelectorAll('input[type=file]'));
+  }
+
+  function reply(src, id, body) {
+    try { src.postMessage(Object.assign({ __paras: 1, id: id }, body), '*'); } catch (e) {}
+  }
+
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || !m.action) return;
+    // Only the page that embedded this one may drive it.
+    if (w.parent === w || ev.source !== w.parent) return;
+
+    if (m.action === 'theme') {
+      try {
+        var theme = m.theme === 'light' ? 'light' : 'dark';
+        d.documentElement.setAttribute('data-theme', theme);
+        d.dispatchEvent(new CustomEvent('parasthemechange', { detail: { theme: theme } }));
+      } catch (e) {}
+      return;
+    }
+
+    if (m.action === 'probe') {
+      reply(ev.source, m.id, {
+        ok: true,
+        inputs: inputs().map(function (inp, i) {
+          return { index: i, label: label(inp, i), accept: inp.getAttribute('accept') || '' };
+        })
+      });
+      return;
+    }
+
+    if (m.action === 'fill') {
+      var list = inputs(), inp = list[m.index];
+      if (!inp) return reply(ev.source, m.id, { ok: false, error: 'no such upload box' });
+      try {
+        var file = (m.blob instanceof File) ? m.blob
+          : new File([m.blob], m.name || 'file', { type: m.type || (m.blob && m.blob.type) || '' });
+        var dt = new DataTransfer();
+        dt.items.add(file);
+        inp.files = dt.files;
+        inp.dispatchEvent(new Event('input', { bubbles: true }));
+        inp.dispatchEvent(new Event('change', { bubbles: true }));
+        reply(ev.source, m.id, { ok: true });
+      } catch (e) {
+        reply(ev.source, m.id, { ok: false, error: String(e && e.message || e) });
+      }
+    }
+  }, false);
+
+  // Scroll-direction relay -- see header comment. Skipped entirely when this
+  // page is not embedded (opened on its own), since there is no parent to
+  // tell and nothing here changes how the page behaves either way.
+  if (w.parent !== w) {
+    // A wide dead zone -- small back-and-forth wobble (trackpads and touch
+    // scrolling rarely move in one perfectly monotonic direction) used to
+    // flip `dir` on almost every frame, which made the parent's toolbar
+    // toggle its collapse animation dozens of times a second during a single
+    // scroll gesture. Only sending on an actual change (not every frame)
+    // cuts that further, since the parent only re-renders on a real flip.
+    // Also debounced in time, not just in distance: a real scroll gesture
+    // (trackpad inertia especially) can cross the 24px dead zone several
+    // times in quick succession even while "generally" going one way, and
+    // each crossing used to restart the parent's collapse/expand animation
+    // from scratch -- which is what made the bar look like it was stuck
+    // fading in and out instead of settling. Capping actual sends to once
+    // per MIN_INTERVAL bounds how often that animation can restart, no
+    // matter how choppy the underlying scroll events are.
+    var lastY = 0, dir = 'up', sentDir = null, ticking = false, lastSentAt = 0;
+    var MIN_INTERVAL = 220;
+    function sendScroll() {
+      var y = w.pageYOffset || (d.documentElement && d.documentElement.scrollTop) || 0;
+      if (y <= 0) dir = 'up';
+      else if (y > lastY + 24) dir = 'down';
+      else if (y < lastY - 24) dir = 'up';
+      lastY = y;
+      var now = w.performance && w.performance.now ? w.performance.now() : Date.now();
+      if (dir !== sentDir && (now - lastSentAt) >= MIN_INTERVAL) {
+        sentDir = dir;
+        lastSentAt = now;
+        try { w.parent.postMessage({ __paras: 1, action: 'scroll', dir: dir }, '*'); } catch (e) {}
+      }
+      ticking = false;
+    }
+    w.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      (w.requestAnimationFrame || w.setTimeout)(sendScroll);
+    }, { passive: true });
+  }
+})(window, document);
+</script>
+<!-- /paras-command-centre-bridge -->
+</body>
+</html>

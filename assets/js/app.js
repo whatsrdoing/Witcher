@@ -17,9 +17,13 @@
   var current = null;                 // active dashboard id, null = home
   var DEV_CAT = '__dev';            // pseudo-category: everything not live yet
   var filter = { text: '', category: 'all' };
-  var drawerFor = null;      // which dashboard the drawer is showing
-  var drawerTab = 'library';  // 'library' (shared) or 'pinned' (this dashboard)
-  var renaming = null;
+  // The Data Library used to be a same-page drawer the shell drove directly;
+  // it is now its own dashboard, a sibling iframe like any other -- this is
+  // just its id, so the few spots that used to special-case "the drawer" can
+  // instead special-case "don't try to auto-match files into this one" (it
+  // has its own file inputs for browsing, not upload slots to auto-fill) and
+  // "open this dashboard" where they used to open the drawer.
+  var LIBRARY_DASH_ID = 'data-library';
 
   var $ = function (s, r) { return (r || d).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || d).querySelectorAll(s)); };
@@ -234,11 +238,9 @@
       applyTheme(w.Store.getPref('theme', REG.app.defaultTheme));
       filter.category = w.Store.getPref('category', 'all');
       renderModeSwitch();
-      invalidateFiles();
       refreshCounts().then(renderHome);
       goHome();
       renderLiveCount();
-      if (drawerFor) renderFiles();
       toast(next === 'session'
         ? 'Session mode — a fresh, temporary workspace. Dashboards open in Local stay exactly as they are.'
         : 'Local mode — back to what was saved on this computer. Dashboards open in Session were discarded.', 'ok', 4500);
@@ -337,14 +339,12 @@
     $('#dashIcon').innerHTML = ico(db.icon);
     $('#dashIcon').style.setProperty('--accent', db.accent);
     $('#dashTitle').textContent = db.name;
-    $('#dashFilesBtn').innerHTML = ico('folder') + '<span>Files</span>' +
-      (fileCounts[id] ? '<span class="badge open">' + fileCounts[id] + '</span>' : '');
+    $('#dashFilesBtn').innerHTML = ico('folder') + '<span>Data Library</span>';
 
     renderCrumbs(db);
     renderLiveCount();
     refreshMatchBar();
     if (!silent) location.hash = '#/d/' + encodeURIComponent(id);
-    if (drawerFor) openDrawer(id);
   }
 
   function unloadFrame(id) {
@@ -630,9 +630,6 @@
 
   /* ===================== files ========================================== */
   function refreshCounts() {
-    // Every mutation (add, delete, condense) funnels through here, so this is
-    // the one place the cached file list has to be dropped.
-    invalidateFiles();
     // listAll (not the lighter counts()) because the card's "last updated"
     // note needs each file's own updatedAt, not just how many there are.
     return w.Store.Files.listAll().then(function (rows) {
@@ -649,245 +646,16 @@
     }).catch(function () { fileCounts = {}; lastUpdated = {}; return {}; });
   }
 
-  function openDrawer(id, tab) {
-    drawerFor = id || null;
-    drawerTab = tab || (id ? drawerTab : 'library');
-    if (!drawerFor) drawerTab = 'library';
-    $('#drawer').classList.add('open');
-    $('#scrim').classList.add('open');
-    $('#fileSearchInput').value = '';
-    renderDrawerHead();
-    renderFiles();
-    // renderDrawerHead() just painted every box from whatever dbSummary held
-    // at that instant -- null on the first open of a session, since the
-    // fetch below has not resolved yet. Every box read "nothing stored yet"
-    // until something else repainted them (clicking a box, which happens to
-    // trigger the same render for an unrelated reason). Repainting here once
-    // the real numbers are in is what makes a fresh open show them without
-    // needing a click first.
-    loadDbSummary().then(function () {
-      renderSectionPicker();
-      renderSectionMonths();
-    });
-  }
+  // Everything that used to live here (openDrawer/closeDrawer, the section
+  // grid, the file list, condense, import, rename/delete, send-to-dashboard's
+  // UI) has moved to dashboards/Data_Library.html -- its own dashboard now,
+  // opened the same way as any other. What is left below is only the part
+  // that could not move with it: the shell is still the one place that can
+  // reach every OTHER open dashboard's iframe directly, so the auto-match
+  // bar (matchesFor/refreshMatchBar/tryAutoRun/fillAllFromLibrary, further
+  // down) and the cross-frame "send this file over" relay (sendToDashboard,
+  // and the 'requestFill' branch on the message listener) stay here.
 
-  /* One drop box per kind of register. Dropping straight onto the right box
-     is what decides where a file is filed, so there is no way to attach a
-     file and then discover it went somewhere else. Clicking a box shows just
-     that section's files; clicking it again shows everything.
-
-     A register that arrives split across several files for one month -- COGS
-     as department consumption, IP pharmacy and OP pharmacy -- gets a box per
-     piece. They all file into the same COGS data; the part only decides
-     which piece a re-upload replaces. */
-  function partsOf(dsId) {
-    var d = sectionById(dsId);
-    return (d && d.parts && d.parts.length) ? d.parts : null;
-  }
-  function partName(dsId, partId) {
-    var ps = partsOf(dsId) || [];
-    for (var i = 0; i < ps.length; i++) if (ps[i].id === partId) return ps[i].name;
-    return '';
-  }
-
-  function renderSectionPicker() {
-    var host = $('#sectionGrid');
-    if (!host) return;
-    var list = (REG && REG.datasets) || [];
-    if (!list.length) { host.style.display = 'none'; return; }
-    host.style.display = 'grid';
-
-    var html = [];
-    list.forEach(function (d) {
-      var st = storedFor(d.id);
-      var parts = (d.parts && d.parts.length) ? d.parts : null;
-
-      if (!parts) {
-        var sub = st && st.periods.length
-          ? st.periods.length + (st.periods.length === 1 ? ' month · ' : ' months · ') + st.rows.toLocaleString() + ' rows'
-          : 'nothing stored yet';
-        html.push('<button class="sec-box' + (section === d.id && !sectionPart ? ' on' : '') +
-          '" data-sec="' + esc(d.id) + '" data-part=""' +
-          ' title="' + esc(d.hint || d.name) + '">' +
-          '<span class="sec-name">' + esc(d.name) + '</span>' +
-          '<span class="sec-sub">' + esc(sub) + '</span>' +
-          '</button>');
-        return;
-      }
-
-      parts.forEach(function (pt) {
-        // How much of this part is stored, across every month.
-        var months = 0, rows = 0;
-        ((st && st.periods) || []).forEach(function (per) {
-          (per.parts || []).forEach(function (pp) {
-            if (pp.part === pt.id) { months++; rows += pp.rows || 0; }
-          });
-        });
-        var psub = months
-          ? months + (months === 1 ? ' month · ' : ' months · ') + rows.toLocaleString() + ' rows'
-          : 'nothing stored yet';
-        html.push('<button class="sec-box part' + (section === d.id && sectionPart === pt.id ? ' on' : '') +
-          '" data-sec="' + esc(d.id) + '" data-part="' + esc(pt.id) + '"' +
-          ' title="' + esc(d.name + ' — ' + pt.name) + '">' +
-          '<span class="sec-name">' + esc(pt.name) + '</span>' +
-          '<span class="sec-sub"><em>' + esc(d.name) + '</em> · ' + esc(psub) + '</span>' +
-          '</button>');
-      });
-    });
-    host.innerHTML = html.join('');
-    wireSectionDrops();
-  }
-
-  function wireSectionDrops() {
-    $$('#sectionGrid .sec-box').forEach(function (box) {
-      box.addEventListener('click', function () {
-        // Clicking the box already selected clears it, which is how you get
-        // back to seeing every file now that there is no catch-all box.
-        var same = box.dataset.sec === section && (box.dataset.part || '') === sectionPart;
-        if (same) chooseSection('', '');
-        else chooseSection(box.dataset.sec, box.dataset.part || '');
-      });
-      ['dragenter', 'dragover'].forEach(function (n) {
-        box.addEventListener(n, function (e) {
-          if (!hasFiles(e)) return;
-          e.preventDefault(); e.stopPropagation();
-          box.classList.add('hot');
-        });
-      });
-      ['dragleave', 'dragend'].forEach(function (n) {
-        box.addEventListener(n, function () { box.classList.remove('hot'); });
-      });
-      box.addEventListener('drop', function (e) {
-        if (!hasFiles(e)) return;
-        e.preventDefault(); e.stopPropagation();
-        box.classList.remove('hot');
-        chooseSection(box.dataset.sec, box.dataset.part || '');
-        addFiles(drawerScope(), e.dataTransfer.files);
-      });
-    });
-  }
-
-  function chooseSection(id, part) {
-    section = id || '';
-    sectionPart = section ? (part || '') : '';
-    invalidateFiles();
-    renderDrawerHead(); renderSectionMonths(); renderFiles();
-  }
-
-  function renderDrawerHead() {
-    var db = drawerFor ? byId(drawerFor) : null;
-    renderSectionPicker();
-    $('#drawerTabs').style.display = db ? 'flex' : 'none';
-    $('#tabPinned').textContent = db ? db.name : '';
-    $$('#drawerTabs button').forEach(function (b) {
-      b.setAttribute('aria-pressed', String(b.dataset.tab === drawerTab));
-    });
-    var lib = drawerTab === 'library';
-    var sec = lib && section ? sectionById(section) : null;
-    var pn = sec && sectionPart ? partName(section, sectionPart) : '';
-    $('#sectionGrid').style.display = lib ? 'grid' : 'none';
-    $('#drawerTitle').textContent = !lib ? 'Pinned files'
-      : (sec ? (pn ? sec.name + ' — ' + pn : sec.name) : 'All files');
-    $('#drawerFor').textContent = !lib
-      ? 'Only on ' + (db ? db.name : 'this dashboard')
-      : (sec ? (pn ? 'One of the ' + sec.name + ' files for a month' : (sec.hint || 'Filed by month into the database'))
-             : 'Everything attached so far — choose a section above to file a new file');
-    $('#dropHint').textContent = !lib
-      ? 'SOPs and notes that belong to this dashboard only'
-      : (sec ? 'Name it with the month, e.g. "2026-07 ' + (pn || sec.name) + '.csv"'
-             : 'Choose a section above first, so it can be filed into the database');
-    $('#drawerTip').style.display = 'none';
-    if (lib && drawerFor) {
-      frameInputs(drawerFor).then(function (slots) {
-        if (slots && slots.length && drawerTab === 'library') $('#drawerTip').style.display = 'flex';
-      });
-    }
-  }
-
-  /* ---- Data Library sections --------------------------------------------
-     A section is a kind of register (COGS, GRN Register, ...). Files dropped
-     into one are kept apart from the others, and their contents are filed
-     into that section's own table in the database, month by month, so July
-     and August of the same register stack up instead of overwriting. */
-  var section = '';                 // '' = show everything, otherwise a dataset id
-  var sectionPart = '';             // which piece of a split register (COGS) is selected
-  function sectionScope(id) { return 'ds:' + id; }
-  function drawerScope() {
-    if (drawerTab !== 'library') return drawerFor;
-    return section ? sectionScope(section) : ALL_FILES;
-  }
-  function sectionById(id) {
-    var list = (REG && REG.datasets) || [];
-    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
-    return null;
-  }
-
-  /* The month a file is for, guessed from its name. Always shown for
-     confirmation rather than acted on: a wrong guess would file August's
-     figures under July, and nothing downstream would look wrong. */
-  var MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
-  function guessPeriod(name) {
-    var s = String(name || '');
-    var m = /(20\d{2})[-_ ]?(0[1-9]|1[0-2])(?!\d)/.exec(s);          // 2026-07
-    if (m) return m[1] + '-' + m[2];
-    m = /(0[1-9]|1[0-2])[-_ ]?(20\d{2})(?!\d)/.exec(s);              // 07-2026
-    if (m) return m[2] + '-' + m[1];
-    m = /([a-z]{3,9})[-_ ]?(20\d{2}|\d{2})(?!\d)/i.exec(s);          // JULY26, Jul-2026
-    if (m) {
-      var mo = MONTHS[m[1].slice(0, 3).toLowerCase()];
-      if (mo) {
-        var y = m[2].length === 2 ? '20' + m[2] : m[2];
-        return y + '-' + (mo < 10 ? '0' : '') + mo;
-      }
-    }
-    return '';
-  }
-
-  /* The one or two upload boxes this file genuinely belongs in. Deliberately
-     strict: a chip that appears everywhere tells you nothing.
-
-     Memoised per file: the answer depends only on the file's name, headers
-     and the registry, none of which change while the drawer is open, and it
-     costs a scoring pass over every upload box of every dashboard. */
-  var usedByCache = Object.create(null);
-  function usedBy(file) {
-    var ck = file.id + '' + file.name;
-    if (usedByCache[ck]) return usedByCache[ck];
-    var scored = [];
-    REG.dashboards.forEach(function (db) {
-      (db.inputs || []).forEach(function (slot) {
-        var r = w.Library.score(file, slot);
-        if (r.score >= 70) scored.push({ id: db.id, name: db.name, slot: slot.label, score: r.score });
-      });
-    });
-    scored.sort(function (a, b) { return b.score - a.score; });
-    var seen = {}, out = [];
-    scored.forEach(function (x) {
-      if (seen[x.slot]) return;
-      seen[x.slot] = 1;
-      out.push(x);
-    });
-    out = out.slice(0, 3);
-    usedByCache[ck] = out;
-    return out;
-  }
-  function closeDrawer() {
-    drawerFor = null; renaming = null;
-    $('#drawer').classList.remove('open');
-    $('#scrim').classList.remove('open');
-  }
-
-  function kindOf(name, type) {
-    var e = (name.split('.').pop() || '').toLowerCase();
-    if (e === 'pdf') return 'pdf';
-    if (['xlsx', 'xls', 'xlsm', 'ods'].indexOf(e) >= 0) return 'xls';
-    if (['doc', 'docx', 'odt', 'rtf'].indexOf(e) >= 0) return 'doc';
-    if (['csv', 'tsv'].indexOf(e) >= 0) return 'csv';
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].indexOf(e) >= 0) return 'img';
-    if (['zip', '7z', 'rar', 'tar', 'gz'].indexOf(e) >= 0) return 'zip';
-    if (/^image\//.test(type || '')) return 'img';
-    return e.slice(0, 4) || 'file';
-  }
   function fmtSize(n) {
     if (!n && n !== 0) return '';
     var u = ['B', 'KB', 'MB', 'GB'], i = 0;
@@ -915,813 +683,12 @@
     return fmtDate(t);
   }
 
-  /* The file list is fetched once per scope and then filtered in memory.
-     It used to be re-fetched on every keystroke in the search box: with the
-     library stored on disk that is a round trip to serve.py per character,
-     each one re-reading the whole index and re-scoring every row against
-     every dashboard, to narrow a list already sitting in the page. */
-  var fileCache = { scope: null, rows: null };
-  function invalidateFiles() { fileCache.scope = null; fileCache.rows = null; }
-
-  var ALL_FILES = '\u0000all';    // not a real scope; means "do not filter"
-
-  function loadFiles(scope) {
-    if (fileCache.scope === scope && fileCache.rows) return Promise.resolve(fileCache.rows);
-    // No section chosen: show everything in the library, including anything
-    // filed before the sections existed. Without this, removing the catch-all
-    // box would have left those files with nowhere to be seen.
-    var got = scope === ALL_FILES ? libraryFiles() : w.Store.Files.list(scope);
-    return got.then(function (rows) {
-      rows = rows.slice().sort(function (a, b) { return b.addedAt - a.addedAt; });
-      fileCache.scope = scope; fileCache.rows = rows;
-      return rows;
-    });
-  }
-
-  function renderFiles() {
-    if (!$('#drawer').classList.contains('open')) return;
-    var scope = drawerScope();
-    if (!scope) return;
-    var q = ($('#fileSearchInput').value || '').trim().toLowerCase();
-    loadFiles(scope).then(function (rows) {
-      var shown = q ? rows.filter(function (r) { return r.name.toLowerCase().indexOf(q) >= 0; }) : rows;
-      var host = $('#fileList');
-      if (!shown.length) {
-        // A section can hold database rows with no file currently attached
-        // -- the two are independent by design: once a register is read
-        // into the database it does not need to stay around, and a file
-        // can be deleted, replaced, or simply never re-attached after an
-        // import. Left unexplained, "no files attached" next to "1 month,
-        // 18,656 rows" reads as a contradiction rather than as the normal
-        // state it is.
-        var d0 = (!q && section) ? storedFor(section) : null;
-        var hasDbRows = d0 && d0.periods.length &&
-          (!sectionPart || d0.periods.some(function (p) {
-            return (p.parts || []).some(function (pp) { return pp.part === sectionPart; });
-          }));
-        host.innerHTML = '<div class="empty-state" style="padding:34px 8px">' + ico('inbox', 'lg') +
-          '<h3>' + (q ? 'Nothing matches' : 'No files attached') + '</h3>' +
-          '<p>' + (q ? 'Try a different search.' : (hasDbRows
-            ? 'That is normal here: the data above is already in the database and does not need its source file to stay attached. Drop a file to add another month, or to replace one.'
-            : (drawerTab === 'library'
-              ? 'Drop your registers here once. The Command Centre reads each file\'s columns and offers it to every dashboard that needs it.'
-              : 'Files pinned here stay with this dashboard only.'))) + '</p></div>';
-      } else {
-        host.innerHTML = shown.map(function (r) {
-          var k = kindOf(r.name, r.type);
-          var isRen = renaming === r.id;
-          return '<div class="file-row" data-fid="' + esc(r.id) + '" data-ftype="' + esc(r.type || '') + '" data-fsize="' + esc(r.size || 0) + '">' +
-            '<div class="file-ico ' + esc(k) + '">' + esc(k.toUpperCase()) + '</div>' +
-            '<div class="file-meta">' +
-              (isRen
-                ? '<input class="file-name-input" value="' + esc(r.name) + '" data-rename-input="' + esc(r.id) + '">'
-                : '<div class="file-name" title="' + esc(r.name) + '">' + esc(r.name) + '</div>') +
-              '<div class="file-sub">' + esc(fmtSize(r.size)) + ' · ' + esc(fmtDate(r.addedAt)) +
-                (r.headers && r.headers.length ? ' · ' + r.headers.length + ' columns' : '') + '</div>' +
-              (drawerTab === 'library' ? usedByHtml(r) : '') +
-              (isBig(r) ? '<div class="file-warn">' + esc(fmtSize(r.size)) +
-                ' — too large to open directly. Condense it first (⚡).</div>' : '') +
-            '</div>' +
-            '<div class="file-acts">' +
-              (isBig(r) ? '<button class="cond" data-fcond="' + esc(r.id) + '" title="Too large for a browser — condense it">' + ico('bolt', 'sm') + '</button>' : '') +
-              '<button class="use" data-fuse="' + esc(r.id) + '" title="Load into this dashboard\'s upload box">' + ico('upload', 'sm') + '</button>' +
-              '<button data-fopen="' + esc(r.id) + '" title="Open">' + ico('eye', 'sm') + '</button>' +
-              '<button data-fdl="' + esc(r.id) + '" title="Download">' + ico('download', 'sm') + '</button>' +
-              '<button data-fren="' + esc(r.id) + '" title="Rename">' + ico('pencil', 'sm') + '</button>' +
-              '<button class="del" data-fdel="' + esc(r.id) + '" title="Delete">' + ico('trash', 'sm') + '</button>' +
-            '</div>' +
-          '</div>';
-        }).join('');
-        var inp = $('[data-rename-input]', host);
-        if (inp) { inp.focus(); inp.select(); }
-      }
-      $('#fileTally').textContent = rows.length + (rows.length === 1 ? ' file' : ' files') +
-        (rows.length ? ' · ' + fmtSize(rows.reduce(function (n, r) { return n + (r.size || 0); }, 0)) : '');
-      $('#filePersist').innerHTML = w.Store.Files.persistent()
-        ? ico('lock', 'sm') + 'Saved on this computer'
-        : ico('bolt', 'sm') + 'Temporary (this tab only)';
-    });
-  }
-
-  /* ---- condensing an oversized export ------------------------------------
-     A quarter-gigabyte CSV cannot be opened in a browser tab: the dashboard
-     reads the whole file, then the spreadsheet parser turns it into millions
-     of cell objects. Rather than change the dashboards, shrink the file first
-     — stream it, keep the columns that dashboard actually reads, and add up
-     rows that agree on every one of them. Totals come out identical. */
-  /* The blob is fetched once and kept while the modal is open. Profiling the
-     columns and then condensing used to fetch it twice, which on the register
-     this feature exists for (a ~300MB CSV) meant pulling the whole file over
-     twice to read a few hundred rows and then stream it. Released on close. */
-  var condenseFile = null, condenseCols = null, condenseBlob = null;
-
-  function openCondense(fileMeta) {
-    condenseFile = fileMeta;
-    $('#condTitle').textContent = 'Condense "' + fileMeta.name + '"';
-    $('#condCols').innerHTML = '<div class="cond-loading"><span class="spinner"></span>Reading the columns…</div>';
-    $('#condStats').textContent = fmtSize(fileMeta.size) + ' — too large for a browser tab to open directly.';
-    $('#condRun').disabled = true;
-    $('#condModal').classList.add('open');
-
-    w.Store.Files.blob(fileMeta.id).then(function (blob) {
-      if (!blob) throw new Error('that file is no longer in the workspace');
-      condenseBlob = blob;
-      return w.Library.profile(blob, 400);
-    }).then(function (cols) {
-      condenseCols = cols;
-      var suggested = suggestedKeep(fileMeta);
-      $('#condCols').innerHTML = cols.map(function (c, i) {
-        var on = !suggested || suggested.some(function (k) {
-          return w.Library.tokens(k).join(' ') === w.Library.tokens(c.name).join(' ');
-        });
-        return '<label class="cond-col' + (c.numeric ? ' num' : '') + '">' +
-          '<input type="checkbox" data-col="' + i + '"' + (on ? ' checked' : '') + '>' +
-          '<span class="cond-name">' + esc(c.name) + '</span>' +
-          '<span class="cond-tag">' + (c.numeric ? 'Σ added up' : 'grouped') + '</span>' +
-          '</label>';
-      }).join('');
-      $('#condRun').disabled = false;
-      $('#condStats').textContent = fmtSize(fileMeta.size) + ' · ' + cols.length +
-        ' columns. Ticked columns are kept; number columns are added up.';
-    }).catch(function (e) {
-      $('#condCols').innerHTML = '<div class="cond-loading">Could not read the columns: ' +
-        esc(e && e.message || e) + '</div>';
-    });
-  }
-
-  /* Pre-tick exactly the columns the dashboard this file suits actually reads. */
-  function suggestedKeep(fileMeta) {
-    var best = null, bestScore = 0;
-    REG.dashboards.forEach(function (db) {
-      (db.inputs || []).forEach(function (slot) {
-        if (!slot.keep || !slot.keep.length) return;
-        var r = w.Library.score(fileMeta, slot);
-        if (r.score > bestScore) { bestScore = r.score; best = slot.keep; }
-      });
-    });
-    return bestScore >= 60 ? best : null;
-  }
-
-  function closeCondense() {
-    $('#condModal').classList.remove('open');
-    condenseFile = null; condenseCols = null; condenseBlob = null;
-  }
-
-  function runCondense() {
-    if (!condenseFile || !condenseCols) return;
-    var picked = $$('#condCols input[type=checkbox]').filter(function (b) { return b.checked; })
-      .map(function (b) { return condenseCols[+b.dataset.col]; });
-    if (!picked.length) return toast('Tick at least one column.', 'warn');
-
-    var keys = picked.filter(function (c) { return !c.numeric; }).map(function (c) { return c.name; });
-    var sums = picked.filter(function (c) { return c.numeric; }).map(function (c) { return c.name; });
-    var meta = condenseFile;
-
-    $('#condRun').classList.add('working');
-    $('#condRun').disabled = true;
-    $('#condStats').textContent = 'Reading… this runs in the background and never loads the whole file.';
-
-    var haveBlob = condenseBlob
-      ? Promise.resolve(condenseBlob)
-      : w.Store.Files.blob(meta.id);
-    haveBlob.then(function (blob) {
-      if (!blob) throw new Error('that file is no longer in the workspace');
-      return w.Library.condense(blob, {
-        keys: keys, sums: sums,
-        onProgress: function (p) {
-          $('#condStats').textContent = p.read.toLocaleString() + ' rows read · ' +
-            p.kept.toLocaleString() + ' combined rows so far';
-        }
-      });
-    }).then(function (out) {
-      var name = meta.name.replace(/\.[^.]+$/, '') + ' (condensed).csv';
-      var file = new File([out.blob], name, { type: 'text/csv' });
-      // Filed into whatever section is currently open, not always the
-      // generic library. Condensing a file while looking at a specific
-      // section (COGS -- IP Pharmacy, say) and having the result land
-      // somewhere else meant it was invisible right where it was made --
-      // ALL_FILES is the "show everything, don't file into it" marker, so
-      // that alone falls back to the real generic scope.
-      var fileScope = (drawerScope() === ALL_FILES) ? w.Library.ID : drawerScope();
-      return w.Library.sniff(file).then(function (headers) {
-        return w.Store.Files.add(fileScope, file, headers);
-      }).then(function () {
-        $('#condRun').classList.remove('working');
-        $('#condRun').disabled = false;
-        closeCondense();
-        invalidateFiles();
-        return refreshCounts().then(function () {
-          renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
-          renderSectionPicker(); renderSectionMonths();
-          toast(out.rowsIn.toLocaleString() + ' rows became ' + out.rowsOut.toLocaleString() +
-            ' — ' + fmtSize(meta.size) + ' down to ' + fmtSize(out.blob.size) +
-            '. Totals are unchanged.', 'ok', 9000);
-        });
-      });
-    }).catch(function (e) {
-      $('#condRun').classList.remove('working');
-      $('#condRun').disabled = false;
-      $('#condStats').textContent = '';
-      toast('Could not condense: ' + (e && e.message || e), 'err', 11000);
-    });
-  }
-
+  // Whether a file is too large to hand to a dashboard directly (still used
+  // by the auto-match bar below, and by sendToDashboard's own size check) --
+  // matches the same limit the Data Library dashboard condenses against.
   function isBig(r) {
     return r.size > w.Library.BIG_FILE && /\.(csv|tsv|txt)$/i.test(r.name);
   }
-
-  function usedByHtml(file) {
-    var uses = usedBy(file);
-    if (!uses.length) return '<div class="file-uses none">No dashboard matched — send it by hand with ↑</div>';
-    return '<div class="file-uses">' + uses.map(function (u) {
-      return '<span title="' + esc(u.name) + ' · ' + esc(u.slot) + '">' + esc(u.slot) + '</span>';
-    }).join('') + '</div>';
-  }
-
-  /* ---- filing a dropped file into the database -------------------------- */
-  var dbSummary = null;                       // what the database holds, by section
-  function loadDbSummary() {
-    if (!w.Store.Files.onDisk()) return Promise.resolve(null);
-    // Called right after boot -- a 401 here can be this request racing the
-    // just-set session cookie rather than a real expiry, so give it one
-    // forgiving retry (see storage.js's libFetch/checkPersistence) before
-    // concluding the session is actually gone.
-    var attempt = function (retryOn401) {
-      return fetch('__data', { cache: 'no-store' })
-        .then(function (r) {
-          if (r.status === 401 && retryOn401) {
-            return new Promise(function (res) { setTimeout(res, 300); })
-              .then(function () { return attempt(false); });
-          }
-          if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
-          return r.ok ? r.json() : null;
-        });
-    };
-    return attempt(true)
-      .then(function (j) { dbSummary = (j && j.datasets) || []; return dbSummary; })
-      .catch(function () { return null; });
-  }
-  function storedFor(id) {
-    return (dbSummary || []).filter(function (d) { return d.dataset === id; })[0] || null;
-  }
-
-  function renderSectionMonths() {
-    var box = $('#sectionMonths');
-    if (!box) return;
-    if (!section || drawerTab !== 'library') { box.style.display = 'none'; return; }
-    var d = storedFor(section);
-    box.style.display = 'block';
-    if (!d || !d.periods.length) {
-      box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>';
-      return;
-    }
-    // With a part selected, report that part alone: "3 months" ought to mean
-    // three months of IP pharmacy, not three months of COGS as a whole.
-    var pills = [], total = 0;
-    d.periods.forEach(function (p) {
-      if (sectionPart) {
-        var mine = (p.parts || []).filter(function (pp) { return pp.part === sectionPart; })[0];
-        if (!mine) return;
-        total += mine.rows;
-        pills.push({ period: p.period, rows: mine.rows, source: mine.source });
-      } else {
-        total += p.rows;
-        var made = (p.parts || []).filter(function (pp) { return pp.part; });
-        pills.push({ period: p.period, rows: p.rows,
-                     source: made.length > 1
-                       ? made.length + ' files: ' + made.map(function (pp) {
-                           return partName(section, pp.part) || pp.part;
-                         }).join(', ')
-                       : p.source });
-      }
-    });
-    if (!pills.length) {
-      box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>';
-      return;
-    }
-    box.innerHTML = '<span class="sm-head">' + total.toLocaleString() + ' rows stored</span>' +
-      pills.map(function (p) {
-        return '<span class="sm-pill" title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows">' +
-          esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b></span>';
-      }).join('');
-  }
-
-  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
-                     'July', 'August', 'September', 'October', 'November', 'December'];
-  var pendingImport = null;
-  var pendingBook = null;      // the opened workbook, when the file is a spreadsheet
-
-  /* Does this file look like the kind of register this section holds?
-     Compared on the header row, not the file name, because a renamed file
-     still has the columns it always had. */
-  function sectionFit(ds, headers) {
-    var d = sectionById(ds);
-    var needs = (d && d.needs) || [];
-    if (!needs.length || !headers || !headers.length) return null;   // nothing to judge on
-    var hit = needs.filter(function (n) {
-      var nn = String(n).toLowerCase().replace(/[^a-z0-9]+/g, '');
-      return headers.some(function (h) {
-        var hh = String(h).toLowerCase().replace(/[^a-z0-9]+/g, '');
-        return hh === nn || hh.indexOf(nn) >= 0 || nn.indexOf(hh) >= 0;
-      });
-    });
-    return { hit: hit.length, need: needs.length, missing: needs.filter(function (n) {
-      return hit.indexOf(n) < 0; }) };
-  }
-
-  /* The section a file's columns actually look like, when it is not the one
-     it was dropped on -- so the warning can say where it probably belongs. */
-  function bestSection(headers) {
-    var best = null;
-    ((REG && REG.datasets) || []).forEach(function (d) {
-      var f = sectionFit(d.id, headers);
-      if (!f || !f.need) return;
-      var r = f.hit / f.need;
-      if (r >= 0.6 && (!best || r > best.ratio)) best = { id: d.id, name: d.name, ratio: r };
-    });
-    return best;
-  }
-
-  /* ---- spreadsheets ------------------------------------------------------
-     The database reads CSV. Registers arrive as often as not as .xlsx, and
-     until now those attached fine and then silently never reached the
-     database -- the section just kept saying "nothing stored yet" with no
-     hint why.
-
-     Converting happens here rather than in serve.py because SheetJS is
-     already vendored for the dashboards and handles .xls, .xlsx and .ods
-     alike; the equivalent in Python would be a new dependency for the modern
-     format and would still not read the old binary one. */
-  var SHEET_EXT = /\.(xlsx|xlsm|xlsb|xls|ods)$/i;
-
-  /* Read a workbook and hand back its sheet names plus a converter, so the
-     caller can ask which sheet before paying to convert one.
-
-     A register can run past 100,000 rows, and both XLSX.read() and
-     sheet_to_csv() are synchronous CPU work -- on the main thread that is a
-     multi-second freeze with nothing to show for it but a stuck tab. Done in
-     xlsx-worker.js instead, the tab stays responsive throughout.
-
-     A Worker can only load over http(s): opened as a plain file://, the
-     browser refuses the worker script as cross-origin from a "null" origin,
-     and that failure happens synchronously in the constructor -- so trying
-     the worker first and falling back to the old direct-on-this-thread path
-     when construction throws is a reliable fallback, not a guess. */
-  function readWorkbook(blob) {
-    return blob.arrayBuffer().then(function (buf) {
-      try {
-        return readWorkbookInWorker(buf);
-      } catch (e) {
-        return readWorkbookHere(buf);
-      }
-    });
-  }
-
-  function readWorkbookInWorker(buf) {
-    return new Promise(function (resolve, reject) {
-      var worker = new Worker('assets/js/xlsx-worker.js');   // throws under file://
-      var settled = false;
-      function fail(msg) {
-        if (settled) return;
-        settled = true;
-        worker.terminate();
-        reject(new Error(msg));
-      }
-      worker.onerror = function (e) {
-        e.preventDefault && e.preventDefault();
-        fail((e && e.message) || 'could not read that spreadsheet');
-      };
-      worker.onmessage = function (e) {
-        var msg = e.data || {};
-        if (msg.type === 'names') {
-          if (settled) return;
-          settled = true;
-          resolve({
-            names: msg.names,
-            toCsv: function (name) {
-              return new Promise(function (res2, rej2) {
-                var mh = function (e2) {
-                  var m2 = e2.data || {};
-                  if (m2.type === 'csv' && m2.name === name) {
-                    worker.removeEventListener('message', mh);
-                    worker.terminate();
-                    res2(m2.csv);
-                  } else if (m2.type === 'error') {
-                    worker.removeEventListener('message', mh);
-                    worker.terminate();
-                    rej2(new Error(m2.message));
-                  }
-                };
-                worker.addEventListener('message', mh);
-                worker.postMessage({ type: 'sheet', name: name });
-              });
-            }
-          });
-        } else if (msg.type === 'error') {
-          fail(msg.message);
-        }
-      };
-      // The buffer is transferred, not copied: for a large file that is the
-      // difference between an instant handoff and duplicating tens of MB.
-      // buf is unusable in this thread after this call, which is fine --
-      // nothing here reads it again.
-      worker.postMessage({ type: 'open', bytes: buf }, [buf]);
-    });
-  }
-
-  /* The original synchronous path. Kept as the fallback for file://, and
-     good enough there: someone opening the app by double-clicking
-     index.html is trading the disk-backed database and multi-user sign-in
-     for convenience already, and a slower spreadsheet read on top of that
-     is a fair continuation of the same trade, clearly explained rather than
-     silently eaten. */
-  function readWorkbookHere(buf) {
-    return w.Library.loadXLSX().then(function (XLSX) {
-      var wb = XLSX.read(new Uint8Array(buf), { type: 'array', dense: true, cellDates: true });
-      var names = (wb.SheetNames || []).filter(function (n) {
-        var ws = wb.Sheets[n];
-        return ws && (ws['!ref'] || (ws.length || 0) > 0);
-      });
-      return {
-        names: names.length ? names : (wb.SheetNames || []),
-        toCsv: function (name) {
-          var ws = wb.Sheets[name];
-          if (!ws) return Promise.reject(new Error('sheet "' + name + '" is not in that file'));
-          return Promise.resolve(
-            XLSX.utils.sheet_to_csv(ws, { dateNF: 'dd-mmm-yyyy', blankrows: false }));
-        }
-      };
-    });
-  }
-
-  /* Work through everything just dropped, one prompt at a time. Only the
-     first file used to be offered, so dropping three months at once quietly
-     filed one -- the same class of silence as the spreadsheet problem. */
-  var importQueue = [];
-
-  function offerImports(added) {
-    var can = [], cannot = [];
-    (added || []).forEach(function (m) {
-      if (!m || !m.name) return;
-      if (/\.(csv|tsv|txt)$/i.test(m.name) || SHEET_EXT.test(m.name)) can.push(m);
-      else cannot.push(m.name);
-    });
-    if (cannot.length) {
-      // Never silent: a file that cannot reach the database has to say so.
-      toast(cannot.length === 1
-        ? '"' + cannot[0] + '" was attached, but only spreadsheets and CSV files can go into the database.'
-        : cannot.length + ' files were attached but cannot go into the database — only spreadsheets and CSV files can.',
-        'warn', 9000);
-    }
-    importQueue = can.slice(1);
-    if (can.length) askImport(can[0]);
-  }
-
-  function nextImport() {
-    var nxt = importQueue.shift();
-    if (nxt) setTimeout(function () { askImport(nxt); }, 250);
-  }
-
-  function askImport(fileMeta) {
-    pendingImport = fileMeta;
-    $('#importSection').innerHTML = ((REG && REG.datasets) || []).map(function (d) {
-      return '<option value="' + esc(d.id) + '"' + (d.id === section ? ' selected' : '') + '>' + esc(d.name) + '</option>';
-    }).join('');
-
-    var now = new Date(), yNow = now.getFullYear();
-    var g = guessPeriod(fileMeta.name);
-    var gy = g ? +g.slice(0, 4) : yNow;
-    var gm = g ? +g.slice(5, 7) : now.getMonth() + 1;
-    $('#importMonth').innerHTML = MONTH_NAMES.map(function (n, i) {
-      return '<option value="' + (i + 1) + '"' + (i + 1 === gm ? ' selected' : '') + '>' + n + '</option>';
-    }).join('');
-    var years = [];
-    for (var y = yNow + 1; y >= yNow - 6; y--) years.push(y);
-    if (years.indexOf(gy) < 0) years.unshift(gy);
-    $('#importYear').innerHTML = years.map(function (y) {
-      return '<option value="' + y + '"' + (y === gy ? ' selected' : '') + '>' + y + '</option>';
-    }).join('');
-
-    renderImportPart();
-    $('#importFile').textContent = fileMeta.name;
-    $('#importGuess').textContent = g
-      ? 'Month and year read from the file name. Change them if that is not right.'
-      : 'Could not tell the month from the file name — please choose it.';
-    $('#importMsg').style.display = 'none';
-    $('#importSheetWrap').style.display = 'none';
-    $('#importSheet').innerHTML = '';
-    pendingBook = null;
-    $('#importModal').classList.add('open');
-
-    if (SHEET_EXT.test(fileMeta.name)) {
-      // A workbook has to be opened before we know what is in it. Say what is
-      // happening -- reading a 10MB file takes a moment.
-      $('#importMsg').style.display = 'flex';
-      $('#importMsg').className = 'gate-msg';
-      $('#importMsg').textContent = 'Opening the spreadsheet…';
-      $('#importGo').disabled = true;
-      w.Store.Files.blob(fileMeta.id)
-        .then(function (blob) {
-          if (!blob) throw new Error('that file is no longer in the workspace');
-          return readWorkbook(blob);
-        })
-        .then(function (book) {
-          if (pendingImport !== fileMeta) return;    // modal moved on
-          pendingBook = book;
-          $('#importGo').disabled = false;
-          $('#importMsg').style.display = 'none';
-          $('#importSheet').innerHTML = book.names.map(function (n) {
-            return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
-          }).join('');
-          // One sheet needs no question; more than one does, because picking
-          // the wrong one files the wrong numbers with nothing to show for it.
-          $('#importSheetWrap').style.display = book.names.length > 1 ? 'block' : 'none';
-          checkDup();
-        })
-        .catch(function (e) {
-          $('#importGo').disabled = false;
-          $('#importMsg').style.display = 'flex';
-          $('#importMsg').className = 'gate-msg err';
-          $('#importMsg').textContent = 'Could not read that spreadsheet: ' + (e && e.message || e);
-        });
-      return;
-    }
-    checkDup();
-  }
-
-  /* Which piece of a split register this import is. Only meaningful for a
-     dataset that declares parts; everything else files as the unnamed part,
-     which is how it has always behaved. */
-  function importPart() {
-    var ds = $('#importSection').value;
-    var ps = partsOf(ds);
-    if (!ps) return '';
-    var chosen = $('#importPart') && $('#importPart').value;
-    return chosen || (ds === section ? sectionPart : '') || ps[0].id;
-  }
-
-  /* Show the part chooser only when the chosen section actually has parts. */
-  function renderImportPart() {
-    var ds = $('#importSection').value;
-    var ps = partsOf(ds);
-    var wrap = $('#importPartWrap');
-    if (!ps) { wrap.style.display = 'none'; $('#importPart').innerHTML = ''; return; }
-    var want = (ds === section && sectionPart) ? sectionPart : ps[0].id;
-    $('#importPart').innerHTML = ps.map(function (pt) {
-      return '<option value="' + esc(pt.id) + '"' + (pt.id === want ? ' selected' : '') + '>' +
-        esc(pt.name) + '</option>';
-    }).join('');
-    wrap.style.display = 'block';
-  }
-
-  function importPeriod() {
-    var m = +$('#importMonth').value, y = +$('#importYear').value;
-    if (!m || !y) return '';
-    return y + '-' + (m < 10 ? '0' : '') + m;
-  }
-
-  function checkDup() {
-    var ds = $('#importSection').value, per = importPeriod();
-    var box = $('#importDup');
-
-    // Wrong-section check: does this file's header row look like this kind
-    // of register at all?
-    var mm = $('#importMismatch');
-    var fit = sectionFit(ds, (pendingImport && pendingImport.headers) || []);
-    if (fit && fit.hit / fit.need < 0.5) {
-      var elsewhere = bestSection(pendingImport.headers);
-      mm.style.display = 'flex';
-      mm.textContent = 'This does not look like ' + (sectionById(ds) || {}).name +
-        ' — only ' + fit.hit + ' of ' + fit.need + ' expected columns are there' +
-        (fit.missing.length ? ' (missing ' + fit.missing.slice(0, 3).join(', ') + ')' : '') + '.' +
-        (elsewhere && elsewhere.id !== ds ? ' It looks like ' + elsewhere.name + '.' : '') +
-        ' Add it anyway only if you are sure.';
-    } else {
-      mm.style.display = 'none';
-    }
-    var d = storedFor(ds);
-    var hit = d && d.periods.filter(function (p) { return p.period === per; })[0];
-    if (hit) {
-      box.style.display = 'flex';
-      box.textContent = per + ' is already in ' + (sectionById(ds) || {}).name + ' — ' +
-        hit.rows.toLocaleString() + ' rows from "' + hit.source + '". Adding this replaces it.';
-    } else {
-      box.style.display = 'none';
-    }
-    $('#importGo').disabled = !per;
-  }
-  function closeImport(skipQueue) {
-    $('#importModal').classList.remove('open');
-    pendingImport = null;
-    pendingBook = null;          // release the workbook; these are large
-    $('#importGo').disabled = false;
-    if (!skipQueue) nextImport();
-  }
-
-  function runImport() {
-    if (!pendingImport) return;
-    var ds = $('#importSection').value, per = importPeriod();
-    if (!per) return;
-    var btn = $('#importGo');
-    btn.classList.add('working'); btn.disabled = true;
-    $('#importMsg').style.display = 'flex';
-    $('#importMsg').className = 'gate-msg';
-    $('#importMsg').textContent = 'Reading the file into the database…';
-
-    var send;
-    if (pendingBook) {
-      // The server cannot parse a workbook, so it gets the sheet as CSV.
-      // toCsv() runs in the background worker when one is available (see
-      // readWorkbook), so this can be a real wait for a huge sheet without
-      // the tab looking stuck.
-      var sheet = $('#importSheet').value || pendingBook.names[0];
-      var label = pendingImport.name + (pendingBook.names.length > 1 ? ' [' + sheet + ']' : '');
-      send = pendingBook.toCsv(sheet).then(function (csv) {
-        // Built once and reused across a retry -- a Blob (unlike a stream)
-        // can be sent through fetch() more than once safely.
-        var blob = new Blob([csv], { type: 'text/csv' });
-        var url = '__data/import?dataset=' + encodeURIComponent(ds) +
-                    '&period=' + encodeURIComponent(per) +
-                    '&part=' + encodeURIComponent(importPart()) +
-                    '&source=' + encodeURIComponent(label);
-        return function () {
-          return fetch(url, { method: 'POST',
-                      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
-                      body: blob });
-        };
-      }, function (e) {
-        // Distinguish "could not even read the sheet" from a server-side
-        // rejection, by throwing a message the shared catch below can show
-        // as-is rather than prefixing with "Could not add it".
-        throw new Error('Could not read that sheet: ' + (e && e.message || e));
-      });
-    } else {
-      var url2 = '__data/import?fileId=' + encodeURIComponent(pendingImport.id) +
-                  '&dataset=' + encodeURIComponent(ds) + '&period=' + encodeURIComponent(per) +
-                  '&part=' + encodeURIComponent(importPart());
-      send = Promise.resolve(function () { return fetch(url2, { method: 'POST' }); });
-    }
-    send
-      .then(function (doFetch) {
-        // A 401 this soon after sign-in (this modal can be reached moments
-        // after unlocking, via an auto-picked upload) can be the session
-        // cookie racing this exact request rather than a real expiry -- one
-        // forgiving retry before treating it as the session actually being
-        // gone, same as storage.js's libFetch/checkPersistence.
-        var attempt = function (retryOn401) {
-          return doFetch().then(function (r) {
-            if (r.status === 401 && retryOn401) {
-              return new Promise(function (res) { setTimeout(res, 300); })
-                .then(function () { return attempt(false); });
-            }
-            if (r.status === 401 && w.ParasGate) w.ParasGate.lock();
-            return r.json().then(function (j) { return { ok: r.ok, j: j }; });
-          });
-        };
-        return attempt(true);
-      })
-      .then(function (res) {
-        btn.classList.remove('working'); btn.disabled = false;
-        if (!res.ok) throw new Error(res.j.error || 'import failed');
-        closeImport();
-        return loadDbSummary().then(function () {
-          // Both the pill bar for the open section AND the box summaries on
-          // the grid behind it need the fresh numbers -- renderSectionMonths
-          // alone left the grid showing the pre-import count until something
-          // else happened to repaint it.
-          renderSectionPicker();
-          renderSectionMonths();
-          var pnm = res.j.part ? partName(ds, res.j.part) : '';
-          toast(res.j.rows.toLocaleString() + ' rows added to ' +
-            (sectionById(ds) || {}).name + (pnm ? ' — ' + pnm : '') +
-            ' for ' + per + '.', 'ok', 6000);
-        });
-      })
-      .catch(function (e) {
-        btn.classList.remove('working'); btn.disabled = false;
-        $('#importMsg').className = 'gate-msg err';
-        $('#importMsg').textContent = /^Could not read that sheet/.test(e && e.message || '')
-          ? e.message
-          : 'Could not add it: ' + (e && e.message || e);
-      });
-  }
-
-  function addFiles(dashId, fileList) {
-    var files = Array.prototype.slice.call(fileList || []);
-    if (!files.length) return;
-    if (dashId === ALL_FILES) {
-      // The catch-all box is gone on purpose; quietly recreating it here by
-      // filing the drop as "unfiled" is exactly what was confusing before.
-      toast('Choose a section above first — that is what decides where the file is filed.', 'warn', 7000);
-      return;
-    }
-    var db = dashId === w.Library.ID ? null : byId(dashId);
-    // Name the section it actually went into. Saying "the Data Library" for a
-    // file dropped into GRN Register reads like it was filed somewhere else.
-    var sec = section ? sectionById(section) : null;
-    var where = db ? db.name : (sec ? sec.name : 'the Data Library');
-    if (files.length > 1 || files[0].size > 2e6) toast('Reading ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '…', 'ok', 2000);
-    Promise.all(files.map(function (f) {
-      // Read the header row once, so the file can be routed to the right
-      // upload box later instead of being matched on its name alone.
-      return w.Library.sniff(f).then(function (headers) {
-        return w.Store.Files.add(dashId, f, headers);
-      });
-    }))
-      .then(function (added) { return refreshCounts().then(function () { return added; }); })
-      .then(function (added) {
-        renderStats(); renderGrid(); renderFiles(); refreshMatchBar();
-        // If the server disappeared mid-session the file was kept in the
-        // browser instead. Say so plainly, and update the storage note --
-        // silently filing it somewhere else is how data goes missing.
-        var fellBack = (added || []).some(function (m) { return m && m.keptInBrowser; });
-        if (fellBack) {
-          renderModeSwitch();
-          toast('The local server is not answering, so ' +
-            (files.length === 1 ? 'that file was' : 'those files were') +
-            ' kept in this browser, not in data/library. Start serve.py again, then re-add ' +
-            (files.length === 1 ? 'it' : 'them') + ' to store ' +
-            (files.length === 1 ? 'it' : 'them') + ' on disk.', 'warn', 12000);
-        } else {
-          toast(files.length + (files.length === 1 ? ' file' : ' files') + ' added to ' + where + '.', 'ok');
-        }
-        // Dropped into a section, and the database is reachable: offer to file
-        // its contents too. Never automatic -- the month is a guess from the
-        // file name, and filing August under July would be invisible later.
-        if (section && w.Store.Files.onDisk()) offerImports(added || []);
-        else if (section && !w.Store.Files.onDisk()) {
-          toast('Filed as a file, but the database is not reachable, so nothing was added to ' +
-            ((sectionById(section) || {}).name || 'the section') +
-            '. Start serve.py and drop it again.', 'warn', 10000);
-        }
-      })
-      .catch(function (e) {
-        var msg = (e && e.message) || String(e);
-        if (/failed to fetch|networkerror|load failed/i.test(msg)) {
-          msg = 'the local server is not running. Start serve.py (the black window) and try again.';
-        }
-        toast('Could not attach: ' + msg, 'err', 10000);
-      });
-  }
-
-  function withBlob(id, fn) {
-    w.Store.Files.blob(id).then(function (b) {
-      if (!b) return toast('That file is no longer in the workspace.', 'warn');
-      fn(b);
-    });
-  }
-
-  function downloadFile(id, name) {
-    withBlob(id, function (b) {
-      var url = URL.createObjectURL(b);
-      var a = d.createElement('a');
-      a.href = url; a.download = name || 'file';
-      d.body.appendChild(a); a.click(); a.remove();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 20000);
-    });
-  }
-
-  function previewFile(id, name, type) {
-    withBlob(id, function (b) {
-      // Release whatever the modal was showing before. Every close path
-      // revokes already, but overwriting the handle without revoking would
-      // strand the previous file's bytes for the life of the tab.
-      var prev = $('#previewModal');
-      if (prev.dataset.url) { URL.revokeObjectURL(prev.dataset.url); delete prev.dataset.url; }
-      var k = kindOf(name, type || b.type);
-      var url = URL.createObjectURL(b.type ? b : new Blob([b], { type: guessMime(name) }));
-      var body = $('#previewBody');
-      $('#previewTitle').textContent = name;
-      $('#previewDl').onclick = function () { downloadFile(id, name); };
-      $('#previewTab').onclick = function () { w.open(url, '_blank', 'noopener'); };
-      if (k === 'img') body.innerHTML = '<img alt="' + esc(name) + '" src="' + url + '">';
-      else if (k === 'pdf') body.innerHTML = '<iframe title="' + esc(name) + '" src="' + url + '"></iframe>';
-      else if (['csv', 'txt', 'json', 'log', 'md'].indexOf(kindOf(name, '')) >= 0 || /^text\//.test(b.type)) {
-        body.innerHTML = '<pre>Loading…</pre>';
-        b.slice(0, 400000).text().then(function (t) { $('pre', body).textContent = t; });
-      } else {
-        body.innerHTML = '<div class="empty-state" style="margin:auto">' + ico('file', 'lg') +
-          '<h3>No inline preview</h3><p>' + esc(name) + ' opens in the app it belongs to — use Download, or Open in a new tab.</p></div>';
-      }
-      $('#previewModal').classList.add('open');
-      $('#previewModal').dataset.url = url;
-    });
-  }
-
-  function guessMime(name) {
-    var e = (name.split('.').pop() || '').toLowerCase();
-    return ({ pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-      gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', csv: 'text/csv',
-      txt: 'text/plain', json: 'application/json', md: 'text/plain' })[e] || 'application/octet-stream';
-  }
-
-  function closePreview() {
-    var m = $('#previewModal');
-    m.classList.remove('open');
-    if (m.dataset.url) { URL.revokeObjectURL(m.dataset.url); delete m.dataset.url; }
-    $('#previewBody').innerHTML = '';
-  }
-
 
   /* ===================== send a file into the dashboard ================= */
   /* The dashboards keep their own "Choose File" inputs — the Command Centre
@@ -1791,6 +758,27 @@
     var tb = $('.dash-bar');
     if (!tb || !tb.classList.contains('autohide')) return;
     tb.classList.toggle('collapsed', m.dir === 'down');
+  }, false);
+
+  /* Unsolicited push from the Data Library dashboard's own iframe: "put this
+     file of mine into that OTHER dashboard's upload box". The Library used
+     to live in the parent frame itself, alongside every dashboard's iframe,
+     so it could call ask()/fillInput() on a target dashboard directly. Now
+     it is a sibling iframe like any other, and same-origin iframes cannot
+     reach one another -- only their common parent can, so the Library asks
+     the shell to do the handoff instead, naming the file (by id -- the shell
+     reads the actual bytes from the same on-disk/IndexedDB Store the Library
+     itself used, never sent over postMessage) and the dashboard it belongs
+     in. Validated the same way the scroll relay above is: the source window
+     has to be a frame this shell actually has open, and here specifically
+     the Library's own frame -- never any other dashboard's. */
+  w.addEventListener('message', function (ev) {
+    var m = ev.data;
+    if (!m || m.__paras !== 1 || m.action !== 'requestFill') return;
+    var lib = frames[LIBRARY_DASH_ID];
+    if (!lib || !lib.el || !lib.el.contentWindow || lib.el.contentWindow !== ev.source) return;
+    if (!m.dashId || !m.fileId) return;
+    sendToDashboard(m.fileId, m.name || 'file', m.type || '', m.dashId);
   }, false);
 
   function ask(id, payload, timeoutMs) {
@@ -1932,7 +920,13 @@
      check below (scoped to whichever dashboard just opened, which is not
      necessarily `current` by the time its async lookups resolve). */
   function matchesFor(forDash) {
-    if (!forDash) return Promise.resolve(null);
+    // The Data Library dashboard has its own file inputs (browsing a file to
+    // add, an inline rename box) -- they read as upload slots to the generic
+    // probe below, but they are not upload boxes waiting for the shared
+    // library to fill, and this dashboard is where the shared library IS.
+    // Without this, opening it could auto-drop one of its own files into its
+    // own dropzone the moment it loads.
+    if (!forDash || forDash === LIBRARY_DASH_ID) return Promise.resolve(null);
     return frameInputs(forDash).then(function (slots) {
       if (!slots || !slots.length) return null;
       return libraryFiles().then(function (files) {
@@ -2037,7 +1031,6 @@
   function fillAllFromLibrary() {
     matchesForOpen().then(function (m) {
       if (!m || !m.pairs.length) return toast('Nothing in the Data Library matches this dashboard yet.', 'warn');
-      closeDrawer();
       fillPairs(m.pairs).then(function (r) {
         if (r.done) toast('Filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') +
           (r.failed ? ' (' + r.failed + ' failed)' : '') +
@@ -2148,7 +1141,6 @@
 
         function deliver(slot, blob) {
           fillInput(slot, blob, name, type).then(function () {
-            closeDrawer();
             toast('"' + name + '" loaded into ' + slot.label, 'ok', 4200);
           }).catch(function (e) {
             toast('Could not hand the file over: ' + (e && e.message || e), 'err', 8000);
@@ -2247,7 +1239,7 @@
       var t = e.target.closest('[data-open],[data-hide],[data-files]');
       if (t) {
         if (t.dataset.open) return openDashboard(t.dataset.open);
-        if (t.dataset.files) return openDrawer(t.dataset.files);
+        if (t.dataset.files) return openDashboard(LIBRARY_DASH_ID);
         if (t.dataset.hide) {
           var h = (w.Store.getPref('hidden', []) || []).slice();
           if (h.indexOf(t.dataset.hide) < 0) h.push(t.dataset.hide);
@@ -2272,7 +1264,7 @@
     });
 
     /* dashboard toolbar */
-    $('#dashFilesBtn').addEventListener('click', function () { if (current) openDrawer(current, 'library'); });
+    $('#dashFilesBtn').addEventListener('click', function () { openDashboard(LIBRARY_DASH_ID); });
     $('#dashReload').addEventListener('click', function () {
       if (!current) return;
       var f = frames[current]; if (!f) return;
@@ -2290,14 +1282,14 @@
     });
     $('#dashClose').addEventListener('click', function () { if (current) unloadFrame(current); });
 
-    /* "More" tray -- Open Dashboards / Data Library / Raise a Request /
-       What's New / Pending Requests, collapsed behind one icon. The three
-       plain-action rows (library/raise/what's-new) close this tray the
-       moment they're clicked, since whatever they open lives outside it.
-       Open Dashboards and Pending Requests are left to close it themselves
-       (they don't -- see the .more-pop CSS comment): their own popovers are
-       nested inside this one, so closing #morePop first would hide an
-       ancestor of the very popover that click was trying to open. */
+    /* "More" tray -- Open Dashboards / Raise a Request / What's New /
+       Pending Requests, collapsed behind one icon. The two plain-action rows
+       (raise/what's-new) close this tray the moment they're clicked, since
+       whatever they open lives outside it. Open Dashboards and Pending
+       Requests are left to close it themselves (they don't -- see the
+       .more-pop CSS comment): their own popovers are nested inside this one,
+       so closing #morePop first would hide an ancestor of the very popover
+       that click was trying to open. */
     $('#moreBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       var p = $('#morePop');
@@ -2306,7 +1298,7 @@
     d.addEventListener('click', function (e) {
       if (!e.target.closest('#moreTray')) $('#morePop').style.display = 'none';
     });
-    ['#libraryBtn', '#raiseBtn', '#whatsNewBtn'].forEach(function (sel) {
+    ['#raiseBtn', '#whatsNewBtn'].forEach(function (sel) {
       var b = $(sel);
       if (b) b.addEventListener('click', function () { $('#morePop').style.display = 'none'; });
     });
@@ -2338,104 +1330,21 @@
       if (!e.target.closest('#profileTray')) $('#profilePop').style.display = 'none';
     });
     wirePhoto();
-    /* Flicked shut by hand rather than via the close button: the sheet has
-       already animated itself out, so this only has to clear the state that
-       closeDrawer() owns. Removing .open again is harmless -- the sheet is
-       already where it is going. */
-    var dr = $('#drawer');
-    if (dr) dr.addEventListener('sheet:dismiss', function () { closeDrawer(); });
 
-    /* drawer */
-    $('#importSection').addEventListener('change', function () { renderImportPart(); checkDup(); });
-    $('#importMonth').addEventListener('change', checkDup);
-    $('#importYear').addEventListener('change', checkDup);
-    $('#importCancel').addEventListener('click', closeImport);
-    $('#importClose').addEventListener('click', closeImport);
-    $('#importGo').addEventListener('click', runImport);
-    $('#importModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeImport(); });
-
-    $('#drawerTabs').addEventListener('click', function (e) {
-      var b = e.target.closest('button[data-tab]'); if (!b) return;
-      drawerTab = b.dataset.tab;
-      $('#fileSearchInput').value = '';
-      renderDrawerHead(); renderFiles();
-    });
-    $('#libraryBtn').addEventListener('click', function () { openDrawer(current, 'library'); });
     $('#matchFill').addEventListener('click', fillAllFromLibrary);
-    $('#matchOpen').addEventListener('click', function () { openDrawer(current, 'library'); });
-    $('#drawerClose').addEventListener('click', closeDrawer);
-    $('#scrim').addEventListener('click', closeDrawer);
-    $('#fileSearchInput').addEventListener('input', renderFiles);
-    $('#filePick').addEventListener('change', function (e) {
-      addFiles(drawerScope(), e.target.files);
-      e.target.value = '';
-    });
-    $('#dropzone').addEventListener('click', function () { $('#filePick').click(); });
-    ['dragenter', 'dragover'].forEach(function (n) {
-      $('#dropzone').addEventListener(n, function (e) { e.preventDefault(); $('#dropzone').classList.add('hot'); });
-    });
-    ['dragleave', 'drop'].forEach(function (n) {
-      $('#dropzone').addEventListener(n, function () { $('#dropzone').classList.remove('hot'); });
-    });
-    $('#dropzone').addEventListener('drop', function (e) {
-      e.preventDefault();
-      addFiles(drawerScope(), e.dataTransfer.files);
-    });
+    $('#matchOpen').addEventListener('click', function () { openDashboard(LIBRARY_DASH_ID); });
 
-    $('#fileList').addEventListener('click', function (e) {
-      var row = e.target.closest('.file-row'); if (!row) return;
-      var id = row.dataset.fid;
-      var name = ($('.file-name', row) || {}).textContent || 'file';
-      if (e.target.closest('[data-fcond]')) {
-        var rec = null;
-        return w.Store.Files.list(drawerScope()).then(function (rows) {
-          rec = rows.filter(function (x) { return x.id === id; })[0];
-          if (rec) openCondense(rec);
-        });
-      }
-      if (e.target.closest('[data-fuse]')) {
-        if (!drawerFor) return toast('Open a dashboard first, then send the file to it.', 'warn');
-        var size = +row.dataset.fsize || 0;
-        if (isBig({ name: name, size: size })) {
-          toast('"' + name + '" is ' + fmtSize(size) + ' — too large to hand to a dashboard directly. Condense it first (⚡).', 'warn', 8000);
-          return;
-        }
-        return sendToDashboard(id, name, row.dataset.ftype || '', drawerFor);
-      }
-      if (e.target.closest('[data-fopen]')) return previewFile(id, name);
-      if (e.target.closest('[data-fdl]')) return downloadFile(id, name);
-      if (e.target.closest('[data-fren]')) { renaming = id; renderFiles(); return; }
-      if (e.target.closest('[data-fdel]')) {
-        return confirmDialog('Delete "' + name + '"?', 'The file is removed from this workspace. Your original copy on disk is untouched.', 'Delete', function () {
-          w.Store.Files.remove(id).then(refreshCounts).then(function () {
-            renderFiles(); renderStats(); renderGrid();
-            toast('File deleted.', 'ok');
-          });
-        });
-      }
-    });
-    $('#fileList').addEventListener('keydown', function (e) {
-      var inp = e.target.closest('[data-rename-input]'); if (!inp) return;
-      if (e.key === 'Enter') { commitRename(inp.dataset.renameInput, inp.value); }
-      if (e.key === 'Escape') { renaming = null; renderFiles(); }
-    });
-    $('#fileList').addEventListener('focusout', function (e) {
-      var inp = e.target.closest('[data-rename-input]');
-      if (inp && renaming) commitRename(inp.dataset.renameInput, inp.value);
-    });
-
-    /* preview + confirm modals */
-    $('#previewClose').addEventListener('click', closePreview);
-    $('#previewModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closePreview(); });
+    /* the "where should this go?" picker, shown when a file handed to a
+       dashboard (see sendToDashboard) matches more than one of its upload
+       boxes -- still needed: it is not part of the removed drawer, and the
+       Data Library dashboard's own "send to..." flow ends up here too, via
+       the 'requestFill' message relay above calling sendToDashboard. */
     $('#pickList').addEventListener('click', function (e) {
       var b = e.target.closest('[data-slot]'); if (!b || !pickSlots) return;
       var slot = pickSlots[+b.dataset.slot], cb = pickCb;
       closePick();
       if (cb) cb(slot);
     });
-    $('#condCancel').addEventListener('click', closeCondense);
-    $('#condRun').addEventListener('click', runCondense);
-    $('#condModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closeCondense(); });
     $('#pickCancel').addEventListener('click', closePick);
     $('#pickModal').addEventListener('click', function (e) { if (e.target === e.currentTarget) closePick(); });
 
@@ -2447,15 +1356,11 @@
     d.addEventListener('keydown', function (e) {
       var typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
       if (e.key === 'Escape') {
-        if ($('#importModal').classList.contains('open')) return closeImport();
-        if ($('#condModal').classList.contains('open')) return closeCondense();
         if ($('#pickModal').classList.contains('open')) return closePick();
-        if ($('#previewModal').classList.contains('open')) return closePreview();
         if ($('#confirmModal').classList.contains('open')) return closeConfirm();
         if (w.ParasFeedback && w.ParasFeedback.closeIfOpen()) return;
         if (w.ParasTwoFactor && w.ParasTwoFactor.closeIfOpen()) return;
         if (w.ParasChangelog && w.ParasChangelog.closeIfOpen()) return;
-        if ($('#drawer').classList.contains('open')) return closeDrawer();
         if (current) return goHome();
       }
       if (typing) return;
@@ -2463,26 +1368,13 @@
       if (e.key.toLowerCase() === 'h' && !e.metaKey && !e.ctrlKey) goHome();
     });
 
-    /* block accidental navigation when a file is dropped outside a zone */
-    /* Files are only ever added through the Data Library's own dropzone —
-       cards no longer accept a file drop, since a dropped file always went
-       into the shared library and was auto-matched regardless of which card
-       received it, so highlighting one particular card as a target was
-       misleading. This just stops the browser from navigating away if a file
-       is dropped anywhere else on the page. */
+    /* block accidental navigation when a file is dropped anywhere on the hub
+       shell itself -- every file now goes through the Data Library
+       dashboard's own dropzone, in its own iframe, which is a different
+       browsing context this listener never sees; this only guards the shell
+       page around it. */
     ['dragover', 'drop'].forEach(function (n) {
-      w.addEventListener(n, function (e) {
-        if (hasFiles(e) && !e.target.closest('#dropzone')) e.preventDefault();
-      });
-    });
-  }
-
-  function commitRename(id, name) {
-    name = (name || '').trim();
-    renaming = null;
-    if (!name) { renderFiles(); return; }
-    w.Store.Files.rename(id, name).then(function () {
-      invalidateFiles(); renderFiles(); toast('Renamed.', 'ok');
+      w.addEventListener(n, function (e) { if (hasFiles(e)) e.preventDefault(); });
     });
   }
 

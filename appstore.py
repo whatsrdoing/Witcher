@@ -33,6 +33,8 @@ import time
 
 import paths
 
+ROOT = os.path.dirname(os.path.abspath(__file__))
+DASHBOARDS_JSON = os.path.join(ROOT, "dashboards.json")
 DB_PATH = os.path.join(paths.data_dir(), "state.db")
 
 _LOCK = threading.Lock()
@@ -86,6 +88,10 @@ def _init_schema(conn):
         id   TEXT PRIMARY KEY,
         ord  INTEGER NOT NULL,
         data TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS dashboard_overrides (
+        dashboard_id TEXT PRIMARY KEY,
+        data         TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS login_history (
         id    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,6 +225,60 @@ def read_feedback(): return _read_list("feedback")
 def write_feedback(items): _write_list("feedback", items)
 def library_read_index(): return _read_list("library_index")
 def library_write_index(files): _write_list("library_index", files)
+
+
+# ---------------------------------------------------------------------------
+# dashboards.json's one piece of runtime state: which dashboards an admin
+# has hidden from everyone else. dashboards.json itself stays a plain file
+# shipped with the app (it ships new dashboards on every update, the same
+# way a new index.html does) -- only the admin's own per-install choice to
+# hide one lives here, so it is no longer silently lost every time a new
+# build gets unzipped over the old one, which is what writing straight into
+# the shipped file used to do.
+#
+# No row for a dashboard means "use whatever dashboards.json itself says";
+# a row always carries an explicit True/False the admin actually chose,
+# which is why toggling "off" writes a row instead of deleting one -- it
+# has to keep winning over the shipped file even if a future update ships
+# that same dashboard as adminOnly by default.
+# ---------------------------------------------------------------------------
+
+def read_dashboard_overrides():
+    conn = _connect()
+    with _LOCK:
+        rows = conn.execute("SELECT dashboard_id, data FROM dashboard_overrides").fetchall()
+    return {r["dashboard_id"]: json.loads(r["data"]) for r in rows}
+
+
+def set_dashboard_admin_only(dashboard_id, admin_only):
+    conn = _connect()
+    with _LOCK, conn:
+        conn.execute(
+            "INSERT INTO dashboard_overrides (dashboard_id, data) VALUES (?,?) "
+            "ON CONFLICT(dashboard_id) DO UPDATE SET data=excluded.data",
+            (dashboard_id, json.dumps({"adminOnly": bool(admin_only)})))
+
+
+def read_dashboards_registry():
+    """dashboards.json (the shipped list -- name, file, category, ...) with
+    each dashboard's adminOnly flag overridden by whatever is in the
+    dashboard_overrides table, if anything is. The one place both serve.py
+    (the live /dashboards.json route and the admin panel's own listing) and
+    sync.py (the dashboards.js file:// mirror) get this merged view from,
+    so the two can never disagree about which dashboards are hidden."""
+    try:
+        with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except (OSError, ValueError):
+        return {}
+    overrides = read_dashboard_overrides()
+    if overrides:
+        reg = dict(reg)
+        reg["dashboards"] = [
+            dict(d, adminOnly=overrides[d["id"]]["adminOnly"]) if d.get("id") in overrides else d
+            for d in reg.get("dashboards") or []
+        ]
+    return reg
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +478,7 @@ def _migrate_from_json(conn):
         _migrate_login_history(conn, os.path.join(d, "login_history.jsonl"))
         _migrate_view_history(conn, os.path.join(d, "view_history.jsonl"))
         _migrate_ask_usage(conn, os.path.join(d, "ask_usage.jsonl"))
+        _migrate_dashboard_overrides(conn, DASHBOARDS_JSON)
     except Exception as exc:                          # noqa: BLE001
         # A migration problem must never stop the server from starting --
         # the originals are untouched either way, so nothing is lost; it
@@ -466,6 +527,27 @@ def _migrate_totp(conn, path):
     for login, val in data.items():
         conn.execute("INSERT OR REPLACE INTO totp (login, data) VALUES (?,?)",
                      (login, json.dumps(val, ensure_ascii=False)))
+
+
+def _migrate_dashboard_overrides(conn, path):
+    """One-time only: any dashboard the shipped dashboards.json currently
+    marks adminOnly gets an explicit override row, so whatever an admin had
+    already hidden stays hidden after this upgrade. dashboards.json itself
+    is never written to again from this point on -- see the module-level
+    comment above set_dashboard_admin_only()."""
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as fh:
+            reg = json.load(fh)
+    except (OSError, ValueError):
+        return
+    for dsh in reg.get("dashboards") or []:
+        did = dsh.get("id")
+        if did and dsh.get("adminOnly"):
+            conn.execute(
+                "INSERT OR REPLACE INTO dashboard_overrides (dashboard_id, data) VALUES (?,?)",
+                (did, json.dumps({"adminOnly": True})))
 
 
 def _migrate_list(conn, path, wrapper_key, table):

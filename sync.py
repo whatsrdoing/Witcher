@@ -209,7 +209,13 @@ def main():
         sys.exit("dashboards.json is not valid JSON: %s (line %d, column %d)"
                  % (exc.msg, exc.lineno, exc.colno))
 
-    body = json.dumps(reg, indent=2, ensure_ascii=False)
+    # dashboards.js mirrors dashboards.json merged with whatever an admin
+    # has hidden (appstore's dashboard_overrides -- see its docstring) --
+    # the shipped file's own "dashboards" list is still what check() and
+    # the marker-block helpers below validate against, since overrides only
+    # ever touch adminOnly, never a dashboard's file path or id.
+    merged = appstore.read_dashboards_registry() or reg
+    body = json.dumps(merged, indent=2, ensure_ascii=False)
     with open(OUT, "w", encoding="utf-8") as fh:
         fh.write(BANNER + "window.__PARAS_REGISTRY__ = " + body + ";\n")
 

@@ -191,11 +191,32 @@ def test_migration_from_legacy_json():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_dashboard_overrides():
+    tmp = tempfile.mkdtemp(prefix="paras-appstore-")
+    a = fresh_appstore(tmp)
+    try:
+        check("no overrides yet", a.read_dashboard_overrides() == {})
+        a.set_dashboard_admin_only("procurement", True)
+        check("override set", a.read_dashboard_overrides()["procurement"]["adminOnly"] is True)
+        a.set_dashboard_admin_only("procurement", False)
+        check("override flips to an explicit False, not deleted",
+              a.read_dashboard_overrides()["procurement"]["adminOnly"] is False)
+
+        # read_dashboards_registry() merges the override onto whatever
+        # dashboards.json (next to appstore.py in the real repo) ships --
+        # just check it does not blow up and returns a dashboards list.
+        reg = a.read_dashboards_registry()
+        check("merged registry has a dashboards list", isinstance(reg.get("dashboards"), list))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     test_accounts_round_trip()
     test_totp_round_trip()
     test_lists_round_trip()
     test_logs_and_reports()
+    test_dashboard_overrides()
     test_migration_from_legacy_json()
     print("\n%d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1

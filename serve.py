@@ -982,6 +982,22 @@ def make_handler(prefix):
             if path_only.rstrip("/").rsplit("/", 1)[-1] == "auth.json":
                 self._send_auth()
                 return
+            # dashboards.json itself still ships as a plain file (new
+            # dashboards arrive with every app update, same as index.html
+            # does) -- but an admin's own choice to hide one lives in
+            # appstore's dashboard_overrides table now, not in that file, so
+            # it survives the next update instead of being overwritten by
+            # it. Served here, merged, under the same name the registry
+            # already fetches -- registry.js does not need to know this
+            # changed. No session required, same reasoning as dashboards.js:
+            # the hub needs the list before anyone has signed in.
+            if path_only.rstrip("/").rsplit("/", 1)[-1] == "dashboards.json":
+                reg = appstore.read_dashboards_registry()
+                if not reg:
+                    self.send_error(404)
+                    return
+                self._json(200, reg)
+                return
             # Where is my data? Answerable from inside the app rather than
             # only from this terminal window.
             if path_only.rstrip("/").rsplit("/", 1)[-1] == "__where":
@@ -1895,11 +1911,7 @@ def make_handler(prefix):
                 self._admin_backup_download(tail[1])
                 return
             if tail == ["dashboards"]:
-                try:
-                    with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
-                        reg = json.load(fh)
-                except (OSError, ValueError):
-                    reg = {}
+                reg = appstore.read_dashboards_registry()
                 out = [{"id": d.get("id"), "name": d.get("name"), "status": d.get("status"),
                         "adminOnly": bool(d.get("adminOnly"))}
                        for d in reg.get("dashboards", []) if d.get("id")]
@@ -2226,25 +2238,21 @@ def make_handler(prefix):
             self._json(200, {"ok": True})
 
         def _admin_dashboard_visibility(self, dashboard_id, body):
+            """POST /__admin/dashboards/<id>/visibility {adminOnly} -- the
+            choice itself lives in appstore's dashboard_overrides table (see
+            its docstring), not in dashboards.json, so it survives the next
+            time a new build gets unzipped over this one."""
             try:
                 with open(DASHBOARDS_JSON, encoding="utf-8") as fh:
                     reg = json.load(fh)
             except (OSError, ValueError) as exc:
                 self._json(500, {"error": str(exc)})
                 return
-            dashboards = reg.get("dashboards") or []
-            entry = next((d for d in dashboards if d.get("id") == dashboard_id), None)
-            if entry is None:
+            if not any(d.get("id") == dashboard_id for d in reg.get("dashboards") or []):
                 self._json(404, {"error": "no such dashboard"})
                 return
-            if body.get("adminOnly"):
-                entry["adminOnly"] = True
-            else:
-                entry.pop("adminOnly", None)
             try:
-                with open(DASHBOARDS_JSON, "w", encoding="utf-8") as fh:
-                    json.dump(reg, fh, indent=2, ensure_ascii=False)
-                    fh.write("\n")
+                appstore.set_dashboard_admin_only(dashboard_id, bool(body.get("adminOnly")))
                 # Regenerates dashboards.js (the file:// mirror every dashboard
                 # page's own bridge/session-guard/idle-timeout blocks also come
                 # from) so the change is picked up immediately, not just on the
@@ -2252,7 +2260,7 @@ def make_handler(prefix):
                 sys.path.insert(0, ROOT)
                 import sync
                 sync.main()
-            except (OSError, ImportError) as exc:
+            except (sqlite3.Error, ImportError) as exc:
                 self._json(500, {"error": str(exc)})
                 return
             self._json(200, {"ok": True})

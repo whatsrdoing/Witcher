@@ -380,7 +380,8 @@
             "Item Code",
             "Transfered Qty.",
             "EPR."
-          ]
+          ],
+          "auto": false
         },
         {
           "label": "Stock Transfer",
@@ -406,7 +407,8 @@
             "Item Code",
             "Transfered Qty.",
             "EPR."
-          ]
+          ],
+          "auto": false
         }
       ]
     },

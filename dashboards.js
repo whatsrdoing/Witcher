@@ -383,7 +383,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Transfered Qty.",
             "EPR."
-          ]
+          ],
+          "auto": false
         },
         {
           "label": "Stock Transfer",
@@ -409,7 +410,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Transfered Qty.",
             "EPR."
-          ]
+          ],
+          "auto": false
         }
       ]
     },

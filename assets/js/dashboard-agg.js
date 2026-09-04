@@ -180,6 +180,131 @@
     });
   }
 
+  /* ---- opening straight from the database ---------------------------
+   *
+   * Every dashboard already knows how to read a file the user picked: it
+   * validates the headers, parses the rows, and computes everything from
+   * there. That code is verified against real registers and is the last
+   * thing worth rewriting.
+   *
+   * So this does not rewrite it. It fetches the rows the database already
+   * holds, restores the column headings to the exact text the dashboard
+   * expects, and hands back a real File object -- which every dashboard's
+   * existing parser accepts unchanged, because that is what it was always
+   * given. The dashboard's arithmetic, validation and rendering are
+   * untouched; only where the bytes came from is different.
+   */
+
+  /* datastore.py rewrites every heading into a safe SQL identifier at import
+   * time (its slug(): non-alphanumerics to "_", trimmed, prefixed if it does
+   * not start with a letter, cut to 63) and keeps no copy of the original.
+   * This mirrors that exactly, so the mapping back is deterministic rather
+   * than a guess. */
+  function pySlug(name) {
+    var s = String(name || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!s) s = 'col';
+    if (!/^[A-Za-z]/.test(s)) s = 'c_' + s;
+    return s.slice(0, 63);
+  }
+
+  /* The real heading text expected for one specific dataset on one specific
+   * dashboard, taken from the registry's own "needs" and "keep" lists --
+   * the columns that input slot declares it reads.
+   *
+   * Scoped to (dashboardId, dataset), not just dashboardId: two different
+   * registers on the same dashboard can use headings that slug to the same
+   * identifier -- Local Purchase's GRN Register needs "PO No." (with the
+   * period datastore.py's slug() strips) while its Purchase Register needs
+   * "PO No" (without one); both become "PO_No". Collecting every input's
+   * headers into one flat list would let one clobber the other in the
+   * lookup table below and silently rewrite the wrong file's column. */
+  function expectedHeaders(reg, dashboardId, dataset) {
+    var out = [];
+    (reg.dashboards || []).forEach(function (d) {
+      if (d.id !== dashboardId) return;
+      (d.inputs || []).forEach(function (i) {
+        if (i.dataset !== dataset) return;
+        (i.needs || []).forEach(function (h) { out.push(h); });
+        (i.keep || []).forEach(function (h) { out.push(h); });
+      });
+    });
+    return out;
+  }
+
+  /* Turn the export's slugged header row back into the dashboard's own
+   * wording. Only headings this dashboard actually declares are touched;
+   * the export's own _period/_source/_rowno/_part columns and anything else
+   * are left exactly as they are, since a parser only reads the fields it
+   * names and simply ignores the rest. */
+  function restoreHeaders(csvText, headers) {
+    var nl = csvText.indexOf('\n');
+    if (nl < 0) return csvText;
+    var head = csvText.slice(0, nl);
+    var map = {};
+    headers.forEach(function (h) { map[pySlug(h)] = h; });
+    var restored = head.split(',').map(function (cell) {
+      var bare = cell.replace(/^"|"$/g, '').trim();
+      var real = map[bare];
+      if (!real) return cell;
+      return '"' + real.replace(/"/g, '""') + '"';
+    }).join(',');
+    return restored + csvText.slice(nl);
+  }
+
+  /* One dataset's stored rows as a File, ready to hand to the dashboard's
+   * own file handler.
+   *
+   * `periods` limits it to particular months -- the single most effective
+   * thing a dashboard can do about memory, since a year of a register need
+   * never be in the browser at once to show one month of it. Omit it for
+   * everything stored.
+   *
+   * Resolves to null (never throws) when there is nothing to load, so the
+   * caller falls through to its normal upload prompt.
+   */
+  function fileFor(dashboardId, dataset, periods) {
+    if (!available()) return Promise.resolve(null);
+    var url = BASE + '__data/' + encodeURIComponent(dataset) + '/export';
+    if (periods && periods.length) url += '?periods=' + encodeURIComponent(periods.join(','));
+    return Promise.all([
+      fetch(url).then(function (r) { return r.ok ? r.text() : null; }),
+      fetch(BASE + 'dashboards.json').then(function (r) { return r.ok ? r.json() : null; })
+    ]).then(function (both) {
+      var csv = both[0], reg = both[1];
+      if (!csv || csv.indexOf('\n') < 0) return null;
+      if (reg) csv = restoreHeaders(csv, expectedHeaders(reg, dashboardId, dataset));
+      return new File([csv], dataset + '.csv', { type: 'text/csv' });
+    })['catch'](function (err) {
+      if (w.console && w.console.warn) w.console.warn('[agg] load ' + dataset + ': ' + err.message);
+      return null;
+    });
+  }
+
+  /* Open a whole dashboard from the database: for each of its datasets that
+   * has rows, hand the file to `deliver(file, dataset, label)` -- whatever
+   * that dashboard already calls when a user picks a file for that slot.
+   *
+   * Resolves to {loaded: [...], missing: [...]}; loaded empty means nothing
+   * was imported and the caller should show its upload prompt as usual.
+   */
+  function openFromDatabase(dashboardId, deliver, periods) {
+    return readiness(dashboardId).then(function (state) {
+      if (!state.ready) return { loaded: [], missing: state.missing || [] };
+      return Promise.all(state.datasets.map(function (d) {
+        return fileFor(dashboardId, d.dataset, periods).then(function (file) {
+          if (!file) return null;
+          try { deliver(file, d.dataset, d.label); } catch (e) {
+            if (w.console && w.console.warn) w.console.warn('[agg] deliver ' + d.dataset + ': ' + e.message);
+            return null;
+          }
+          return d.dataset;
+        });
+      })).then(function (done) {
+        return { loaded: done.filter(Boolean), missing: state.missing || [] };
+      });
+    });
+  }
+
   /* Development aid, and the reason to trust any of this: run the same
    * question against the database and against rows already in the browser,
    * and report every figure that disagrees.
@@ -210,6 +335,8 @@
     datasetInfo: datasetInfo,
     datasetsFor: datasetsFor,
     readiness: readiness,
+    fileFor: fileFor,
+    openFromDatabase: openFromDatabase,
     query: query,
     summary: summary,
     rows: rows,

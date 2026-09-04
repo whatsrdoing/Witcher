@@ -27,7 +27,6 @@ is not actually serving the page, and none should.
 """
 import base64
 import binascii
-import bisect
 import functools
 import hashlib
 import hmac
@@ -40,6 +39,7 @@ import secrets
 import socket
 import shutil
 import socketserver
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -63,14 +63,13 @@ DASHBOARDS_JSON = os.path.join(ROOT, "dashboards.json")
 # behind. See paths.py for the resolution order (PARAS_DATA_DIR wins, which
 # is also how selftest.py runs against a throwaway directory).
 import paths
+import appstore
 import mail
 import llm
 import assistant
 
 LIBRARY_DIR = paths.library_dir()
 LIBRARY_BLOBS = paths.library_blobs()
-LIBRARY_INDEX = paths.library_index()
-AUTH_PATH = paths.auth_path()
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 COPY_CHUNK = 1024 * 1024
 
@@ -259,226 +258,70 @@ def drop_conflict(token):
         CONFLICTS.pop(token, None)
 
 
-HISTORY_PATH = os.path.join(paths.data_dir(), "login_history.jsonl")
-HISTORY_LOCK = threading.Lock()
+HISTORY_LOCK = threading.Lock()   # kept for API compatibility with older imports
 
 
 def log_history(login, event, ip=None):
-    """Append one line to the persistent login/session history log -- the
+    """Append one entry to the persistent login/session history -- the
     admin panel's audit trail. Separate from SESSIONS (in-memory, forgets
     everything on restart, on purpose -- see the block above); this is
     meant to survive restarts and keep growing. Best-effort: a write
-    failure here must never break the sign-in flow itself.
+    failure here must never break the sign-in flow itself. Backed by
+    appstore's login_history table (see appstore.py) -- was a
+    replay-the-whole-file .jsonl log, now an indexed SQLite table.
 
     ip is recorded only for login_ok/login_fail -- the events where "which
     machine tried this" is actually useful for spotting misuse; the caller
     passes it in since only it has self.client_address."""
-    if not login:
-        return
-    entry = {"ts": int(time.time() * 1000), "login": login, "event": event}
-    if ip:
-        entry["ip"] = ip
     try:
-        with HISTORY_LOCK:
-            with open(HISTORY_PATH, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
+        appstore.log_history(login, event, ip)
+    except sqlite3.Error:
         pass
 
 
 def read_history(limit=200):
     """Most recent entries first."""
-    try:
-        with open(HISTORY_PATH, encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
-        return []
-    out = []
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            out.append(json.loads(line))
-        except ValueError:
-            continue
-        if len(out) >= limit:
-            break
-    return out
+    return appstore.read_history(limit)
 
 
 def history_stats():
     """Per-login total signed-in time (ms) and how many sessions that adds
     up over, best-effort: pairs each login_ok with the next logout or
     force_logout for that same login; one still open counts up to now."""
-    try:
-        with open(HISTORY_PATH, encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
-        return {}
-    open_since = {}
-    stats = {}
-    now_ms = time.time() * 1000
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        login, event, ts = e.get("login"), e.get("event"), e.get("ts")
-        if not login or ts is None:
-            continue
-        s = stats.setdefault(login, {"totalMs": 0, "sessions": 0})
-        if event == "login_ok":
-            open_since[login] = ts
-            s["sessions"] += 1
-        elif event in ("logout", "force_logout") and login in open_since:
-            s["totalMs"] += max(0, ts - open_since.pop(login))
-    for login, start in open_since.items():
-        stats.setdefault(login, {"totalMs": 0, "sessions": 0})
-        stats[login]["totalMs"] += max(0, now_ms - start)
-    return stats
-
-
-VIEW_HISTORY_PATH = os.path.join(paths.data_dir(), "view_history.jsonl")
-VIEW_HISTORY_LOCK = threading.Lock()
+    return appstore.history_stats()
 
 
 def log_view(login, dashboard_id):
-    """Append one line every time a session's self-reported "what am I
-    looking at" changes (see set_viewing / __session/viewing) -- unlike
-    SESSIONS' in-memory "viewing" field, which only ever answers "right
-    now", this is what usage_report() below replays to work out which
-    dashboard a login actually spent time on, per day. Best-effort, same
-    as log_history: a write failure here must never break navigation."""
-    if not login:
-        return
-    entry = {"ts": int(time.time() * 1000), "login": login, "dashboardId": dashboard_id}
+    """Records every time a session's self-reported "what am I looking at"
+    changes (see set_viewing / __session/viewing) -- unlike SESSIONS'
+    in-memory "viewing" field, which only ever answers "right now", this is
+    what usage_report() below replays to work out which dashboard a login
+    actually spent time on, per day. Best-effort, same as log_history: a
+    write failure here must never break navigation."""
     try:
-        with VIEW_HISTORY_LOCK:
-            with open(VIEW_HISTORY_PATH, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
+        appstore.log_view(login, dashboard_id)
+    except sqlite3.Error:
         pass
-
-
-def _day_str(ms):
-    return time.strftime("%Y-%m-%d", time.localtime(ms / 1000.0))
-
-
-def _split_ms_by_day(start_ms, end_ms):
-    """Yield (day_str, ms) pairs splitting [start_ms, end_ms) at local
-    midnight boundaries, so a session (or a dashboard left open) spanning
-    more than one day is credited to each day proportionally rather than
-    dumped entirely on the day it started."""
-    cur = start_ms
-    while cur < end_ms:
-        t = time.localtime(cur / 1000.0)
-        next_midnight = time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)) * 1000 + 86400000
-        seg_end = min(end_ms, next_midnight)
-        if seg_end > cur:
-            yield (_day_str(cur), seg_end - cur)
-        cur = seg_end
 
 
 def usage_report():
     """Per-login, per-day: total signed-in time and time spent on each
-    dashboard -- the admin panel's usage report. Built by replaying
-    login_history.jsonl for session start/end times and view_history.jsonl
-    for which dashboard was open within those sessions, rather than kept
-    live, since it is only ever asked for occasionally from the admin panel
-    and both logs are small text files. A session (or the admin's own tab)
-    left open counts up to right now."""
-    try:
-        with open(HISTORY_PATH, encoding="utf-8") as fh:
-            hist_lines = fh.readlines()
-    except OSError:
-        hist_lines = []
-    try:
-        with open(VIEW_HISTORY_PATH, encoding="utf-8") as fh:
-            view_lines = fh.readlines()
-    except OSError:
-        view_lines = []
-
-    views_by_login = {}
-    for line in view_lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        login, ts = e.get("login"), e.get("ts")
-        if not login or ts is None:
-            continue
-        views_by_login.setdefault(login, []).append(e)
-    for v in views_by_login.values():
-        v.sort(key=lambda e: e["ts"])
-
-    now_ms = int(time.time() * 1000)
-    days = {}   # login -> day -> {"totalMs": int, "dashboards": {id: ms}}
-
-    def credit(login, start_ms, end_ms):
-        if end_ms <= start_ms:
-            return
-        by_day = days.setdefault(login, {})
-        vlist = views_by_login.get(login) or []
-        ts_list = [e["ts"] for e in vlist]
-        idx = bisect.bisect_right(ts_list, start_ms) - 1
-        cur = start_ms
-        while cur < end_ms:
-            dash = vlist[idx]["dashboardId"] if idx >= 0 else None
-            nxt = vlist[idx + 1]["ts"] if idx + 1 < len(vlist) else end_ms
-            seg_end = min(end_ms, nxt)
-            for day, ms in _split_ms_by_day(cur, seg_end):
-                d = by_day.setdefault(day, {"totalMs": 0, "dashboards": {}})
-                d["totalMs"] += ms
-                if dash:
-                    d["dashboards"][dash] = d["dashboards"].get(dash, 0) + ms
-            cur = seg_end
-            idx += 1
-
-    open_since = {}
-    for line in hist_lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        login, event, ts = e.get("login"), e.get("event"), e.get("ts")
-        if not login or ts is None:
-            continue
-        if event == "login_ok":
-            open_since[login] = ts
-        elif event in ("logout", "force_logout") and login in open_since:
-            credit(login, open_since.pop(login), ts)
-    for login, start in open_since.items():
-        credit(login, start, now_ms)
-
-    return days
-
-
-ASK_USAGE_PATH = os.path.join(paths.data_dir(), "ask_usage.jsonl")
-ASK_USAGE_LOCK = threading.Lock()
+    dashboard -- the admin panel's usage report. Built by replaying the
+    login_history and view_history tables for session start/end times and
+    which dashboard was open within those sessions, rather than kept live,
+    since it is only ever asked for occasionally from the admin panel. A
+    session (or the admin's own tab) left open counts up to right now."""
+    return appstore.usage_report()
 
 
 def log_ask_usage(model, input_tokens, output_tokens):
-    """Append one line per answered Ask question -- best-effort, same
-    shape as log_view: a write failure here must never break the Ask
-    panel, it just means that question's tokens are missing from the
-    running total the panel shows."""
-    entry = {"ts": int(time.time() * 1000), "model": model,
-              "inputTokens": input_tokens, "outputTokens": output_tokens}
+    """Records one answered Ask question -- best-effort, same shape as
+    log_view: a write failure here must never break the Ask panel, it just
+    means that question's tokens are missing from the running total the
+    panel shows."""
     try:
-        with ASK_USAGE_LOCK:
-            with open(ASK_USAGE_PATH, "a", encoding="utf-8") as fh:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
+        appstore.log_ask_usage(model, input_tokens, output_tokens)
+    except sqlite3.Error:
         pass
 
 
@@ -486,81 +329,41 @@ def ask_usage_report():
     """Today's and this month's token/cost totals for the Ask panel's
     usage window. Cost is always assistant.estimate_cost's *estimate*
     from list pricing -- there is no API for a real account balance, so
-    this never claims to be one; replayed from ask_usage.jsonl the same
-    way usage_report() replays the login/view logs."""
-    now_ms = int(time.time() * 1000)
-    today = _day_str(now_ms)
-    month = time.strftime("%Y-%m", time.localtime(now_ms / 1000.0))
-    totals = {"today": {"tokens": 0, "cost": 0.0}, "month": {"tokens": 0, "cost": 0.0}}
-    try:
-        with open(ASK_USAGE_PATH, encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except OSError:
-        return totals
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        ts = e.get("ts")
-        if ts is None:
-            continue
-        in_tok, out_tok = e.get("inputTokens") or 0, e.get("outputTokens") or 0
-        cost = assistant.estimate_cost(e.get("model"), in_tok, out_tok) or 0.0
-        if time.strftime("%Y-%m", time.localtime(ts / 1000.0)) == month:
-            totals["month"]["tokens"] += in_tok + out_tok
-            totals["month"]["cost"] += cost
-        if _day_str(ts) == today:
-            totals["today"]["tokens"] += in_tok + out_tok
-            totals["today"]["cost"] += cost
-    totals["today"]["cost"] = round(totals["today"]["cost"], 4)
-    totals["month"]["cost"] = round(totals["month"]["cost"], 4)
-    return totals
+    this never claims to be one; replayed from the ask_usage table the
+    same way usage_report() replays the login/view history."""
+    return appstore.ask_usage_report()
 
 
-REQUESTS_PATH = os.path.join(paths.data_dir(), "pending_requests.json")
 REQUESTS_LOCK = threading.Lock()
 
 
 def read_requests():
-    try:
-        with open(REQUESTS_PATH, encoding="utf-8") as fh:
-            return json.load(fh).get("requests") or []
-    except (OSError, ValueError):
-        return []
+    return appstore.read_requests()
 
 
 def write_requests(requests):
-    os.makedirs(os.path.dirname(REQUESTS_PATH), exist_ok=True)
-    tmp = REQUESTS_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"requests": requests}, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, REQUESTS_PATH)
+    appstore.write_requests(requests)
 
 
-FEEDBACK_PATH = os.path.join(paths.data_dir(), "feedback.json")
 FEEDBACK_LOCK = threading.Lock()
 
 
 def read_feedback():
-    try:
-        with open(FEEDBACK_PATH, encoding="utf-8") as fh:
-            return json.load(fh).get("items") or []
-    except (OSError, ValueError):
-        return []
+    return appstore.read_feedback()
 
 
 def write_feedback(items):
-    os.makedirs(os.path.dirname(FEEDBACK_PATH), exist_ok=True)
-    tmp = FEEDBACK_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"items": items}, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, FEEDBACK_PATH)
+    appstore.write_feedback(items)
+
+
+def read_auth():
+    """The exact dict shape auth.json used to be -- see appstore.read_auth().
+    {} when no accounts are configured at all."""
+    return appstore.read_auth()
+
+
+def write_auth(auth):
+    appstore.write_auth(auth)
 
 
 # ---- sign-up email verification (OTP) ---------------------------------------
@@ -716,11 +519,7 @@ def notify_admin_of_request(rtype, login):
     file, exactly like every other best-effort mail send in this file."""
     if not mail.mail_enabled():
         return
-    try:
-        with open(AUTH_PATH, encoding="utf-8") as fh:
-            admin_email = (json.load(fh).get("adminEmail") or "").strip()
-    except (OSError, ValueError):
-        admin_email = ""
+    admin_email = (read_auth().get("adminEmail") or "").strip()
     if not admin_email:
         return
     label = REQUEST_TYPE_LABEL.get(rtype, rtype)
@@ -832,26 +631,16 @@ def start_backup_scheduler():
 # 2FA outright. Keeping it in a separate file under data_dir() (never inside
 # ROOT, never mirrored, never served by any route) means it is simply never
 # reachable the way auth.js is.
-TOTP_PATH = os.path.join(paths.data_dir(), "totp.json")
 TOTP_LOCK = threading.Lock()
 TOTP_ISSUER = "Paras Health SCM"
 
 
 def read_totp():
-    try:
-        with open(TOTP_PATH, encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return {}
+    return appstore.read_totp()
 
 
 def write_totp(data):
-    os.makedirs(os.path.dirname(TOTP_PATH), exist_ok=True)
-    tmp = TOTP_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-    os.replace(tmp, TOTP_PATH)
+    appstore.write_totp(data)
 
 
 def totp_new_secret():
@@ -995,10 +784,8 @@ def admin_login():
     the top-level "email" field for older builds. Either one reliably names
     the one account this app treats as admin; there is no separate "is
     admin" flag anywhere in the data, this ordering is it."""
-    try:
-        with open(AUTH_PATH, encoding="utf-8") as fh:
-            auth = json.load(fh)
-    except (OSError, ValueError):
+    auth = read_auth()
+    if not auth:
         return None
     accounts = auth.get("accounts")
     if accounts:
@@ -1011,10 +798,8 @@ def auth_configured():
     enabled: false -- gate.js opens straight in for either, so the API
     matches it rather than locking the owner out of a workspace that has
     never had a password set."""
-    try:
-        with open(AUTH_PATH, encoding="utf-8") as fh:
-            cfg = json.load(fh)
-    except (OSError, ValueError):
+    cfg = read_auth()
+    if not cfg:
         return False
     if cfg.get("enabled") is False:
         return False
@@ -1082,32 +867,14 @@ LIBRARY_LOCK = threading.Lock()
 
 
 def library_read_index():
-    if not os.path.exists(LIBRARY_INDEX):
-        return []
-    try:
-        with open(LIBRARY_INDEX, encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data.get("files") or []
-    except (OSError, ValueError):
-        return []
+    return appstore.library_read_index()
 
 
 def library_write_index(files):
-    """Replace index.json atomically.
-
-    Written to a temp file in the same directory and then moved into place,
-    so a crash (or Ctrl+C) mid-write cannot leave a half-written index --
-    which json.load would reject, making every attached file look like it had
-    vanished at once while its bytes sat orphaned in blobs/.
-    """
-    os.makedirs(LIBRARY_DIR, exist_ok=True)
-    tmp = LIBRARY_INDEX + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"files": files}, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, LIBRARY_INDEX)          # atomic on POSIX and Windows
+    """Replace the Data Library's index in one SQLite transaction -- same
+    "rewrite the whole list" semantics the old atomic temp-file-then-
+    os.replace() index.json had, just backed by appstore now."""
+    appstore.library_write_index(files)
 
 
 DB_PATH = paths.db_path()
@@ -1337,12 +1104,11 @@ def make_handler(prefix):
             could download every account's hash and brute-force it offline,
             with no rate limit at all -- worse than the sign-in form itself,
             which at least locks out after a few tries."""
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
-                # No accounts file at all is a real state, not an error: the
-                # gate treats a missing config as "no sign-in configured".
+            auth = read_auth()
+            if not auth:
+                # No accounts configured at all is a real state, not an
+                # error: the gate treats a missing config as "no sign-in
+                # configured".
                 self.send_error(404)
                 return
             safe = dict(auth)
@@ -1695,10 +1461,8 @@ def make_handler(prefix):
                 self._json(429, {"error": "too many attempts -- try again shortly"})
                 return
 
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
+            auth = read_auth()
+            if not auth:
                 self._json(404, {"error": "no such account"})
                 return
             accounts = auth.get("accounts")
@@ -1777,10 +1541,8 @@ def make_handler(prefix):
                 self._json(429, {"error": "too many attempts -- try again shortly"})
                 return
 
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
+            auth = read_auth()
+            if not auth:
                 self._json(404, {"error": "no such account"})
                 return
             accounts = auth.get("accounts") or []
@@ -1911,11 +1673,7 @@ def make_handler(prefix):
                 return
 
             digest = str(req.get("digest") or "")
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
-                auth = {}
+            auth = read_auth()
             key_hash = str(auth.get("adminKeyHash") or "")
 
             if not key_hash or not digest or not hmac.compare_digest(digest, key_hash):
@@ -2150,10 +1908,8 @@ def make_handler(prefix):
             self.send_error(404)
 
         def _admin_account_list(self):
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
+            auth = read_auth()
+            if not auth:
                 return []
             accounts = auth.get("accounts") or []
             primary = admin_login()
@@ -2196,11 +1952,7 @@ def make_handler(prefix):
                 self._json(429, {"error": "too many attempts -- try again shortly"})
                 return False
 
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
-                auth = {}
+            auth = read_auth()
             acc = next((a for a in (auth.get("accounts") or []) if a.get("login") == login), None)
 
             digest = str(body.get("stepUpDigest") or "")
@@ -2313,11 +2065,7 @@ def make_handler(prefix):
             logins = body.get("logins")
             wanted = set(logins) if isinstance(logins, list) and logins else None
 
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    accounts = json.load(fh).get("accounts") or []
-            except (OSError, ValueError):
-                accounts = []
+            accounts = read_auth().get("accounts") or []
             recipients = [a.get("email") for a in accounts
                           if a.get("email") and (wanted is None or a.get("login") in wanted)]
             if not recipients:
@@ -2414,11 +2162,9 @@ def make_handler(prefix):
                     self._json(409, {"error": "already resolved"})
                     return
 
-                try:
-                    with open(AUTH_PATH, encoding="utf-8") as fh:
-                        auth = json.load(fh)
-                except (OSError, ValueError):
-                    self._json(500, {"error": "auth.json unreadable"})
+                auth = read_auth()
+                if not auth:
+                    self._json(500, {"error": "no accounts configured"})
                     return
                 accounts = auth.get("accounts") or []
                 payload = entry.get("payload") or {}
@@ -2465,12 +2211,10 @@ def make_handler(prefix):
                     auth["salt"], auth["hash"], auth["iterations"] = (
                         accounts[0]["salt"], accounts[0]["hash"], accounts[0]["iterations"])
                 try:
-                    with open(AUTH_PATH, "w", encoding="utf-8") as fh:
-                        json.dump(auth, fh, indent=2, ensure_ascii=False)
-                        fh.write("\n")
+                    write_auth(auth)
                     import sync
                     sync.mirror_auth()
-                except (OSError, ImportError) as exc:
+                except (sqlite3.Error, ImportError) as exc:
                     self._json(500, {"error": str(exc)})
                     return
 
@@ -2514,10 +2258,8 @@ def make_handler(prefix):
             self._json(200, {"ok": True})
 
         def _admin_account_action(self, login, action, body):
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
+            auth = read_auth()
+            if not auth:
                 self._json(404, {"error": "no accounts configured"})
                 return
             accounts = auth.get("accounts") or []
@@ -2552,6 +2294,14 @@ def make_handler(prefix):
                 accounts[idx]["login"] = new_login
                 if auth.get("email") == old_login:
                     auth["email"] = new_login
+                # A renamed login's 2FA secret used to stay keyed under the
+                # old (now nonexistent) name, silently orphaning it -- carry
+                # it across in the same step instead.
+                with TOTP_LOCK:
+                    totp = read_totp()
+                    if old_login in totp:
+                        totp[new_login] = totp.pop(old_login)
+                        write_totp(totp)
                 drop_sessions_for(old_login)
                 log_history(old_login, "force_logout")
 
@@ -2616,12 +2366,10 @@ def make_handler(prefix):
                 auth["salt"], auth["hash"], auth["iterations"] = (
                     accounts[0]["salt"], accounts[0]["hash"], accounts[0]["iterations"])
             try:
-                with open(AUTH_PATH, "w", encoding="utf-8") as fh:
-                    json.dump(auth, fh, indent=2, ensure_ascii=False)
-                    fh.write("\n")
+                write_auth(auth)
                 import sync
                 sync.mirror_auth()
-            except (OSError, ImportError) as exc:
+            except (sqlite3.Error, ImportError) as exc:
                 self._json(500, {"error": str(exc)})
                 return
             self._json(200, {"ok": True})
@@ -2756,11 +2504,7 @@ def make_handler(prefix):
                 self._json(429, {"error": "too many attempts -- try again shortly"})
                 return
 
-            try:
-                with open(AUTH_PATH, encoding="utf-8") as fh:
-                    auth = json.load(fh)
-            except (OSError, ValueError):
-                auth = {}
+            auth = read_auth()
             accounts = auth.get("accounts") or []
             login = clean_login(req.get("login"))
             if not login:

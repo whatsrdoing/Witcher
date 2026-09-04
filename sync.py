@@ -19,10 +19,10 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, "dashboards.json")
 OUT = os.path.join(ROOT, "dashboards.js")
 import paths
-# The accounts file lives with the data, outside the app folder, so it is not
-# reset every time a new build is extracted. auth.js stays here: it is a
-# generated mirror, rewritten from the real file on every run.
-AUTH_SRC = paths.auth_path()
+import appstore
+# Accounts live in data/state.db (see appstore.py), outside the app folder,
+# so they are not reset every time a new build is extracted. auth.js stays
+# here: it is a generated mirror, rewritten from the real data on every run.
 AUTH_OUT = os.path.join(ROOT, "auth.js")
 BRIDGE_SRC = os.path.join(ROOT, "assets", "js", "dashboard-bridge.js")
 BRIDGE_OPEN = "<!-- paras-command-centre-bridge -->"
@@ -185,18 +185,15 @@ def ensure_idle_timeout(reg):
 
 
 def mirror_auth():
-    """Mirror auth.json into auth.js so the sign-in gate also works on file://."""
-    if not os.path.exists(AUTH_SRC):
-        return
-    try:
-        with open(AUTH_SRC, encoding="utf-8") as fh:
-            auth = json.load(fh)
-    except json.JSONDecodeError as exc:
-        print("  ! auth.json is not valid JSON: %s (line %d)" % (exc.msg, exc.lineno))
+    """Mirror the accounts in data/state.db into auth.js so the sign-in gate
+    also works on file://. Same unredacted-on-purpose mirror auth.json used
+    to get dumped into verbatim -- see appstore.read_auth()'s docstring."""
+    auth = appstore.read_auth()
+    if not auth:
         return
     with open(AUTH_OUT, "w", encoding="utf-8") as fh:
         fh.write("/* GENERATED FILE - do not edit.\n"
-                 "   Source: auth.json   Reset the password: python3 set_password.py */\n"
+                 "   Source: data/state.db   Reset the password: python3 set_password.py */\n"
                  "window.__PARAS_AUTH__ = " + json.dumps(auth, indent=2, ensure_ascii=False) + ";\n")
     print("auth.js updated - sign-in %s"
           % ("enabled for " + auth.get("email", "?") if auth.get("enabled", True) else "DISABLED"))

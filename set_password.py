@@ -21,17 +21,15 @@ purpose — that decision stays with whoever holds this folder.
 """
 import getpass
 import hashlib
-import json
 import os
 import secrets
 import sys
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-import paths
-# Written to the data folder, not the app folder: a password set here has
-# to survive extracting a new build.
-OUT = paths.auth_path()
+import appstore
+# Written to data/state.db, not the app folder: a password set here has to
+# survive extracting a new build. See appstore.py for where accounts live.
 ITERATIONS = 250_000
 DEFAULT_ADMIN_KEY = "U118540720248"
 
@@ -95,9 +93,9 @@ def build(login, password, hint="", admin="Ritik Nagar", admin_key=DEFAULT_ADMIN
 
 
 def remove_account(login):
-    if not os.path.exists(OUT):
-        sys.exit("No auth.json yet — nothing to remove.")
-    auth = json.load(open(OUT, encoding="utf-8"))
+    auth = appstore.read_auth()
+    if not auth:
+        sys.exit("No accounts yet — nothing to remove.")
     accounts = auth.get("accounts") or (
         [{"login": auth.get("email", ""), "salt": auth.get("salt", ""),
           "hash": auth.get("hash", ""), "iterations": auth.get("iterations", ITERATIONS)}]
@@ -118,9 +116,7 @@ def remove_account(login):
     auth["hash"] = kept[0].get("hash", "")
     auth["iterations"] = kept[0].get("iterations", ITERATIONS)
 
-    with open(OUT, "w", encoding="utf-8") as fh:
-        json.dump(auth, fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    appstore.write_auth(auth)
     print('Removed "%s". Remaining: %s' % (login, ", ".join(a.get("login", "?") for a in kept)))
     try:
         sys.path.insert(0, ROOT)
@@ -175,13 +171,10 @@ def main(argv):
         hint = argv[2] if len(argv) > 2 else ""
     else:
         current = ""
-        if os.path.exists(OUT):
-            try:
-                prev = json.load(open(OUT, encoding="utf-8"))
-                logins_prev = prev.get("logins") or [prev.get("email", "")]
-                current = logins_prev[0] if logins_prev else ""
-            except (OSError, ValueError):
-                pass
+        prev = appstore.read_auth()
+        if prev:
+            logins_prev = prev.get("logins") or [prev.get("email", "")]
+            current = logins_prev[0] if logins_prev else ""
         prompt = "Sign-in name (exact, case-sensitive)" + (" [%s]: " % current if current else ": ")
         login = input(prompt).strip() or current
         if not login:
@@ -200,36 +193,30 @@ def main(argv):
 
     admin, key_salt, key_hash, prev_accounts, admin_email = "Ritik Nagar", None, None, None, ""
     profile = {}
-    if os.path.exists(OUT):
-        try:
-            prev = json.load(open(OUT, encoding="utf-8"))
-            admin = prev.get("admin", admin) or admin
-            admin_email = prev.get("adminEmail", admin_email) or admin_email
-            prev_accounts = prev.get("accounts")
-            if new_key is None:
-                key_salt, key_hash = prev.get("adminKeySalt"), prev.get("adminKeyHash")
-            existing = next((a for a in (prev_accounts or []) if a.get("login") == login), None)
-            if existing:
-                for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
-                    if existing.get(field):
-                        profile[field] = existing[field]
-        except (OSError, ValueError):
-            pass
+    prev = appstore.read_auth()
+    if prev:
+        admin = prev.get("admin", admin) or admin
+        admin_email = prev.get("adminEmail", admin_email) or admin_email
+        prev_accounts = prev.get("accounts")
+        if new_key is None:
+            key_salt, key_hash = prev.get("adminKeySalt"), prev.get("adminKeyHash")
+        existing = next((a for a in (prev_accounts or []) if a.get("login") == login), None)
+        if existing:
+            for field in ("name", "designation", "department", "category", "phone", "email", "parasId"):
+                if existing.get(field):
+                    profile[field] = existing[field]
     if new_key is not None:
         key_salt = key_hash = None
     if new_email is not None:
         admin_email = new_email
     profile.update(new_profile)
 
-    with open(OUT, "w", encoding="utf-8") as fh:
-        json.dump(build(login, password, hint, admin,
-                        new_key or DEFAULT_ADMIN_KEY, key_salt, key_hash, prev_accounts,
-                        admin_email, profile),
-                  fh, indent=2, ensure_ascii=False)
-        fh.write("\n")
+    appstore.write_auth(build(login, password, hint, admin,
+                              new_key or DEFAULT_ADMIN_KEY, key_salt, key_hash, prev_accounts,
+                              admin_email, profile))
 
     extra = len(prev_accounts or []) - (1 if prev_accounts and any(a.get("login") == login for a in prev_accounts) else 0)
-    print("auth.json written for %s (PBKDF2-SHA256, %d iterations)%s"
+    print("Account written for %s (PBKDF2-SHA256, %d iterations)%s"
           % (login, ITERATIONS, " -- %d other account(s) kept unchanged" % extra if extra > 0 else ""))
     try:
         sys.path.insert(0, ROOT)

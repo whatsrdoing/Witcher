@@ -7,8 +7,10 @@ on every access. That gets slower, with no ceiling, as the logs grow -- and
 two of the admin panel's own once-a-second refresh calls were doing exactly
 that. This module moves all of it into one SQLite database, data/state.db,
 next to (but separate from) datastore.py's own library.db -- that one holds
-the real report data pulled from uploaded registers and is not touched by
-anything here.
+the real report data pulled from uploaded registers and this module never
+writes to it. dashboard_cache (see its own section below) does open a
+short-lived read-only-in-spirit connection to library.db, but only to
+fingerprint what is on record there -- never to change it.
 
 Every function below keeps the exact name and return shape its flat-file
 predecessor in serve.py had, so serve.py's own callers did not need to
@@ -123,6 +125,19 @@ def _init_schema(conn):
     CREATE TABLE IF NOT EXISTS _migration (
         key      TEXT PRIMARY KEY,
         done_at  INTEGER
+    );
+
+    -- A dashboard's own precomputed view of one dataset from the month-on-
+    -- month store (datastore.py's library.db) -- see the dashboard_cache
+    -- section below for how this is kept honest.
+    CREATE TABLE IF NOT EXISTS dashboard_cache (
+        dashboard_id    TEXT,
+        dataset         TEXT,
+        kind            TEXT,
+        source_version  TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        computed_at     INTEGER,
+        PRIMARY KEY (dashboard_id, dataset, kind)
     );
     """)
     conn.commit()
@@ -279,6 +294,104 @@ def read_dashboards_registry():
             for d in reg.get("dashboards") or []
         ]
     return reg
+
+
+# ---------------------------------------------------------------------------
+# dashboard_cache: a dashboard's own precomputed view (parsed rows, or a
+# small default-filters summary) of one dataset from the month-on-month
+# store -- datastore.py's own library.db, a separate SQLite file this module
+# never writes to and does not import datastore.py to reach.
+#
+# The whole point of a cache is that it can go stale, and a stale cache
+# showing wrong numbers is worse than no cache at all. So every read is
+# guarded by a fingerprint recomputed HERE, right now, from the one place
+# that cannot lie about what is actually stored: datastore.py's own
+# _imports table, which it rewrites on every import or reimport. A client
+# never gets to say what "current" means -- read_dashboard_cache() always
+# recomputes it before answering, and write_dashboard_cache() is always
+# handed a version its caller just computed the same way, moments before
+# the write (see serve.py's __cache POST handler). Even a write that races
+# a concurrent reimport is still honest: it is stamped with whatever the
+# fingerprint truly was at the instant of that write, so it can never claim
+# to represent data it does not -- the worst a race costs is one wasted
+# recompute next time, never a wrong number on screen.
+# ---------------------------------------------------------------------------
+
+def dataset_fingerprint(dataset):
+    """A short, stable fingerprint of everything currently on record for one
+    dataset in the month-on-month store, straight from _imports: every
+    (period, part, imported_at) triple, sorted and hashed. Reimporting any
+    period or part -- at any time, from any process -- changes this; reading
+    it back in a different order, or from two different server processes,
+    never does.
+
+    Opens its own short-lived connection rather than sharing datastore.py's
+    (or importing that module at all): SQLite's WAL mode lets a reader like
+    this see the writer's committed data without blocking it or being
+    blocked by it, and a problem reading here can never reach the writer's
+    own connection or its indexes. A store that does not exist yet, or has
+    never seen this dataset, fingerprints the same way empty always does --
+    "empty" -- so a fresh install's first cache write and a since-emptied
+    dataset both invalidate any old cache honestly instead of erroring."""
+    path = paths.db_path()
+    if not os.path.exists(path):
+        return "empty"
+    try:
+        conn = sqlite3.connect(path, timeout=5)
+        try:
+            rows = conn.execute(
+                "SELECT period, part, imported_at FROM _imports WHERE dataset=? "
+                "ORDER BY period, part", (dataset,)).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return "empty"
+    if not rows:
+        return "empty"
+    import hashlib
+    blob = "|".join("%s:%s:%s" % (p, pt or "", at) for p, pt, at in rows)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:32]
+
+
+def read_dashboard_cache(dashboard_id, dataset, kind):
+    """The cached payload for (dashboard_id, dataset, kind), already
+    json.loads'd -- but only if it is still valid for the dataset's CURRENT
+    state. Returns None on any kind of miss: nothing cached yet, a stale
+    fingerprint (the dataset changed since this was written), or a payload
+    that no longer parses as JSON. A corrupt row is never surfaced as data;
+    the caller sees exactly the same None it would see for "never cached"
+    and falls through to a real recompute."""
+    current = dataset_fingerprint(dataset)
+    conn = _connect()
+    with _LOCK:
+        row = conn.execute(
+            "SELECT source_version, payload FROM dashboard_cache "
+            "WHERE dashboard_id=? AND dataset=? AND kind=?",
+            (dashboard_id, dataset, kind)).fetchone()
+    if not row or row["source_version"] != current:
+        return None
+    try:
+        return json.loads(row["payload"])
+    except ValueError:
+        return None
+
+
+def write_dashboard_cache(dashboard_id, dataset, kind, source_version, payload):
+    """Stores payload stamped with source_version -- which the caller must
+    have just computed via dataset_fingerprint(dataset), as close to this
+    call as practical (see the module-level note above for why that ordering
+    is what keeps a write always honest even under a race)."""
+    conn = _connect()
+    with _LOCK, conn:
+        conn.execute(
+            "INSERT INTO dashboard_cache "
+            "(dashboard_id, dataset, kind, source_version, payload, computed_at) "
+            "VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(dashboard_id, dataset, kind) DO UPDATE SET "
+            "source_version=excluded.source_version, payload=excluded.payload, "
+            "computed_at=excluded.computed_at",
+            (dashboard_id, dataset, kind, source_version,
+             json.dumps(payload, ensure_ascii=False), int(time.time())))
 
 
 # ---------------------------------------------------------------------------

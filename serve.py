@@ -974,6 +974,11 @@ def make_handler(prefix):
                 if self._require_session():
                     self._data_get(dtail, urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query))
                 return
+            ctail = seg_route(path_only, "__cache")
+            if ctail is not None:
+                if self._require_session():
+                    self._cache_get(ctail)
+                return
             # auth.json lives with the data now, not in the app folder, so the
             # static handler would 404 it. The sign-in gate fetches it by that
             # exact name, so it is served here under the name it asks for.
@@ -1316,6 +1321,61 @@ def make_handler(prefix):
                 self._json(200, out)
             except Exception as exc:                      # noqa: BLE001
                 self._json(400, {"error": str(exc)})
+
+        # ---- a dashboard's own cached view of one dataset -----------------
+        CACHE_KINDS = ("rows", "default_view")
+
+        def _cache_get(self, tail):
+            """GET __cache/<dashboardId>/<dataset>/<kind> -> the cached
+            payload, if appstore still considers it current for that
+            dataset right now (see appstore.read_dashboard_cache). A miss --
+            never cached, or the dataset has moved on since -- answers
+            {"hit": false} rather than 404/204, so a dashboard's fetch
+            handler has exactly one shape to branch on either way."""
+            if len(tail) != 3:
+                self.send_error(404)
+                return
+            dashboard_id, dataset, kind = tail
+            if kind not in self.CACHE_KINDS or len(dashboard_id) > 100 or len(dataset) > 100:
+                self.send_error(404)
+                return
+            try:
+                payload = appstore.read_dashboard_cache(dashboard_id, dataset, kind)
+            except Exception as exc:                      # noqa: BLE001
+                # A cache read must never be the reason a dashboard fails to
+                # load -- worst case here is the same as a plain miss: the
+                # caller reparses from scratch.
+                print("  ! cache read failed: %s" % exc)
+                payload = None
+            if payload is None:
+                self._json(200, {"hit": False})
+                return
+            self._json(200, {"hit": True, "payload": payload})
+
+        def _cache_post(self, tail, body):
+            """POST __cache/<dashboardId>/<dataset>/<kind> {"payload": ...}
+            -> stores payload, stamped with a fingerprint this handler
+            computes itself, right now, from datastore's own record of what
+            is imported for that dataset -- never a version the caller
+            sends (see appstore.py's dashboard_cache section for exactly
+            why that ordering is what keeps a write always honest)."""
+            if len(tail) != 3:
+                self.send_error(404)
+                return
+            dashboard_id, dataset, kind = tail
+            if kind not in self.CACHE_KINDS or len(dashboard_id) > 100 or len(dataset) > 100:
+                self.send_error(404)
+                return
+            if not isinstance(body, dict) or "payload" not in body:
+                self._json(400, {"error": "missing payload"})
+                return
+            try:
+                version = appstore.dataset_fingerprint(dataset)
+                appstore.write_dashboard_cache(dashboard_id, dataset, kind, version, body["payload"])
+            except Exception as exc:                      # noqa: BLE001
+                self._json(400, {"error": str(exc)})
+                return
+            self._json(200, {"ok": True, "sourceVersion": version})
 
         def _data_delete(self, tail):
             try:
@@ -2401,6 +2461,23 @@ def make_handler(prefix):
             if dtail is not None and dtail and dtail[0] == "import":
                 if self._require_admin():
                     self._data_import(qs)
+                return
+            ctail = seg_route(path_only, "__cache")
+            if ctail is not None:
+                if self._require_session():
+                    try:
+                        n = int(self.headers.get("Content-Length") or 0)
+                    except ValueError:
+                        n = 0
+                    if n <= 0 or n > MAX_UPLOAD_BYTES:
+                        self._json(400, {"error": "bad request body"})
+                        return
+                    try:
+                        body = json.loads(self.rfile.read(n).decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(400, {"error": "bad JSON body"})
+                        return
+                    self._cache_post(ctail, body)
                 return
             tail = library_route(path_only)
             if tail is not None:

@@ -16,13 +16,30 @@
  * the same "gone when this tab closes" store the shell itself already uses
  * for its own Session-mode data -- so a reload mid-session still sees what
  * was just saved, only a fresh tab starts clean.
+ *
+ * window.__parasSessionMode is set below BEFORE the localStorage swap, and
+ * left alone afterwards -- it is the one place any script loaded later on
+ * this page can ask "is this tab actually in Session mode?" and get the real
+ * answer. Reading w.localStorage.getItem('paras.cc.mode') again after this
+ * script has run does NOT work for that: once swapped, w.localStorage IS
+ * sessionStorage, which was never where the shell wrote that flag, so it
+ * reads back empty and looks like Local mode even while this really is
+ * Session mode. Getting that wrong would leak server-backed data (an
+ * auto-loaded database, say) into what is supposed to be a private,
+ * nothing-persisted session -- worth one extra global rather than trusting
+ * a read that only happens to work before this script runs.
  */
 (function (w) {
   'use strict';
+  var isSession = false;
   try {
-    if (w.localStorage.getItem('paras.cc.mode') !== 'session') return;
+    isSession = w.localStorage.getItem('paras.cc.mode') === 'session';
+  } catch (e) { /* storage unavailable -- treat as not-session, same as before */ }
+  w.__parasSessionMode = isSession;
+  if (!isSession) return;
+  try {
     Object.defineProperty(w, 'localStorage', {
       value: w.sessionStorage, configurable: true, enumerable: true,
     });
-  } catch (e) { /* storage unavailable or non-configurable -- leave real localStorage alone */ }
+  } catch (e) { /* non-configurable -- leave real localStorage alone */ }
 })(window);

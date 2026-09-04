@@ -140,15 +140,32 @@
  * the same "gone when this tab closes" store the shell itself already uses
  * for its own Session-mode data -- so a reload mid-session still sees what
  * was just saved, only a fresh tab starts clean.
+ *
+ * window.__parasSessionMode is set below BEFORE the localStorage swap, and
+ * left alone afterwards -- it is the one place any script loaded later on
+ * this page can ask "is this tab actually in Session mode?" and get the real
+ * answer. Reading w.localStorage.getItem('paras.cc.mode') again after this
+ * script has run does NOT work for that: once swapped, w.localStorage IS
+ * sessionStorage, which was never where the shell wrote that flag, so it
+ * reads back empty and looks like Local mode even while this really is
+ * Session mode. Getting that wrong would leak server-backed data (an
+ * auto-loaded database, say) into what is supposed to be a private,
+ * nothing-persisted session -- worth one extra global rather than trusting
+ * a read that only happens to work before this script runs.
  */
 (function (w) {
   'use strict';
+  var isSession = false;
   try {
-    if (w.localStorage.getItem('paras.cc.mode') !== 'session') return;
+    isSession = w.localStorage.getItem('paras.cc.mode') === 'session';
+  } catch (e) { /* storage unavailable -- treat as not-session, same as before */ }
+  w.__parasSessionMode = isSession;
+  if (!isSession) return;
+  try {
     Object.defineProperty(w, 'localStorage', {
       value: w.sessionStorage, configurable: true, enumerable: true,
     });
-  } catch (e) { /* storage unavailable or non-configurable -- leave real localStorage alone */ }
+  } catch (e) { /* non-configurable -- leave real localStorage alone */ }
 })(window);
 </script>
 <!-- /paras-command-centre-session-guard -->
@@ -854,6 +871,10 @@ function readWorkbookHere(buf){
 
 function handleFile(file){
   if(!file) return;
+  // A manual drop or pick always wins over whatever the database auto-load
+  // below is doing, even mid-flight -- this flag is what that code checks,
+  // right before it would otherwise overwrite rawRows, to back off instead.
+  window.__parasUserLoaded = true;
   hideError();
   document.getElementById('loadingMsg').style.display = 'block';
   if (SHEET_RE.test(file.name || '')) {
@@ -1443,6 +1464,301 @@ document.querySelectorAll('#laneSortToggle .toggle-btn').forEach(btn => {
     renderLane();
   });
 });
+
+/* ---------------------------------------------------------------------
+   Auto-load from the Command Centre's own accumulated database -- LOCAL
+   mode only, and only when served over http (see serve.py's /__data and
+   /__cache routes; datastore.py is what actually holds the rows).
+
+   Falls back to exactly today's upload-only behaviour, with no error and
+   no console noise, when:
+     - this is Session mode. window.__parasSessionMode is set by the
+       session-guard script at the very top of <head>, BEFORE it swaps
+       window.localStorage for sessionStorage -- reading
+       localStorage.getItem('paras.cc.mode') again down here would not
+       reliably see the real answer once that swap has happened (that
+       script's own comment explains why); this flag is what survives it.
+     - opened as a plain file:// page (no server to ask).
+     - the stock-transfer dataset has no periods stored yet (a fresh
+       install, or nothing imported through the Data Library so far).
+
+   A manual drop or file-pick always wins, even mid-flight: handleFile()
+   sets window.__parasUserLoaded before it ever calls parseCsvText(), and
+   every step below checks that flag right before it would touch rawRows,
+   backing off instead of clobbering whatever the user just loaded.
+
+   Caching (see appstore.py's dashboard_cache table): the parsed rows are
+   cached under __cache/store-transfer/stock-transfer/rows so a repeat
+   visit skips both the CSV export request and Papa.parse entirely -- only
+   a JSON.parse of what is already exactly shaped like rawRows. A small
+   default_view summary is cached alongside it so the very first paint
+   after a cache hit can show real KPI numbers before that JSON.parse (or,
+   on a cache miss, the export fetch + parse) has even finished; the full
+   interactive dashboard -- charts, lane table, every filter live against
+   every row -- replaces it the moment rawRows actually lands, exactly as
+   initDashboard() has always built it. Never the reverse: the cache never
+   substitutes for a live filter recompute, only for the one-time cost of
+   getting rawRows populated in the first place.
+   ------------------------------------------------------------------- */
+(function(){
+  var DATASET = 'stock-transfer';
+  var DASHBOARD_ID = 'store-transfer';
+  var CACHE_BASE = '../__cache/' + DASHBOARD_ID + '/' + DATASET + '/';
+  var DATA_EXPORT = '../__data/' + DATASET + '/export?periods=';
+
+  // Exposed purely so a test can observe what happened without scraping the
+  // UI -- never read by the dashboard itself.
+  window.__parasAutoLoadStatus = { rows: 'pending', defaultView: 'pending' };
+
+  if (window.__parasSessionMode) { window.__parasAutoLoadStatus = { rows: 'skipped-session', defaultView: 'skipped-session' }; return; }
+  if (location.protocol === 'file:') { window.__parasAutoLoadStatus = { rows: 'skipped-file', defaultView: 'skipped-file' }; return; }
+
+  function dateFromKey(key){
+    if(!key) return null;
+    var p = key.split('-');
+    var d = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // datastore.py rewrites every column heading into a safe SQL identifier
+  // at import time (slug(), in datastore.py -- "Transfer Date" becomes
+  // Transfer_Date, "Transfered Qty." becomes Transfered_Qty) and never
+  // keeps the original text anywhere, so __data/.../export's own header
+  // row comes back slugged, plus four leading _period/_source/_rowno/_part
+  // columns of its own. REQUIRED_COLUMNS and UNIT_COLUMN_CANDIDATES both
+  // expect the real, human header text, so this restores it on exactly the
+  // columns this dashboard looks for -- mirroring datastore.py's slug()
+  // exactly, so the mapping is deterministic, not a guess -- before the
+  // export's header row ever reaches parseCsvText(). Every other column
+  // (the four meta ones, and anything not in this dashboard's own schema)
+  // is left exactly as exported; parseCsvText only ever reads its own
+  // named fields, so an extra untouched column is simply ignored.
+  var KNOWN_HEADERS = ['Transfer Date','Transfer No.','From Store','To Store','Item Name',
+                        'Transfered Qty.','EPR','Unit Name','Unit','Hospital Unit','Unit Code',
+                        'Location','Location Name'];
+  function pySlug(name){
+    var s = String(name || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if(!s) s = 'col';
+    if(!/^[A-Za-z]/.test(s)) s = 'c_' + s;
+    return s.slice(0, 63);
+  }
+  var SLUG_TO_HEADER = {};
+  KNOWN_HEADERS.forEach(function(h){ SLUG_TO_HEADER[pySlug(h)] = h; });
+
+  function restoreHeaders(csvText){
+    var nl = csvText.indexOf('\n');
+    var headerLine = nl === -1 ? csvText : csvText.slice(0, nl);
+    var rest = nl === -1 ? '' : csvText.slice(nl);
+    // slug() guarantees every heading is a bare [A-Za-z][A-Za-z0-9_]* token
+    // -- no comma, quote or newline can appear in one -- so a plain split
+    // on the header line alone is exact, with no CSV-quoting logic needed;
+    // every data row after it is passed through completely untouched.
+    var restored = headerLine.split(',').map(function(h){
+      var clean = h.replace(/\r$/, '');
+      return SLUG_TO_HEADER[clean] || h;
+    }).join(',');
+    return restored + rest;
+  }
+
+  // A cached row must actually look like one of rawRows's own objects
+  // before it is trusted -- wrong shape, not an array, or missing a field
+  // parseCsvText() always sets is treated exactly like "nothing cached",
+  // never shown as data.
+  function looksLikeRows(rows){
+    if(!Array.isArray(rows)) return false;
+    if(rows.length === 0) return true;
+    var r = rows[0];
+    return !!r && typeof r === 'object' &&
+      'fromStore' in r && 'toStore' in r && 'itemName' in r &&
+      'qty' in r && 'epr' in r && 'totalEpr' in r && 'dateKey' in r;
+  }
+
+  function hydrateRows(rows){
+    // date is rebuilt from dateKey (a plain Y-M-D string, unambiguous no
+    // matter which machine or timezone wrote or reads the cache) rather
+    // than round-tripped through the serialized Date itself -- the only
+    // two things that ever read .date (monthKey() and a truthiness check)
+    // only ever need the day, never the time of day parseTransferDate()
+    // happened to also capture.
+    return rows.map(function(r){ return Object.assign({}, r, { date: dateFromKey(r.dateKey) }); });
+  }
+
+  function fetchJson(url){
+    return fetch(url, { cache: 'no-store' }).then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }
+
+  function fetchDatasetEntry(){
+    return fetchJson('../__data').then(function(j){
+      var datasets = (j && j.datasets) || [];
+      return datasets.filter(function(d){ return d.dataset === DATASET; })[0] || null;
+    });
+  }
+
+  // A plain-text summary of exactly what the fingerprint on the server is
+  // built from (period + part + importedAt, for every period __data already
+  // reports) -- not the fingerprint itself, just enough for this page to
+  // notice, on its own, "did anything change since I started fetching?"
+  // before it lets its own parse become the SHARED cache every other
+  // dashboard reads too. See loadFromExport()'s use of this for why.
+  function periodsSignatureFrom(entry){
+    var periods = (entry && entry.periods) || [];
+    return periods.map(function(p){
+      var parts = (p.parts || []).map(function(pp){ return (pp.part || '') + ':' + pp.importedAt; }).sort();
+      return p.period + '[' + parts.join(',') + ']';
+    }).sort().join('|');
+  }
+
+  function readCache(kind){
+    return fetchJson(CACHE_BASE + kind)
+      .then(function(j){ return (j && j.hit) ? j.payload : null; })
+      .catch(function(){ return null; });
+  }
+
+  function writeCache(kind, payload){
+    fetch(CACHE_BASE + kind, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: payload })
+    }).catch(function(){ /* best-effort -- a failed write only costs a wasted recompute next time */ });
+  }
+
+  function buildDefaultViewPayload(label){
+    var totalQty = 0, totalEpr = 0, keys = [];
+    var transferNos = new Set(), stores = new Set();
+    rawRows.forEach(function(r){
+      totalQty += r.qty; totalEpr += r.totalEpr;
+      if(r.transferNo) transferNos.add(r.transferNo);
+      if(r.dateKey) keys.push(r.dateKey);
+      stores.add(r.fromStore); stores.add(r.toStore);
+    });
+    keys.sort();
+    var storesList = Array.from(stores).sort();
+    return {
+      label: label, rowCount: rawRows.length, hasUnitColumn: hasUnitColumn,
+      dateMin: keys[0] || '', dateMax: keys[keys.length-1] || '',
+      kpi: { transferNotes: transferNos.size, lineItems: rawRows.length,
+             totalQty: totalQty, totalEpr: totalEpr,
+             storesCount: storesList.length, storesList: storesList }
+    };
+  }
+
+  // The instant-paint fast path: the same KPI band initDashboard() would
+  // show with no filters touched, built from a handful of precomputed
+  // numbers instead of the (still loading) row array -- a strict subset of
+  // what already renders, not a new view. Superseded the moment the real
+  // rawRows lands and initDashboard() runs for real; never shown at all
+  // once that has already happened.
+  function paintDefaultView(dv){
+    if(rawRows.length || window.__parasUserLoaded) return;
+    document.getElementById('uploadWrap').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'flex';
+    document.getElementById('fileControls').style.display = 'flex';
+    document.getElementById('fileInfo').textContent = '📄 ' + dv.label + ' · ' + dv.rowCount.toLocaleString('en-IN') + ' rows';
+    if(dv.dateMin || dv.dateMax){
+      document.getElementById('dateRangeInfo').textContent = 'Report covers ' + displayDMY(dv.dateMin) + ' – ' + displayDMY(dv.dateMax);
+    }
+    var k = dv.kpi;
+    var cards = [
+      { key:'notes', label:'Transfer notes', value: fmtInt(k.transferNotes), sub: fmtInt(k.lineItems)+' line items' },
+      { key:'qty', label:'Total quantity moved', value: fmtInt(k.totalQty), sub:'units across all stores' },
+      { key:'epr', label:'Total EPR value', value: fmtCurrency(k.totalEpr), sub:'qty × EPR, summed' },
+      { label:'Stores in network', value: k.storesCount, sub: k.storesList.join(' · ') },
+    ];
+    document.getElementById('kpiGrid').innerHTML = cards.map(function(c){
+      return '<div class="kpi'+(c.key?' kpi-'+c.key:'')+'">' + kpiFlowLayer(c.key) +
+        '<div class="label">'+c.label+'</div><div class="value num">'+c.value+'</div>' +
+        '<div class="sub">'+c.sub+'</div></div>';
+    }).join('');
+  }
+
+  function applyRows(cached, fallbackLabel){
+    if(window.__parasUserLoaded || !cached || !looksLikeRows(cached.rows)) return false;
+    rawRows = hydrateRows(cached.rows);
+    hasUnitColumn = !!cached.hasUnitColumn;
+    fileName = cached.label || fallbackLabel;
+    initDashboard();
+    return true;
+  }
+
+  function loadFromExport(periods, label, sigAtListing){
+    document.getElementById('loadingMsg').style.display = 'block';
+    return fetch(DATA_EXPORT + encodeURIComponent(periods.join(',')), { cache: 'no-store' }).then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(function(csv){
+      if(window.__parasUserLoaded) return false;
+      var before = rawRows;
+      parseCsvText(restoreHeaders(csv), { name: label });
+      if(rawRows === before || window.__parasUserLoaded) return false;   // parseCsvText rejected it, or the user took over mid-parse; it already showed its own state
+      // Before this parse becomes the SHARED cache every other dashboard
+      // reads too, confirm nothing was reimported while we were fetching
+      // and parsing -- the server always stamps a write with whatever is
+      // CURRENT at that instant (see appstore.py), so a payload built from
+      // data that has since moved on must not be handed to it; skipping the
+      // write here just means the next load recomputes, never that anyone
+      // sees a stale number, which is the one guarantee this cache cannot
+      // break.
+      return fetchDatasetEntry().then(function(entry){
+        if(window.__parasUserLoaded) return true;
+        if(periodsSignatureFrom(entry) === sigAtListing){
+          writeCache('rows', { rows: rawRows, hasUnitColumn: hasUnitColumn, label: fileName });
+          writeCache('default_view', buildDefaultViewPayload(fileName));
+        } else {
+          console.info('[stock-transfer] dataset changed while loading -- showing it, but not writing the shared cache this time');
+        }
+        return true;
+      }).catch(function(){ return true; });   // the re-check itself failing just means: show it, skip caching
+    }).finally(function(){
+      document.getElementById('loadingMsg').style.display = 'none';
+    });
+  }
+
+  function autoLoad(){
+    fetchDatasetEntry().then(function(entry){
+      var periods = ((entry && entry.periods) || []).map(function(p){ return p.period; }).sort();
+      if(!periods.length){
+        window.__parasAutoLoadStatus = { rows: 'no-data', defaultView: 'no-data' };
+        return;
+      }
+      var sig0 = periodsSignatureFrom(entry);
+      var label = 'Data Library — Stock Transfer (' + periods[0] + (periods.length > 1 ? ' to ' + periods[periods.length-1] : '') + ')';
+
+      readCache('default_view').then(function(dv){
+        if(window.__parasUserLoaded) return;
+        window.__parasAutoLoadStatus.defaultView = dv ? 'hit' : 'miss';
+        if(dv){ console.info('[stock-transfer] default_view cache hit'); paintDefaultView(dv); }
+      });
+
+      return readCache('rows').then(function(cached){
+        if(window.__parasUserLoaded){ window.__parasAutoLoadStatus.rows = 'skipped-user'; return; }
+        if(applyRows(cached, label)){
+          window.__parasAutoLoadStatus.rows = 'hit';
+          console.info('[stock-transfer] rows cache hit -- ' + rawRows.length + ' rows, no reparse');
+          // Self-heal a missing/stale default_view alongside a rows hit,
+          // so a later load benefits from the fast paint too even if this
+          // one did not have it cached yet. Written back to back with the
+          // read that just validated the current fingerprint, so there is
+          // no meaningful gap here to re-check.
+          writeCache('default_view', buildDefaultViewPayload(fileName));
+          return;
+        }
+        window.__parasAutoLoadStatus.rows = 'miss';
+        return loadFromExport(periods, label, sig0).then(function(ok){
+          window.__parasAutoLoadStatus.rows = ok ? 'loaded' : 'failed';
+        });
+      });
+    }).catch(function(){
+      window.__parasAutoLoadStatus = { rows: 'unreachable', defaultView: 'unreachable' };
+      // Server unreachable, or answered oddly -- the upload prompt is
+      // already showing, exactly as it always has been; nothing to undo.
+    });
+  }
+
+  autoLoad();
+})();
 </script>
 <!-- paras-command-centre-bridge -->
 <script>

@@ -34,6 +34,10 @@ IDLE_SRC = os.path.join(ROOT, "assets", "js", "idle-timeout.js")
 IDLE_OPEN = "<!-- paras-command-centre-idle-timeout -->"
 IDLE_CLOSE = "<!-- /paras-command-centre-idle-timeout -->"
 
+AGG_SRC = os.path.join(ROOT, "assets", "js", "dashboard-agg.js")
+AGG_OPEN = "<!-- paras-command-centre-agg -->"
+AGG_CLOSE = "<!-- /paras-command-centre-agg -->"
+
 BANNER = (
     "/* GENERATED FILE — do not edit.\n"
     "   Source: dashboards.json   Regenerate: python3 sync.py\n"
@@ -184,6 +188,24 @@ def ensure_idle_timeout(reg):
     _apply_marked_block(reg, IDLE_SRC, IDLE_OPEN, IDLE_CLOSE, _place_after_head_open, "idle timeout")
 
 
+def ensure_agg_client(reg):
+    """Give every dashboard the shared SQL-aggregation client.
+
+    window.parasAgg lets a dashboard ask the server to group and total rows
+    inside SQLite (see assets/js/dashboard-agg.js and serve.py's /__agg)
+    instead of downloading a whole register and reducing it in JavaScript.
+
+    Injected the same way as the idle timeout, and for the same reason:
+    every dashboard needs it, a dashboard added later should get it without
+    anyone remembering to paste it in, and one copy in assets/js is the only
+    place it has to be corrected. Loading it costs a dashboard nothing --
+    it only defines window.parasAgg; a dashboard that never calls it, and
+    Session mode and file:// where it reports itself unavailable, behave
+    exactly as before.
+    """
+    _apply_marked_block(reg, AGG_SRC, AGG_OPEN, AGG_CLOSE, _place_after_head_open, "agg client")
+
+
 def mirror_auth():
     """Mirror the accounts in data/state.db into auth.js so the sign-in gate
     also works on file://. Same unredacted-on-purpose mirror auth.json used
@@ -226,6 +248,7 @@ def main():
     ensure_session_guard(reg)
     ensure_bridge(reg)
     ensure_idle_timeout(reg)
+    ensure_agg_client(reg)
     mirror_auth()
     return 0
 

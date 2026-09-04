@@ -299,6 +299,17 @@ License: MIT
   .link-btn{border:none;background:transparent;color:var(--amber);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
   .spacer{margin-left:auto;font-size:12px;color:var(--muted);}
 
+  .chipset{display:flex;gap:6px;flex-wrap:wrap;}
+  .chip{
+    padding:6px 12px;border-radius:20px;border:1px solid var(--line);background:var(--bg);
+    font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;font-family:inherit;
+    transition:border-color .15s ease,background .15s ease,color .15s ease;
+  }
+  .chip:hover{border-color:var(--amber);}
+  .chip.active{background:var(--amber);border-color:var(--amber);color:#fff;}
+  .custom-dates{display:none;align-items:center;gap:8px;}
+  .custom-dates.open{display:inline-flex;}
+
   .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
   .kpi{background:var(--panel);border-radius:10px;padding:16px 18px;border:1px solid var(--line);}
   .kpi .label{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px;}
@@ -596,10 +607,17 @@ License: MIT
 
   <div class="toolbar">
     <span class="tlabel">📅 Date range</span>
-    <input type="date" id="dateStart">
-    <span style="color:var(--muted);font-size:12.5px;">to</span>
-    <input type="date" id="dateEnd">
-    <button class="link-btn" id="clearDates" style="display:none;">Clear</button>
+    <div class="chipset" id="dateChips">
+      <button type="button" class="chip" data-range="all">All time</button>
+      <button type="button" class="chip" data-range="month">This month</button>
+      <button type="button" class="chip" data-range="q3">Last 3 months</button>
+      <button type="button" class="chip" data-range="custom">Custom&hellip;</button>
+    </div>
+    <span class="custom-dates" id="customDates">
+      <input type="date" id="dateStart">
+      <span style="color:var(--muted);font-size:12.5px;">to</span>
+      <input type="date" id="dateEnd">
+    </span>
     <span class="spacer" id="dateRangeInfo"></span>
   </div>
 
@@ -724,6 +742,8 @@ let selectedToStores = new Set();
 let monthlyMetric = 'epr';
 let monthlyUnitChartInstance = null;
 let fromMsel = null, toMsel = null;
+let dataMinKey = '', dataMaxKey = '';
+let activeDateChip = 'all';
 
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const UNIT_COLORS = ['#1E3F73','#2F5CA2','#6B7683','#4A6FA5','#8B96A3','#16294A','#5C7A9E','#A3ADB8','#345C8C','#7C8B99'];
@@ -1365,10 +1385,6 @@ function renderAll(){
   renderTrend();
   renderMonthlyByUnit();
 
-  const start = document.getElementById('dateStart').value;
-  const end = document.getElementById('dateEnd').value;
-  document.getElementById('clearDates').style.display = (start || end) ? 'inline-block' : 'none';
-
   if(hasUnitColumn){
     const count = getUnitFiltered().length;
     const allUnits = getUnits();
@@ -1415,13 +1431,13 @@ function initDashboard(){
 
   const keys = rawRows.map(r=>r.dateKey).filter(Boolean).sort();
   const min = keys[0]||'', max = keys[keys.length-1]||'';
+  dataMinKey = min; dataMaxKey = max;
   document.getElementById('dateStart').min = min;
   document.getElementById('dateStart').max = max;
   document.getElementById('dateEnd').min = min;
   document.getElementById('dateEnd').max = max;
-  document.getElementById('dateStart').value = '';
-  document.getElementById('dateEnd').value = '';
   document.getElementById('dateRangeInfo').textContent = 'Report covers ' + displayDMY(min) + ' – ' + displayDMY(max);
+  setDateChip('all');
 
   topMetric = 'qty'; trendMetric = 'epr'; monthlyMetric = 'epr'; laneSort = 'qty';
   document.querySelectorAll('#topMetricToggle .toggle-btn').forEach(b => b.classList.toggle('active', b.dataset.val===topMetric));
@@ -1448,13 +1464,44 @@ document.getElementById('fileInput').addEventListener('change', e => handleFile(
 document.getElementById('fileInputTop').addEventListener('change', e => handleFile(e.target.files[0]));
 document.getElementById('resetBtn').addEventListener('click', resetAll);
 
-document.getElementById('dateStart').addEventListener('change', renderAll);
-document.getElementById('dateEnd').addEventListener('change', renderAll);
-document.getElementById('clearDates').addEventListener('click', () => {
-  document.getElementById('dateStart').value = '';
-  document.getElementById('dateEnd').value = '';
+// Month-shifted 'YYYY-MM-01' key, anchored to the latest date actually in
+// the file (not wall-clock "today") -- these are historical uploads, so
+// "this month" means the most recent month the data covers, same idea as
+// the KPI band above it.
+function monthStartKey(key, monthsBack){
+  const [y,m] = key.split('-').map(Number);
+  let mm = m - 1 - monthsBack, yy = y;
+  while(mm < 0){ mm += 12; yy -= 1; }
+  return yy + '-' + String(mm+1).padStart(2,'0') + '-01';
+}
+
+function setDateChip(mode){
+  activeDateChip = mode;
+  document.querySelectorAll('#dateChips .chip').forEach(b => b.classList.toggle('active', b.dataset.range === mode));
+  document.getElementById('customDates').classList.toggle('open', mode === 'custom');
+
+  const dateStart = document.getElementById('dateStart'), dateEnd = document.getElementById('dateEnd');
+  if(mode === 'all'){
+    dateStart.value = ''; dateEnd.value = '';
+  } else if(mode === 'month'){
+    const start = monthStartKey(dataMaxKey, 0);
+    dateStart.value = start < dataMinKey ? dataMinKey : start;
+    dateEnd.value = dataMaxKey;
+  } else if(mode === 'q3'){
+    const start = monthStartKey(dataMaxKey, 2);
+    dateStart.value = start < dataMinKey ? dataMinKey : start;
+    dateEnd.value = dataMaxKey;
+  }
+  // 'custom' leaves whatever is already in the two fields alone -- it just
+  // reveals them so the user can pick.
   renderAll();
+}
+
+document.querySelectorAll('#dateChips .chip').forEach(btn => {
+  btn.addEventListener('click', () => setDateChip(btn.dataset.range));
 });
+document.getElementById('dateStart').addEventListener('change', () => { activeDateChip = 'custom'; setDateChip('custom'); });
+document.getElementById('dateEnd').addEventListener('change', () => { activeDateChip = 'custom'; setDateChip('custom'); });
 
 document.querySelectorAll('#topMetricToggle .toggle-btn').forEach(btn => {
   btn.addEventListener('click', () => {

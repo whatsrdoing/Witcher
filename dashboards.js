@@ -302,10 +302,14 @@ window.__PARAS_REGISTRY__ = {
           ],
           "needs": [
             "UNIT",
+            "Transfer Date",
+            "Transfer No.",
             "From Store",
             "To Store",
             "Item Code",
-            "Transfered Qty."
+            "Item Name",
+            "Transfered Qty.",
+            "UOM"
           ],
           "dataset": "stock-transfer"
         },
@@ -329,10 +333,15 @@ window.__PARAS_REGISTRY__ = {
           ],
           "needs": [
             "UNIT",
+            "GRN No.",
+            "GRN Date",
             "Store",
             "Item Code",
+            "Item Name",
             "Received Qty.",
-            "GRN No."
+            "EPR",
+            "Total Value",
+            "Supplier Name"
           ],
           "dataset": "grn-register"
         },
@@ -344,10 +353,16 @@ window.__PARAS_REGISTRY__ = {
           ],
           "needs": [
             "UNIT",
+            "PO No",
+            "PO Date",
             "Store Name",
             "Item Code",
-            "PO No",
-            "Status"
+            "Item Name",
+            "PO Qty.",
+            "PO Amount",
+            "Status",
+            "PO Saved By",
+            "Supplier Name"
           ],
           "dataset": "purchase-register"
         }
@@ -481,11 +496,18 @@ window.__PARAS_REGISTRY__ = {
           ],
           "needs": [
             "UNIT",
-            "Return No",
             "Return Date",
+            "Return No",
+            "Supplier Name",
+            "Store",
+            "Item Id",
             "Item Code",
+            "Item Name",
+            "Item SubCategory",
             "Return Qty.",
-            "Supplier Name"
+            "Total Value",
+            "GRN No.",
+            "Reason For Return"
           ],
           "dataset": "rtv-register"
         },
@@ -495,8 +517,9 @@ window.__PARAS_REGISTRY__ = {
             "\\bgrn\\b"
           ],
           "needs": [
-            "GRN No.",
             "GRN Date",
+            "GRN No.",
+            "Item Id",
             "Item Code",
             "Received Qty.",
             "Total Value",
@@ -535,10 +558,14 @@ window.__PARAS_REGISTRY__ = {
             "GRN Date",
             "Item Code",
             "Item Name",
+            "Item Category",
             "PO No.",
             "Supplier Name",
             "Received Qty.",
-            "EPR"
+            "EPR",
+            "MRP",
+            "Expiry Date",
+            "Store"
           ],
           "dataset": "grn-register"
         },
@@ -553,7 +580,11 @@ window.__PARAS_REGISTRY__ = {
             "PO No",
             "PO Date",
             "Item Code",
-            "Status"
+            "Status",
+            "Supplier Name",
+            "PO Amount",
+            "PO Qty.",
+            "Store Name"
           ],
           "dataset": "purchase-register"
         }

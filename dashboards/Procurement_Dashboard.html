@@ -2665,6 +2665,7 @@ function renderGRNTable(){
 /* ---------------- File wiring ---------------- */
 let poFileObj=null, grnFileObj=null;
 document.getElementById('poFile').addEventListener('change', e=>{
+  window.__parasUserLoaded = true;
   poFileObj = e.target.files[0];
   const box = document.getElementById('poBox');
   document.getElementById('poStatus').textContent = poFileObj ? poFileObj.name+' ('+(poFileObj.size/1024/1024).toFixed(2)+' MB)' : 'No file selected';
@@ -2672,6 +2673,7 @@ document.getElementById('poFile').addEventListener('change', e=>{
   updateBtn();
 });
 document.getElementById('grnFile').addEventListener('change', e=>{
+  window.__parasUserLoaded = true;
   grnFileObj = e.target.files[0];
   const box = document.getElementById('grnBox');
   document.getElementById('grnStatus').textContent = grnFileObj ? grnFileObj.name+' ('+(grnFileObj.size/1024/1024).toFixed(2)+' MB)' : 'No file selected';
@@ -2681,6 +2683,34 @@ document.getElementById('grnFile').addEventListener('change', e=>{
 function updateBtn(){
   document.getElementById('processBtn').disabled = !(poFileObj && grnFileObj);
 }
+
+/* Open straight from the Command Centre's database when both registers are
+   already imported there. Same pattern as Local Purchase and Store
+   Transfer: parasAgg hands back a real File per register, delivered into
+   exactly the same poFileObj/grnFileObj + status UI a manual pick sets,
+   then Process Files is clicked once both have landed -- nothing about
+   how this dashboard reads or computes anything changes. A file the user
+   picks by hand always wins (see assets/js/dashboard-agg.js). */
+(function(){
+  if(!window.parasAgg || !window.parasAgg.available()) return;
+  const SLOT = {
+    'purchase-register': { obj:'poFileObj', box:'poBox', status:'poStatus' },
+    'grn-register':      { obj:'grnFileObj', box:'grnBox', status:'grnStatus' },
+  };
+  window.parasAgg.openFromDatabase('procurement-operations', (file, dataset) => {
+    if(window.__parasUserLoaded) return;
+    const slot = SLOT[dataset];
+    if(!slot) return;
+    if(slot.obj === 'poFileObj') poFileObj = file; else grnFileObj = file;
+    document.getElementById(slot.status).textContent = file.name+' ('+(file.size/1024/1024).toFixed(2)+' MB)';
+    document.getElementById(slot.box).classList.add('ready');
+    updateBtn();
+  }).then(res => {
+    if(res.loaded.length) console.info('[procurement] opened from database:', res.loaded.join(', '));
+    if(res.missing.length) console.info('[procurement] not imported yet:', res.missing.join(', '));
+    if(!window.__parasUserLoaded && poFileObj && grnFileObj) document.getElementById('processBtn').click();
+  });
+})();
 document.getElementById('processBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('processBtn');
   const progressEl = document.getElementById('progress');

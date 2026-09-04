@@ -898,9 +898,51 @@ function parseAnyFile(file, key){
 }
 SLOTS.forEach(s => {
   document.getElementById('file-' + s.key).addEventListener('change', e => {
-    if(e.target.files[0]) parseAnyFile(e.target.files[0], s.key);
+    if(e.target.files[0]) { window.__parasUserLoaded = true; parseAnyFile(e.target.files[0], s.key); }
   });
 });
+
+/* Open straight from the Command Centre's database. Every one of this
+   dashboard's ten slots has a canonical dataset (see dashboards.json), so
+   this is the one dashboard here that can go fully database-backed --
+   there is no cross-file logic gating readiness the way Local Purchase's
+   GRN/PO join does: checkAllLoaded() already only needs *one* file loaded
+   to enable Run Health Check, since each register is audited on its own.
+   A file the user picks by hand always wins (see assets/js/dashboard-agg.js). */
+(function(){
+  if(!window.parasAgg || !window.parasAgg.available()) return;
+  const SLOT = {
+    'grn-register':'grn', 'purchase-register':'po', 'cogs':'cogs',
+    'stock-transfer':'transfer', 'rtv-register':'rtv', 'non-formulary':'nonform',
+    'formulary':'form', 'expiry-stock':'expiry', 'non-moving':'nonmoving',
+    'scm-employee':'scmemp',
+  };
+  window.parasAgg.openFromDatabase('data-health-check', (file, dataset) => {
+    if(window.__parasUserLoaded) return;
+    const key = SLOT[dataset];
+    if(key) parseAnyFile(file, key);
+  }).then(res => {
+    if(res.loaded.length) console.info('[data-health-check] opened from database:', res.loaded.join(', '));
+    if(res.missing.length) console.info('[data-health-check] not imported yet:', res.missing.join(', '));
+    if(!res.loaded.length) return;
+
+    // parseAnyFile parses asynchronously; wait for every delivered slot to
+    // actually land in `loaded` before running the check, so the first
+    // paint shows every register that was ready, not just whichever
+    // finished parsing first.
+    let tries = 0;
+    const wait = setInterval(() => {
+      if(window.__parasUserLoaded){ clearInterval(wait); return; }
+      const done = res.loaded.every(ds => loaded[SLOT[ds]] !== null);
+      if(done){
+        clearInterval(wait);
+        if(!document.getElementById('buildBtn').disabled) document.getElementById('buildBtn').click();
+        return;
+      }
+      if(++tries > 100) clearInterval(wait);
+    }, 200);
+  });
+})();
 
 function scrollToDashboardBody(){
   const body = document.getElementById('dashboardBody');

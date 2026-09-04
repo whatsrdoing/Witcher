@@ -1453,11 +1453,29 @@ for(var p=0,v=0;p!==c.length;++p)if((v=c.charCodeAt(p))===n||v===i||v===34||f.fo
   ['dragleave','drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('drag'); }));
   dropZone.addEventListener('drop', e => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) { window.__parasUserLoaded = true; handleFile(e.dataTransfer.files[0]); }
   });
   fileInput.addEventListener('change', e => {
-    if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
+    if (e.target.files && e.target.files[0]) { window.__parasUserLoaded = true; handleFile(e.target.files[0]); }
   });
+
+  /* Open straight from the Command Centre's database when the GRN Register
+     is already imported there. Only the GRN Register -- the RC rate file
+     has no canonical dataset (it lives in this dashboard's own saved-rates
+     modal, not the shared Data Library) and stays upload-only, same as
+     today. handleFile() is called exactly as it is for a manual pick or
+     drop: same FileReader, same validation. A file the user picks by hand
+     always wins (see assets/js/dashboard-agg.js). */
+  (function(){
+    if(!window.parasAgg || !window.parasAgg.available()) return;
+    window.parasAgg.openFromDatabase('rate-mrp-variance', (file, dataset) => {
+      if(window.__parasUserLoaded || dataset !== 'grn-register') return;
+      handleFile(file);
+    }).then(res => {
+      if(res.loaded.length) console.info('[rate-mrp-variance] opened from database:', res.loaded.join(', '));
+      if(res.missing.length) console.info('[rate-mrp-variance] not imported yet:', res.missing.join(', '));
+    });
+  })();
 
   function handleFile(file){
     loadError.style.display = 'none';

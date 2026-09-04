@@ -1102,6 +1102,7 @@ function setupDropzone(dzId, inputId, isRTV){
   });
 }
 function handleFile(file, isRTV){
+  window.__parasUserLoaded = true;
   if(isRTV){
     rtvFile = file;
     document.getElementById('rtvFileName').textContent = file.name;
@@ -1118,6 +1119,34 @@ function updateBuildBtn(){
 }
 setupDropzone('dzRTV','fileRTV', true);
 setupDropzone('dzGRN','fileGRN', false);
+
+/* Open straight from the Command Centre's database when both registers are
+   already imported there. Same pattern as the other dashboards: parasAgg
+   hands back a real File per register, delivered into the same rtvFile/
+   grnFile variables and status UI a manual drop or pick sets, then Build
+   Dashboards runs itself once both have landed -- nothing about how this
+   dashboard reads or computes anything changes. A file the user picks by
+   hand always wins (see assets/js/dashboard-agg.js). */
+(function(){
+  if(!window.parasAgg || !window.parasAgg.available()) return;
+  window.parasAgg.openFromDatabase('rtv-repurchase', (file, dataset) => {
+    if(window.__parasUserLoaded) return;
+    if(dataset === 'rtv-register'){
+      rtvFile = file;
+      document.getElementById('rtvFileName').textContent = file.name;
+      document.getElementById('dzRTV').classList.add('filled');
+    } else if(dataset === 'grn-register'){
+      grnFile = file;
+      document.getElementById('grnFileName').textContent = file.name;
+      document.getElementById('dzGRN').classList.add('filled');
+    }
+    updateBuildBtn();
+  }).then(res => {
+    if(res.loaded.length) console.info('[rtv-repurchase] opened from database:', res.loaded.join(', '));
+    if(res.missing.length) console.info('[rtv-repurchase] not imported yet:', res.missing.join(', '));
+    if(!window.__parasUserLoaded && rtvFile && grnFile) buildDashboards();
+  });
+})();
 
 function setStatus(msg, cls){
   const el = document.getElementById('statusMsg');

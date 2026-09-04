@@ -1398,9 +1398,49 @@ function parseAnyFile(file, key){
 
 ['items','st','ip','grn','pr'].forEach(key => {
   document.getElementById('file-' + key).addEventListener('change', e => {
-    if(e.target.files[0]) parseAnyFile(e.target.files[0], key);
+    if(e.target.files[0]) { window.__parasUserLoaded = true; parseAnyFile(e.target.files[0], key); }
   });
 });
+
+/* Open straight from the Command Centre's database for the four registers
+   that have one there (Non-Formulary List, Stock Transfer, GRN Register,
+   Purchase Register) -- IP Issue has no canonical dataset of its own (see
+   dashboards.json) and stays manual every time, same as today. Build
+   Dashboard only enables once all five are loaded (checkAllLoaded()'s own
+   rule), so this fills four of five slots and leaves the fifth exactly as
+   visibly "Not loaded" as it already is -- nothing silently skipped. Same
+   pattern as Local Purchase: parseAnyFile() is untouched, __parasUserLoaded
+   still wins over a slow database read. */
+(function(){
+  if(!window.parasAgg || !window.parasAgg.available()) return;
+  const SLOT = { 'non-formulary': 'items', 'stock-transfer': 'st',
+                 'grn-register': 'grn', 'purchase-register': 'pr' };
+  window.parasAgg.openFromDatabase('non-formulary-utilisation', (file, dataset) => {
+    if(window.__parasUserLoaded) return;
+    const key = SLOT[dataset];
+    if(key) parseAnyFile(file, key);
+  }).then(res => {
+    if(res.loaded.length) console.info('[non-formulary] opened from database:', res.loaded.join(', '));
+    if(res.missing.length) console.info('[non-formulary] not imported yet:', res.missing.join(', '));
+    if(res.loaded.length !== 4) return;
+
+    // Same reasoning as Local Purchase: parseAnyFile parses asynchronously,
+    // so poll for every auto-filled slot to actually land before deciding
+    // whether Build Dashboard can run itself -- which it only can once IP
+    // Issue is also loaded (by hand), so this mostly just leaves the four
+    // cards showing loaded while build stays disabled until that happens.
+    let tries = 0;
+    const wait = setInterval(() => {
+      if(window.__parasUserLoaded){ clearInterval(wait); return; }
+      if(loaded.items && loaded.st && loaded.grn && loaded.pr){
+        clearInterval(wait);
+        if(loaded.ip && !document.getElementById('buildBtn').disabled) document.getElementById('buildBtn').click();
+        return;
+      }
+      if(++tries > 100) clearInterval(wait);
+    }, 200);
+  });
+})();
 
 document.getElementById('resetBtn').addEventListener('click', () => {
   Object.keys(loaded).forEach(k => loaded[k] = null);

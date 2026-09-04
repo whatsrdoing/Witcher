@@ -2493,7 +2493,7 @@ document.getElementById('resetWa').addEventListener('click',function(){
   say('Restored the built-in benchmark master.','ok');
 });
 els.file.addEventListener('change',function(e){
-  if(e.target.files && e.target.files[0]) handle(e.target.files[0]);
+  if(e.target.files && e.target.files[0]){ window.__parasUserLoaded = true; handle(e.target.files[0]); }
 });
 ['dragenter','dragover'].forEach(function(ev){
   els.drop.addEventListener(ev,function(e){ e.preventDefault(); els.drop.classList.add('over'); });
@@ -2502,8 +2502,26 @@ els.file.addEventListener('change',function(e){
   els.drop.addEventListener(ev,function(e){ e.preventDefault(); els.drop.classList.remove('over'); });
 });
 els.drop.addEventListener('drop',function(e){
-  if(e.dataTransfer.files && e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]);
+  if(e.dataTransfer.files && e.dataTransfer.files[0]){ window.__parasUserLoaded = true; handle(e.dataTransfer.files[0]); }
 });
+
+/* Open straight from the Command Centre's database when COGS is already
+   imported there. Only COGS -- the benchmark master has no canonical
+   dataset (it is either the dashboard's own built-in table or an ad-hoc
+   upload) and stays upload-only. handle(file) is called exactly as it is
+   for a manual pick or drop: same FileReader, same XLSX.read, same
+   validation. A file the user picks by hand always wins (see
+   assets/js/dashboard-agg.js). */
+(function(){
+  if(!window.parasAgg || !window.parasAgg.available()) return;
+  window.parasAgg.openFromDatabase('pharmacy-console', (file, dataset) => {
+    if(window.__parasUserLoaded || dataset !== 'cogs') return;
+    handle(file);
+  }).then(res => {
+    if(res.loaded.length) console.info('[pharmacy-console] opened from database:', res.loaded.join(', '));
+    if(res.missing.length) console.info('[pharmacy-console] not imported yet:', res.missing.join(', '));
+  });
+})();
 
 function handle(file){
   say('Reading '+file.name+' …','work');

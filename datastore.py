@@ -312,6 +312,177 @@ class DataStore:
         return self.con.execute("SELECT COUNT(*) FROM %s%s" % (self._table(dataset), where),
                                 args).fetchone()[0]
 
+    # ---- aggregation ----------------------------------------------------
+    #
+    # Every column in every dataset table is TEXT (see _ensure_table): a CSV
+    # import cannot know which columns are meant to be numbers, and guessing
+    # per month would make August's schema disagree with July's. That is fine
+    # for storage and for export, but it means SUM() and date comparison have
+    # to normalise on the way past, or they would quietly return nonsense --
+    # SUM('1,84,599.45') is 1 in SQLite, not 184599.45, and 'dd-mm-yyyy'
+    # strings sort by day before month.
+    #
+    # The two helpers below are exact mirrors of what the dashboards' own
+    # JavaScript already does to the same values, so a figure computed here
+    # equals the figure computed in the browser rather than merely resembling
+    # it:
+    #
+    #   parseNum(s)  -> String(s).replace(/,/g,'').trim() then parseFloat,
+    #                   NaN treated as 0.
+    #                   CAST(REPLACE(col,',','') AS REAL) matches this
+    #                   exactly: SQLite's CAST takes the leading numeric
+    #                   prefix and yields 0.0 for text that has none, which
+    #                   is parseFloat + the isNaN?0 branch in one step.
+    #                   COALESCE covers NULL (a column a later month added,
+    #                   read back on an earlier month's rows).
+    #
+    #   parseTransferDate/dateKey -> 'dd-mm-yyyy hh:mm' read as day, month,
+    #                   year and re-emitted as 'yyyy-mm-dd'. Rebuilt here with
+    #                   substr() so the result is the same ISO key the
+    #                   dashboards filter and group on, and so it sorts and
+    #                   compares correctly as text.
+
+    @staticmethod
+    def _num_expr(col):
+        """One TEXT column read as a number, exactly as parseNum() does."""
+        return "COALESCE(CAST(REPLACE(\"%s\", ',', '') AS REAL), 0)" % col
+
+    @staticmethod
+    def _date_expr(col):
+        """One 'dd-mm-yyyy[ hh:mm]' TEXT column as a sortable 'yyyy-mm-dd'.
+
+        Anything that is not in that shape (an empty cell, a stray header
+        repeated mid-file) yields NULL rather than a wrong date, so it drops
+        out of a range filter instead of landing in an arbitrary month --
+        the same outcome as parseTransferDate() returning null and the row
+        being skipped."""
+        return ("CASE WHEN substr(\"{c}\",3,1)='-' AND substr(\"{c}\",6,1)='-' "
+                "THEN substr(\"{c}\",7,4)||'-'||substr(\"{c}\",4,2)||'-'||substr(\"{c}\",1,2) "
+                "END").format(c=col)
+
+    AGG_FUNCTIONS = ("sum", "avg", "min", "max", "count", "count_distinct", "sum_product")
+
+    def _checked_col(self, known, col):
+        c = slug(col)
+        if c not in known:
+            raise DataStoreError("no column %r in this dataset" % col)
+        return c
+
+    def aggregate(self, dataset, measures, group_by=None, periods=None, filters=None,
+                  date_col=None, date_from=None, date_to=None, order_by=None,
+                  descending=True, limit=None):
+        """Group and total rows inside SQLite instead of in the browser.
+
+        Returns {"columns": [...], "rows": [[...], ...]} -- already reduced to
+        the handful of numbers a dashboard actually draws, so a month of
+        20,000 rows crosses the wire as a few hundred bytes.
+
+        Every column name reaching SQL is checked against the table's real
+        columns first (same rule as _where), so nothing here interpolates
+        caller-supplied text into a statement. Values are always bound.
+
+        measures: [{"fn": ..., "col": ..., "as": ...}]
+          count           -- COUNT(*), no column needed
+          count_distinct  -- distinct non-empty values of one column
+          sum/avg/min/max -- over one column, read as a number
+          sum_product     -- SUM(a*b) over two columns, both read as numbers
+                             (quantity x rate, which no single column holds)
+
+        group_by: column names, or {"col": ..., "as": ..., "by": "month"|"day"}
+          to group a 'dd-mm-yyyy' column by month or day instead of verbatim.
+
+        date_col + date_from/date_to: an inclusive range over a 'dd-mm-yyyy'
+          column, compared as 'yyyy-mm-dd' so it means what it says.
+        """
+        table = self._table(dataset)
+        known = set(self._existing_columns(table))
+        if not measures:
+            raise DataStoreError("at least one measure is required")
+
+        select, names = [], []
+
+        group_exprs = []
+        for g in (group_by or []):
+            spec = {"col": g} if isinstance(g, str) else dict(g)
+            col = self._checked_col(known, spec.get("col"))
+            by = spec.get("by")
+            if by == "month":
+                expr = "substr(%s,1,7)" % self._date_expr(col)
+            elif by == "day":
+                expr = self._date_expr(col)
+            elif by:
+                raise DataStoreError("unknown group transform %r" % by)
+            else:
+                expr = '"%s"' % col
+            group_exprs.append(expr)
+            select.append(expr)
+            names.append(spec.get("as") or col)
+
+        for m in measures:
+            if not isinstance(m, dict):
+                raise DataStoreError("each measure must be an object")
+            fn = str(m.get("fn") or "").lower()
+            if fn not in self.AGG_FUNCTIONS:
+                raise DataStoreError("unknown measure function %r" % m.get("fn"))
+            if fn == "count":
+                expr = "COUNT(*)"
+            elif fn == "sum_product":
+                cols = m.get("cols") or []
+                if len(cols) != 2:
+                    raise DataStoreError("sum_product needs exactly two columns")
+                a = self._checked_col(known, cols[0])
+                b = self._checked_col(known, cols[1])
+                expr = "SUM(%s * %s)" % (self._num_expr(a), self._num_expr(b))
+            elif fn == "count_distinct":
+                c = self._checked_col(known, m.get("col"))
+                # Blank cells are not a value anyone counts -- the browser's
+                # Set-based equivalents never add an empty string either.
+                expr = "COUNT(DISTINCT NULLIF(TRIM(\"%s\"), ''))" % c
+            else:
+                c = self._checked_col(known, m.get("col"))
+                expr = "%s(%s)" % (fn.upper(), self._num_expr(c))
+            select.append(expr)
+            names.append(m.get("as") or fn)
+
+        where, args = self._where(dataset, periods, filters)
+
+        if date_col and (date_from or date_to):
+            dcol = self._checked_col(known, date_col)
+            dexpr = self._date_expr(dcol)
+            parts = []
+            if date_from:
+                parts.append("%s >= ?" % dexpr)
+                args.append(str(date_from))
+            if date_to:
+                parts.append("%s <= ?" % dexpr)
+                args.append(str(date_to))
+            clause = " AND ".join(parts)
+            where = (where + " AND " + clause) if where else (" WHERE " + clause)
+
+        sql = "SELECT %s FROM %s%s" % (", ".join(select), table, where)
+        if group_exprs:
+            sql += " GROUP BY " + ", ".join(group_exprs)
+
+        if order_by is not None:
+            if isinstance(order_by, int):
+                idx = order_by
+            else:
+                if order_by not in names:
+                    raise DataStoreError("cannot order by %r -- not selected" % order_by)
+                idx = names.index(order_by)
+            if not 0 <= idx < len(names):
+                raise DataStoreError("order_by out of range")
+            # Ordinal, not the expression again: SQLite resolves it against
+            # the select list, and it cannot carry caller text into the SQL.
+            sql += " ORDER BY %d %s" % (idx + 1, "DESC" if descending else "ASC")
+
+        if limit is not None:
+            sql += " LIMIT ?"
+            args = args + [int(limit)]
+
+        rows = [list(r) for r in self.con.execute(sql, args).fetchall()]
+        return {"columns": names, "rows": rows}
+
     def rows(self, dataset, periods=None, filters=None, limit=None, offset=0):
         """Streams matching rows. Never materialises the whole result."""
         table = self._table(dataset)

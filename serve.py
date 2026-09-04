@@ -1377,6 +1377,55 @@ def make_handler(prefix):
                 return
             self._json(200, {"ok": True, "sourceVersion": version})
 
+        # ---- aggregate one dataset inside SQLite ---------------------------
+        def _agg_post(self, tail, body):
+            """POST __agg/<dataset> {measures, groupBy, periods, filters,
+            dateCol, dateFrom, dateTo, orderBy, descending, limit}
+            -> {"columns": [...], "rows": [[...]]}
+
+            The whole point of this route is that the rows never leave the
+            database: a month of 20,000 transfers answers as a few hundred
+            bytes of totals, instead of a 20MB export the browser then has to
+            parse and hold. datastore.aggregate() checks every column name
+            against the table's real columns and binds every value, so a
+            dashboard cannot reach past its own dataset from here.
+
+            Read-only, and gated at the same bar as /__data: anything a
+            caller could total up here it could already export in full."""
+            if len(tail) != 1:
+                self.send_error(404)
+                return
+            dataset = tail[0]
+            if not isinstance(body, dict):
+                self._json(400, {"error": "bad request body"})
+                return
+            # Imported here rather than at module scope for the same reason
+            # store() does it: this module stays importable (and the server
+            # startable) even if the database layer is unavailable.
+            import datastore
+            try:
+                out = store().aggregate(
+                    dataset,
+                    body.get("measures"),
+                    group_by=body.get("groupBy"),
+                    periods=body.get("periods"),
+                    filters=body.get("filters"),
+                    date_col=body.get("dateCol"),
+                    date_from=body.get("dateFrom"),
+                    date_to=body.get("dateTo"),
+                    order_by=body.get("orderBy"),
+                    descending=bool(body.get("descending", True)),
+                    limit=body.get("limit"),
+                )
+            except datastore.DataStoreError as exc:
+                self._json(400, {"error": str(exc)})
+                return
+            except Exception as exc:                      # noqa: BLE001
+                print("  ! aggregate failed: %s" % exc)
+                self._json(400, {"error": "could not aggregate that"})
+                return
+            self._json(200, out)
+
         def _data_delete(self, tail):
             try:
                 dataset = tail[0]
@@ -2478,6 +2527,23 @@ def make_handler(prefix):
                         self._json(400, {"error": "bad JSON body"})
                         return
                     self._cache_post(ctail, body)
+                return
+            atail = seg_route(path_only, "__agg")
+            if atail is not None:
+                if self._require_session():
+                    try:
+                        n = int(self.headers.get("Content-Length") or 0)
+                    except ValueError:
+                        n = 0
+                    if n <= 0 or n > MAX_UPLOAD_BYTES:
+                        self._json(400, {"error": "bad request body"})
+                        return
+                    try:
+                        body = json.loads(self.rfile.read(n).decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(400, {"error": "bad JSON body"})
+                        return
+                    self._agg_post(atail, body)
                 return
             tail = library_route(path_only)
             if tail is not None:

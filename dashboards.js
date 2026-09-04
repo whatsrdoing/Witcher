@@ -122,7 +122,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "PO No",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         },
         {
           "label": "GRN Register",
@@ -134,7 +135,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Received Qty.",
             "GRN No."
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -182,7 +184,8 @@ window.__PARAS_REGISTRY__ = {
             "Total Value",
             "GRN No.",
             "GRN Date"
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -229,7 +232,8 @@ window.__PARAS_REGISTRY__ = {
             "Total EPR",
             "Total Unit Cost",
             "Total MRP"
-          ]
+          ],
+          "dataset": "cogs"
         },
         {
           "label": "Benchmark sheet",
@@ -286,7 +290,8 @@ window.__PARAS_REGISTRY__ = {
             "ItemId",
             "ITEM NAME",
             "ITEM CODE"
-          ]
+          ],
+          "dataset": "non-formulary"
         },
         {
           "label": "Stock Transfer",
@@ -301,7 +306,8 @@ window.__PARAS_REGISTRY__ = {
             "To Store",
             "Item Code",
             "Transfered Qty."
-          ]
+          ],
+          "dataset": "stock-transfer"
         },
         {
           "label": "IP Issue",
@@ -327,7 +333,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Received Qty.",
             "GRN No."
-          ]
+          ],
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
@@ -341,7 +348,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "PO No",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         }
       ]
     },
@@ -385,7 +393,8 @@ window.__PARAS_REGISTRY__ = {
             "Transfered Qty.",
             "EPR."
           ],
-          "auto": false
+          "auto": false,
+          "dataset": "stock-transfer"
         },
         {
           "label": "Stock Transfer",
@@ -412,7 +421,8 @@ window.__PARAS_REGISTRY__ = {
             "Transfered Qty.",
             "EPR."
           ],
-          "auto": false
+          "auto": false,
+          "dataset": "stock-transfer"
         }
       ]
     },
@@ -441,7 +451,8 @@ window.__PARAS_REGISTRY__ = {
             "role"
           ],
           "needs": [],
-          "auto": false
+          "auto": false,
+          "dataset": "scm-employee"
         }
       ]
     },
@@ -475,7 +486,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Return Qty.",
             "Supplier Name"
-          ]
+          ],
+          "dataset": "rtv-register"
         },
         {
           "label": "GRN Register",
@@ -489,7 +501,8 @@ window.__PARAS_REGISTRY__ = {
             "Received Qty.",
             "Total Value",
             "Supplier Name"
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -526,7 +539,8 @@ window.__PARAS_REGISTRY__ = {
             "Supplier Name",
             "Received Qty.",
             "EPR"
-          ]
+          ],
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
@@ -540,7 +554,8 @@ window.__PARAS_REGISTRY__ = {
             "PO Date",
             "Item Code",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         }
       ]
     },
@@ -574,7 +589,8 @@ window.__PARAS_REGISTRY__ = {
             "Received Qty.",
             "GRN No."
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
@@ -588,7 +604,8 @@ window.__PARAS_REGISTRY__ = {
             "PO No",
             "Status"
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "purchase-register"
         },
         {
           "label": "COGS",
@@ -603,7 +620,8 @@ window.__PARAS_REGISTRY__ = {
             "Total EPR",
             "Total MRP"
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "cogs"
         },
         {
           "label": "Stock Transfer",
@@ -619,7 +637,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Transfered Qty."
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "stock-transfer"
         },
         {
           "label": "RTV Register",
@@ -635,7 +654,8 @@ window.__PARAS_REGISTRY__ = {
             "Item Code",
             "Supplier Name"
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "rtv-register"
         },
         {
           "label": "Non-Formulary List",
@@ -647,7 +667,8 @@ window.__PARAS_REGISTRY__ = {
             "ITEM NAME",
             "ITEM CODE"
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "non-formulary"
         },
         {
           "label": "Formulary List",
@@ -659,7 +680,8 @@ window.__PARAS_REGISTRY__ = {
             "ITEM NAME",
             "ITEM CODE"
           ],
-          "optional": true
+          "optional": true,
+          "dataset": "formulary"
         },
         {
           "label": "Expiry Stock",
@@ -668,7 +690,8 @@ window.__PARAS_REGISTRY__ = {
             "\\bexpiry\\b"
           ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "expiry-stock"
         },
         {
           "label": "Non Moving",
@@ -677,7 +700,8 @@ window.__PARAS_REGISTRY__ = {
             "slow\\s*moving"
           ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "non-moving"
         },
         {
           "label": "SCM Employee / Permissions",
@@ -687,7 +711,8 @@ window.__PARAS_REGISTRY__ = {
             "\\brole\\b"
           ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "scm-employee"
         }
       ]
     },

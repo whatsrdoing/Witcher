@@ -89,6 +89,56 @@
     })['catch'](function () { return null; });
   }
 
+  /* Which stored datasets feed this dashboard, straight from the registry
+   * (dashboards.json -> each input's "dataset"), so a dashboard never has to
+   * hardcode a dataset name that the Data Library might later rename.
+   *
+   * Returns [{label, dataset}] for the slots that have a canonical dataset,
+   * skipping ad-hoc ones (a rate card, a benchmark sheet) that are only ever
+   * uploaded. Duplicates are collapsed: two slots reading the same register
+   * are one dataset to query.
+   */
+  function datasetsFor(dashboardId) {
+    if (!available()) return Promise.resolve([]);
+    return fetch(BASE + 'dashboards.json').then(function (r) {
+      return r.ok ? r.json() : null;
+    }).then(function (reg) {
+      if (!reg || !reg.dashboards) return [];
+      var seen = {}, out = [];
+      reg.dashboards.forEach(function (d) {
+        if (d.id !== dashboardId) return;
+        (d.inputs || []).forEach(function (i) {
+          if (i.dataset && !seen[i.dataset]) {
+            seen[i.dataset] = 1;
+            out.push({ label: i.label || i.dataset, dataset: i.dataset });
+          }
+        });
+      });
+      return out;
+    })['catch'](function () { return []; });
+  }
+
+  /* Everything a dashboard needs to decide whether it can open straight from
+   * the database: its datasets, and which of them actually have rows.
+   * Resolves to {ready: false} when none do, so the caller shows its normal
+   * upload prompt without having to reason about partial state. */
+  function readiness(dashboardId) {
+    return datasetsFor(dashboardId).then(function (list) {
+      if (!list.length) return { ready: false, datasets: [], missing: [] };
+      return Promise.all(list.map(function (d) {
+        return datasetInfo(d.dataset).then(function (info) {
+          return { label: d.label, dataset: d.dataset, info: info };
+        });
+      })).then(function (all) {
+        var have = all.filter(function (x) { return x.info; });
+        var missing = all.filter(function (x) { return !x.info; })
+                          .map(function (x) { return x.label; });
+        return { ready: have.length > 0, complete: missing.length === 0,
+                 datasets: have, missing: missing };
+      });
+    });
+  }
+
   /* One aggregation. `spec` is passed through to datastore.aggregate():
    *
    *   measures:  [{fn:'sum'|'avg'|'min'|'max'|'count'|'count_distinct'
@@ -162,6 +212,8 @@
     available: available,
     status: status,
     datasetInfo: datasetInfo,
+    datasetsFor: datasetsFor,
+    readiness: readiness,
     query: query,
     summary: summary,
     rows: rows,

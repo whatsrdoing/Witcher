@@ -119,7 +119,8 @@
             "Item Code",
             "PO No",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         },
         {
           "label": "GRN Register",
@@ -131,7 +132,8 @@
             "Item Code",
             "Received Qty.",
             "GRN No."
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -179,7 +181,8 @@
             "Total Value",
             "GRN No.",
             "GRN Date"
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -226,7 +229,8 @@
             "Total EPR",
             "Total Unit Cost",
             "Total MRP"
-          ]
+          ],
+          "dataset": "cogs"
         },
         {
           "label": "Benchmark sheet",
@@ -283,7 +287,8 @@
             "ItemId",
             "ITEM NAME",
             "ITEM CODE"
-          ]
+          ],
+          "dataset": "non-formulary"
         },
         {
           "label": "Stock Transfer",
@@ -298,7 +303,8 @@
             "To Store",
             "Item Code",
             "Transfered Qty."
-          ]
+          ],
+          "dataset": "stock-transfer"
         },
         {
           "label": "IP Issue",
@@ -324,7 +330,8 @@
             "Item Code",
             "Received Qty.",
             "GRN No."
-          ]
+          ],
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
@@ -338,7 +345,8 @@
             "Item Code",
             "PO No",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         }
       ]
     },
@@ -382,7 +390,8 @@
             "Transfered Qty.",
             "EPR."
           ],
-          "auto": false
+          "auto": false,
+          "dataset": "stock-transfer"
         },
         {
           "label": "Stock Transfer",
@@ -409,7 +418,8 @@
             "Transfered Qty.",
             "EPR."
           ],
-          "auto": false
+          "auto": false,
+          "dataset": "stock-transfer"
         }
       ]
     },
@@ -438,7 +448,8 @@
             "role"
           ],
           "needs": [],
-          "auto": false
+          "auto": false,
+          "dataset": "scm-employee"
         }
       ]
     },
@@ -472,7 +483,8 @@
             "Item Code",
             "Return Qty.",
             "Supplier Name"
-          ]
+          ],
+          "dataset": "rtv-register"
         },
         {
           "label": "GRN Register",
@@ -486,7 +498,8 @@
             "Received Qty.",
             "Total Value",
             "Supplier Name"
-          ]
+          ],
+          "dataset": "grn-register"
         }
       ]
     },
@@ -523,7 +536,8 @@
             "Supplier Name",
             "Received Qty.",
             "EPR"
-          ]
+          ],
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
@@ -537,7 +551,8 @@
             "PO Date",
             "Item Code",
             "Status"
-          ]
+          ],
+          "dataset": "purchase-register"
         }
       ]
     },
@@ -562,63 +577,139 @@
       "inputs": [
         {
           "label": "GRN Register",
-          "match": ["\\bgrn\\b"],
-          "needs": ["UNIT", "Item Code", "Received Qty.", "GRN No."],
-          "optional": true
+          "match": [
+            "\\bgrn\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "Received Qty.",
+            "GRN No."
+          ],
+          "optional": true,
+          "dataset": "grn-register"
         },
         {
           "label": "Purchase Register",
-          "match": ["purchase\\s*register", "\\bpr\\b"],
-          "needs": ["UNIT", "Item Code", "PO No", "Status"],
-          "optional": true
+          "match": [
+            "purchase\\s*register",
+            "\\bpr\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Code",
+            "PO No",
+            "Status"
+          ],
+          "optional": true,
+          "dataset": "purchase-register"
         },
         {
           "label": "COGS",
-          "match": ["cogs", "consumption"],
-          "needs": ["UNIT", "Item Id", "Qty", "Total EPR", "Total MRP"],
-          "optional": true
+          "match": [
+            "cogs",
+            "consumption"
+          ],
+          "needs": [
+            "UNIT",
+            "Item Id",
+            "Qty",
+            "Total EPR",
+            "Total MRP"
+          ],
+          "optional": true,
+          "dataset": "cogs"
         },
         {
           "label": "Stock Transfer",
-          "match": ["stock\\s*transfer", "store\\s*transfer", "\\btransfer\\b"],
-          "needs": ["UNIT", "From Store", "To Store", "Item Code", "Transfered Qty."],
-          "optional": true
+          "match": [
+            "stock\\s*transfer",
+            "store\\s*transfer",
+            "\\btransfer\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "From Store",
+            "To Store",
+            "Item Code",
+            "Transfered Qty."
+          ],
+          "optional": true,
+          "dataset": "stock-transfer"
         },
         {
           "label": "RTV Register",
-          "match": ["\\brtv\\b", "return\\s*to\\s*vendor", "\\breturn\\s*register\\b"],
-          "needs": ["UNIT", "Return No", "Return Date", "Item Code", "Supplier Name"],
-          "optional": true
+          "match": [
+            "\\brtv\\b",
+            "return\\s*to\\s*vendor",
+            "\\breturn\\s*register\\b"
+          ],
+          "needs": [
+            "UNIT",
+            "Return No",
+            "Return Date",
+            "Item Code",
+            "Supplier Name"
+          ],
+          "optional": true,
+          "dataset": "rtv-register"
         },
         {
           "label": "Non-Formulary List",
-          "match": ["non\\s*formulary"],
-          "needs": ["ItemId", "ITEM NAME", "ITEM CODE"],
-          "optional": true
+          "match": [
+            "non\\s*formulary"
+          ],
+          "needs": [
+            "ItemId",
+            "ITEM NAME",
+            "ITEM CODE"
+          ],
+          "optional": true,
+          "dataset": "non-formulary"
         },
         {
           "label": "Formulary List",
-          "match": ["\\bformulary\\s*(item\\s*)?list\\b"],
-          "needs": ["ItemId", "ITEM NAME", "ITEM CODE"],
-          "optional": true
+          "match": [
+            "\\bformulary\\s*(item\\s*)?list\\b"
+          ],
+          "needs": [
+            "ItemId",
+            "ITEM NAME",
+            "ITEM CODE"
+          ],
+          "optional": true,
+          "dataset": "formulary"
         },
         {
           "label": "Expiry Stock",
-          "match": ["expiry\\s*stock", "\\bexpiry\\b"],
+          "match": [
+            "expiry\\s*stock",
+            "\\bexpiry\\b"
+          ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "expiry-stock"
         },
         {
           "label": "Non Moving",
-          "match": ["non\\s*moving", "slow\\s*moving"],
+          "match": [
+            "non\\s*moving",
+            "slow\\s*moving"
+          ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "non-moving"
         },
         {
           "label": "SCM Employee / Permissions",
-          "match": ["scm\\s*employee", "permission", "\\brole\\b"],
+          "match": [
+            "scm\\s*employee",
+            "permission",
+            "\\brole\\b"
+          ],
           "needs": [],
-          "optional": true
+          "optional": true,
+          "dataset": "scm-employee"
         }
       ]
     },

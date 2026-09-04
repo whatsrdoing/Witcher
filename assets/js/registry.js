@@ -96,6 +96,12 @@
             accept: x.accept || '',
             optional: !!x.optional,
             auto: x.auto !== false,     // false keeps it out of one-click fill
+            // Which stored dataset (see raw.datasets) this slot's file lives
+            // in once imported, so a dashboard can total it in the database
+            // instead of parsing an upload -- see assets/js/dashboard-agg.js.
+            // Empty for a slot with no canonical dataset (an ad-hoc rate card
+            // or benchmark sheet), which stays upload-only.
+            dataset: x.dataset || '',
             // Every column this dashboard reads. Used to pre-tick the right
             // boxes when condensing an oversized export.
             keep: Array.isArray(x.keep) ? x.keep : []

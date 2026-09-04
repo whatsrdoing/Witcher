@@ -1,6 +1,41 @@
 {
   "entries": [
     {
+      "date": "2026-09-04",
+      "version": "ad317db",
+      "title": "Data moved into a real database, Data Library is now its own dashboard",
+      "notes": [
+        "Accounts, passwords, 2FA, pending requests, feedback, and every log (login history, usage, Ask usage) now live in a proper database instead of flat files -- faster, and safer against a half-written file if something interrupts a save.",
+        "The Data Library is no longer a topbar drawer -- it is its own dashboard, with the same upload/browse/rename/delete it always had, plus a way to see exactly where your data is stored on this computer and download any stored month as a CSV to check it yourself.",
+        "Store Transfer is the first dashboard that loads itself straight from the database the moment you open it -- upload each month once, and every visit after that (yours or anyone else's) sees it instantly with no re-uploading, and it stays accurate the moment a month gets corrected.",
+        "Data Library and Data Health Check are now admin-only and sit at the very end of the dashboard list -- they are tools for whoever runs the install, not part of the day-to-day reports.",
+        "The Ask panel's header now shows Claude's own mark, animated, so you can see which model is actually answering."
+      ]
+    },
+    {
+      "date": "2026-09-03",
+      "version": "f9f8632",
+      "title": "PO by Item redesigned, smoother scrolling everywhere, new Pharmacy Space Calculator",
+      "notes": [
+        "Procurement Operations' \"PO by Item\" card now has Item Name, Unit and Category filters (with Select All/Clear All), Approved-PO-only filtering, click-to-sort on every numeric column, and pages properly at real data scale.",
+        "Fixed real scroll lag on dashboards with many cards -- removed heavy blur effects that were quietly slowing down scrolling.",
+        "Fixed the idle \"Are you there?\" popup showing invisible text in light theme.",
+        "New dashboard: Pharmacy Space Calculator -- enter a bed count, get total pharmacy area and a store-wise breakdown, no file upload needed.",
+        "The topbar is decluttered: only Admin, Theme and Lock stay visible; Data Library, Raise a Request, What's New and notifications now live behind one \"More\" menu."
+      ]
+    },
+    {
+      "date": "2026-09-01",
+      "version": "7f93297",
+      "title": "Data Assistant is now its own floating panel, smoother pickers",
+      "notes": [
+        "Ask (the Data Assistant) is now its own floating panel you can open from anywhere, admin-only, instead of being tucked inside one screen.",
+        "You can now pick which Claude model answers each question, and see a running token-usage window for the day and the month.",
+        "Sign-up's Designation/Department/Category fields now use a smooth, physical wheel picker instead of a plain dropdown.",
+        "Fixed two real performance issues found during a full audit -- login history and usage stats no longer replay the whole log on every check and stop slowing down as they grow."
+      ]
+    },
+    {
       "date": "2026-08-31",
       "version": 1,
       "title": "Two-factor authentication, request approvals, and more",

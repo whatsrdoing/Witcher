@@ -275,7 +275,27 @@ License: MIT
 
   .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 16px;}
   .toolbar label.tlabel{font-size:12.5px;color:var(--muted);font-weight:600;}
-  input[type=date]{padding:6px 9px;border-radius:6px;border:1px solid var(--line);font-size:12.5px;font-family:inherit;background:var(--bg);}
+  input[type=date]{
+    padding:7px 12px;border-radius:7px;border:1px solid var(--line);font-size:12.5px;
+    font-weight:600;font-family:inherit;background:var(--bg);color:var(--ink);
+    cursor:pointer;transition:border-color .15s ease,transform .12s var(--ease-out);
+    color-scheme:light;
+  }
+  input[type=date]:hover{border-color:var(--amber);}
+  input[type=date]:focus-visible{outline:none;border-color:var(--amber);}
+  /* The native picker indicator has no color-token hook of its own -- this
+     re-tints Chromium's fixed dark icon to the dashboard's --ink so it never
+     goes invisible-on-dark or clashes with a light theme, without touching
+     the calendar popup itself (out of CSS's reach either way). */
+  input[type=date]::-webkit-calendar-picker-indicator{
+    cursor:pointer;opacity:.55;transition:opacity .15s ease;
+    filter:var(--date-icon-filter,none);
+  }
+  input[type=date]:hover::-webkit-calendar-picker-indicator{opacity:.9;}
+  :root[data-theme="dark"] input[type=date]{--date-icon-filter:invert(1);color-scheme:dark;}
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]) input[type=date]{--date-icon-filter:invert(1);color-scheme:dark;}
+  }
   .link-btn{border:none;background:transparent;color:var(--amber);font-size:12.5px;font-weight:600;cursor:pointer;font-family:inherit;}
   .spacer{margin-left:auto;font-size:12px;color:var(--muted);}
 

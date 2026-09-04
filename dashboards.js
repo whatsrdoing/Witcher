@@ -13,13 +13,6 @@ window.__PARAS_REGISTRY__ = {
   },
   "categories": [
     {
-      "id": "library",
-      "name": "Data Library",
-      "icon": "folder",
-      "accent": "#5B8DEF",
-      "order": 0
-    },
-    {
       "id": "procurement",
       "name": "Procurement",
       "icon": "cart",
@@ -74,18 +67,26 @@ window.__PARAS_REGISTRY__ = {
       "icon": "grid",
       "accent": "#7B8792",
       "order": 8
+    },
+    {
+      "id": "admin",
+      "name": "Admin Tools",
+      "icon": "folder",
+      "accent": "#5B8DEF",
+      "order": 9
     }
   ],
   "dashboards": [
     {
       "id": "data-library",
       "name": "Data Library",
-      "category": "library",
+      "category": "admin",
       "description": "Drop every register here once — CSV or Excel. The Command Centre reads each file's columns, offers it to every dashboard that needs it, and files it month-by-month into the shared database.",
       "file": "dashboards/Data_Library.html",
       "icon": "folder",
       "status": "live",
       "order": 1,
+      "adminOnly": true,
       "tags": [
         "upload",
         "import",
@@ -546,12 +547,13 @@ window.__PARAS_REGISTRY__ = {
     {
       "id": "data-health-check",
       "name": "Data Health Check",
-      "category": "audit",
+      "category": "admin",
       "description": "Runs every register you have through generic quality checks — exact duplicate rows, blank or inconsistent columns, unreadable or out-of-range dates, negative or outlier numbers — before any of it reaches a dashboard.",
       "file": "dashboards/Data_Health_Check_Dashboard.html",
       "icon": "check",
       "status": "live",
-      "order": 1,
+      "order": 2,
+      "adminOnly": true,
       "tags": [
         "quality",
         "cleansing",

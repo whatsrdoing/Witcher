@@ -308,8 +308,11 @@ header{
 .section-months{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--glass-border-soft);}
 .sm-head{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);margin-right:4px;}
 .sm-empty{font-size:12px;color:var(--text-dim);}
-.sm-pill{background:rgba(255,255,255,.05);border:1px solid var(--glass-border-soft);border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;}
+.sm-pill{background:rgba(255,255,255,.05);border:1px solid var(--glass-border-soft);border-radius:20px;padding:4px 11px;font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;text-decoration:none;cursor:pointer;}
+.sm-pill:hover{background:rgba(255,255,255,.09);border-color:var(--brand-blue);}
 .sm-pill b{color:#fff;font-weight:700;}
+.sm-dl{width:12px;height:12px;flex:0 0 auto;opacity:.55;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.sm-pill:hover .sm-dl{opacity:.9;}
 
 /* ---------- file list ---------- */
 .file-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
@@ -765,8 +768,11 @@ footer b{color:var(--text-muted);}
     if (!pills.length) { box.innerHTML = '<span class="sm-empty">Nothing in the database for this section yet.</span>'; return; }
     box.innerHTML = '<span class="sm-head">' + total.toLocaleString() + ' rows stored</span>' +
       pills.map(function (p) {
-        return '<span class="sm-pill" title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows">' +
-          esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b></span>';
+        var url = '../__data/' + encodeURIComponent(section) + '/export?periods=' + encodeURIComponent(p.period);
+        return '<a class="sm-pill" href="' + esc(url) + '" download' +
+          ' title="' + esc(p.source) + ' · ' + p.rows.toLocaleString() + ' rows — click to download this as a CSV and check for yourself">' +
+          esc(p.period) + '<b>' + p.rows.toLocaleString() + '</b>' +
+          '<svg class="sm-dl" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></svg></a>';
       }).join('');
   }
 

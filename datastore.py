@@ -327,7 +327,20 @@ class DataStore:
             c = slug(col)
             if c not in known:
                 raise DataStoreError("no column %r in %s" % (col, dataset))
-            if isinstance(val, str) and val.endswith("*"):
+            if isinstance(val, (list, tuple, set)):
+                # A dashboard's store/unit picker is a set, not one value.
+                # An empty set means "none of them", which is not the same
+                # question as "no filter" -- answering it with every row
+                # would be the opposite of what was asked.
+                vals = list(val)
+                if not vals:
+                    clauses.append("0")
+                    continue
+                if len(vals) > 900:
+                    raise DataStoreError("too many values for %r (max 900)" % col)
+                clauses.append('"%s" IN (%s)' % (c, ",".join("?" * len(vals))))
+                args += vals
+            elif isinstance(val, str) and val.endswith("*"):
                 clauses.append('"%s" LIKE ?' % c)
                 args.append(val[:-1] + "%")
             else:

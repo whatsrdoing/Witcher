@@ -2206,6 +2206,66 @@ document.querySelectorAll('#laneSortToggle .toggle-btn').forEach(btn => {
     };
   }
 
+  /* The same payload, totalled by SQLite instead of by this browser.
+   *
+   * buildDefaultViewPayload above can only run once every row is already
+   * parsed and in memory -- which is precisely the cost the instant paint
+   * exists to hide, so its numbers had to be cached from a previous visit
+   * to be available early, and a cache is then something that can be stale.
+   * Asking the database the same question costs one small request, needs no
+   * cache, and cannot disagree with the stored rows because it *is* the
+   * stored rows.
+   *
+   * datastore.aggregate() mirrors this dashboard's own parseNum() and date
+   * parsing deliberately (see its comment in datastore.py), so these are the
+   * same figures the loop above produces, not an approximation of them.
+   *
+   * Resolves to null on any failure -- no server, nothing imported, an older
+   * build without the route -- and the caller falls back to the cache path
+   * exactly as before.
+   */
+  function sqlDefaultViewPayload(periods){
+    if(!window.parasAgg || !window.parasAgg.available()) return Promise.resolve(null);
+    var scope = periods && periods.length ? { periods: periods } : {};
+    function q(spec){
+      var body = {}; for(var k in scope) body[k] = scope[k];
+      for(var j in spec) body[j] = spec[j];
+      return body;
+    }
+    return Promise.all([
+      window.parasAgg.summary(DATASET, q({ measures: [
+        { fn:'count_distinct', col:'Transfer No.', as:'transferNotes' },
+        { fn:'count', as:'lineItems' },
+        { fn:'sum', col:'Transfered Qty.', as:'totalQty' },
+        { fn:'sum_product', cols:['Transfered Qty.','EPR'], as:'totalEpr' },
+        { fn:'min', col:'Transfer Date', as:'ignored' }
+      ]})),
+      // Stores are the union of both ends of a transfer, so they need their
+      // own two groupings rather than one column's distinct values.
+      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}], groupBy:['From Store'] })),
+      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}], groupBy:['To Store'] })),
+      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}],
+                                        groupBy:[{ col:'Transfer Date', by:'day', as:'day' }] }))
+    ]).then(function(parts){
+      var kpi = parts[0];
+      if(!kpi) return null;
+      var stores = {};
+      (parts[1] || []).forEach(function(r){ if(r['From Store']) stores[r['From Store']] = 1; });
+      (parts[2] || []).forEach(function(r){ if(r['To Store']) stores[r['To Store']] = 1; });
+      var storesList = Object.keys(stores).sort();
+      var days = (parts[3] || []).map(function(r){ return r.day; }).filter(Boolean).sort();
+      return {
+        label: 'Data Library — Stock Transfer' + (periods && periods.length ? ' (' + periods.join(', ') + ')' : ''),
+        rowCount: kpi.lineItems || 0,
+        hasUnitColumn: hasUnitColumn,
+        dateMin: days[0] || '', dateMax: days[days.length - 1] || '',
+        kpi: { transferNotes: kpi.transferNotes || 0, lineItems: kpi.lineItems || 0,
+               totalQty: kpi.totalQty || 0, totalEpr: kpi.totalEpr || 0,
+               storesCount: storesList.length, storesList: storesList }
+      };
+    })['catch'](function(){ return null; });
+  }
+
   // The instant-paint fast path: the same KPI band initDashboard() would
   // show with no filters touched, built from a handful of precomputed
   // numbers instead of the (still loading) row array -- a strict subset of
@@ -2287,10 +2347,22 @@ document.querySelectorAll('#laneSortToggle .toggle-btn').forEach(btn => {
       var sig0 = periodsSignatureFrom(entry);
       var label = 'Data Library — Stock Transfer (' + periods[0] + (periods.length > 1 ? ' to ' + periods[periods.length-1] : '') + ')';
 
-      readCache('default_view').then(function(dv){
+      // Ask the database for the opening figures first. It needs no cache to
+      // have been warmed by a previous visit, and it cannot be stale, so the
+      // cached copy is only the fallback for when the route is unavailable.
+      sqlDefaultViewPayload(periods).then(function(dv){
         if(window.__parasUserLoaded) return;
-        window.__parasAutoLoadStatus.defaultView = dv ? 'hit' : 'miss';
-        if(dv){ console.info('[stock-transfer] default_view cache hit'); paintDefaultView(dv); }
+        if(dv){
+          window.__parasAutoLoadStatus.defaultView = 'sql';
+          console.info('[stock-transfer] default view totalled in SQLite');
+          paintDefaultView(dv);
+          return;
+        }
+        return readCache('default_view').then(function(cachedDv){
+          if(window.__parasUserLoaded) return;
+          window.__parasAutoLoadStatus.defaultView = cachedDv ? 'hit' : 'miss';
+          if(cachedDv){ console.info('[stock-transfer] default_view cache hit'); paintDefaultView(cachedDv); }
+        });
       });
 
       return readCache('rows').then(function(cached){

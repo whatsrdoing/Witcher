@@ -229,6 +229,49 @@ def test_periods_and_filters():
                                filters={"From Store": "Pharm B"})
         check("column filter narrows correctly", close(filt["rows"][0][0], 60.0),
               "got %r" % filt["rows"][0][0])
+
+        # A dashboard's store/unit picker is a set of values, not one.
+        many = store.aggregate("stock-transfer",
+                               [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                               filters={"From Store": ["Main", "Pharm B"]})
+        # July's four Main rows and one Pharm B row, plus the September row
+        # imported above -- no period is named, so both months count.
+        check("a list of values matches any of them",
+              close(many["rows"][0][0], 100.0 + 1200.0 + 184599.0 + 0.0 + 60.0 + 7.0),
+              "got %r" % many["rows"][0][0])
+
+        scoped = store.aggregate("stock-transfer",
+                                 [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                 periods=["2026-07"],
+                                 filters={"From Store": ["Main", "Pharm B"]})
+        check("a value list and a period narrow together",
+              close(scoped["rows"][0][0], 100.0 + 1200.0 + 184599.0 + 0.0 + 60.0),
+              "got %r" % scoped["rows"][0][0])
+
+        one_in = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 filters={"From Store": ["Pharm A"]})
+        check("a single-value list behaves like equality", one_in["rows"][0][0] == 1)
+
+        # "none selected" is a real question, and its answer is nothing --
+        # not everything, which is what dropping the clause would return.
+        none = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                               filters={"From Store": []})
+        check("an empty selection matches no rows, not every row",
+              none["rows"][0][0] == 0, "got %r" % none["rows"][0][0])
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"From Store": ["x"] * 901})
+            check("an oversized value list is refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("an oversized value list is refused", True)
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"No Such Column": ["a", "b"]})
+            check("a list on an unknown column is still refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("a list on an unknown column is still refused", True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

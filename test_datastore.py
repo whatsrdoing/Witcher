@@ -130,6 +130,27 @@ def main():
               cdRow[1][cdRow[0].index("UNIT"):] == ["GGN", "IT9", "ml", "1"],
               str(cdRow))
 
+        # The same crash, one release later and from the other direction:
+        # not two headings in one file, but a later month's file spelling an
+        # already-stored column differently than the month before it did.
+        # _ensure_table's own widening check had the identical plain-string
+        # bug against the table's *existing* columns -- "UNIT" looks new
+        # when the table already has "Unit", so it reached ALTER TABLE ADD
+        # COLUMN and hit the exact same "duplicate column name" SQLite
+        # refuses. This is exactly a real register uploaded one month with
+        # "Unit" and the next with "UNIT".
+        capA = write(os.path.join(tmp, "cap_a.csv"), "Unit,Item Code\nGGN,IT1\n")
+        db.import_csv(capA, "case-widen", "2026-07")
+        capB = write(os.path.join(tmp, "cap_b.csv"), "UNIT,Item Code\nPAT,IT2\n")
+        cw = db.import_csv(capB, "case-widen", "2026-08")
+        check("a later month spelling an existing column differently "
+              "imports without the SQLite crash", cw["rows"] == 1, "got %r" % cw)
+        cwCols = db.columns("case-widen")
+        check("still one column for it, not a second one added",
+              len([c for c in cwCols if c.lower() == "unit"]) == 1, "got %r" % cwCols)
+        check("both months' values are there under that one column",
+              db.count("case-widen") == 2, "got %d" % db.count("case-widen"))
+
         # export must round-trip
         buf = io.StringIO()
         n = db.export_csv(buf, "cogs", ["2026-08"])

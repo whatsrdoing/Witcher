@@ -177,7 +177,20 @@ class DataStore:
             self.con.execute("UPDATE %s SET _part='' WHERE _part IS NULL" % table)
             self.con.commit()
             have = self._existing_columns(table)
-        added = [c for c in columns if c not in have]
+        # Case-insensitively, same reason as import_csv's own within-file
+        # dedup just above: SQLite already has this exact column under
+        # whatever case an earlier month's import happened to use, and a
+        # plain-string comparison against `have` would not recognise that --
+        # this month's "UNIT" looks new when only "Unit" is in `have`, so it
+        # would be handed to ALTER TABLE ADD COLUMN as if it were, and
+        # SQLite refuses that with the same "duplicate column name" error,
+        # just one release later, from a register's second month rather
+        # than its first. The INSERT below still works once this is fixed:
+        # SQLite resolves column names in DML case-insensitively, so writing
+        # to "UNIT" when the table calls it "Unit" is not itself a problem --
+        # only CREATE TABLE/ALTER TABLE ever refused the collision.
+        have_lower = set(c.lower() for c in have)
+        added = [c for c in columns if c.lower() not in have_lower]
         for c in added:
             self.con.execute('ALTER TABLE %s ADD COLUMN "%s" TEXT' % (table, c))
         if added:

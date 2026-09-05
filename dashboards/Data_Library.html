@@ -1861,9 +1861,24 @@ footer b{color:var(--text-muted);}
     } else { mm.style.display = 'none'; }
     var d0 = storedFor(ds);
     var hit = d0 && d0.periods.filter(function (p) { return p.period === per; })[0];
+    // A dataset with parts (COGS: Department Consumption / IP Pharmacy / OP
+    // Pharmacy) replaces one part at a time -- see runImport()'s own
+    // &part=... -- so what this actually overwrites is that one part's row
+    // count and source file, not the period's combined total across all
+    // three. Showing the whole-period total named whichever part happened
+    // to be imported most recently as "what this replaces" even when the
+    // part being uploaded now had nothing stored at all yet.
+    var ps = partsOf(ds);
+    var partLabel = '';
+    if (hit && ps) {
+      var wantPart = importPart();
+      hit = (hit.parts || []).filter(function (p) { return (p.part || '') === wantPart; })[0] || null;
+      partLabel = ' — ' + (partName(ds, wantPart) || 'that part');
+    }
     if (hit) {
       box.style.display = 'block';
-      box.textContent = per + ' is already in ' + (sectionById(ds) || {}).name + ' — ' + hit.rows.toLocaleString() + ' rows from "' + hit.source + '". Adding this replaces it.';
+      box.textContent = per + ' is already in ' + (sectionById(ds) || {}).name + partLabel + ' — ' +
+        hit.rows.toLocaleString() + ' rows from "' + hit.source + '". Adding this replaces it.';
     } else { box.style.display = 'none'; }
     $('#importGo').disabled = !per;
   }
@@ -2110,6 +2125,7 @@ footer b{color:var(--text-muted);}
     });
 
     $('#importSection').addEventListener('change', function () { renderImportPart(); checkDup(); });
+    $('#importPart').addEventListener('change', checkDup);
     $('#importMonth').addEventListener('change', checkDup);
     $('#importYear').addEventListener('change', checkDup);
     $('#importCancel').addEventListener('click', function () { closeImport(); });

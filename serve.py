@@ -76,11 +76,11 @@ COPY_CHUNK = 1024 * 1024
 
 # Past this, a claimed Content-Length is refused before a single byte is
 # written to disk. Generous on purpose -- registers here run into the
-# hundreds of megabytes -- but unbounded was a real hole: bound to
-# 127.0.0.1 nobody could exploit it, but the moment this sits behind a
-# reverse proxy for HTTPS access, an unbounded upload is a free way to fill
-# the disk.
-MAX_UPLOAD_BYTES = 300 * 1024 * 1024
+# hundreds of megabytes (a real IP Pharmacy COGS export ran to 386MB) --
+# but unbounded was a real hole: bound to 127.0.0.1 nobody could exploit
+# it, but the moment this sits behind a reverse proxy for HTTPS access, an
+# unbounded upload is a free way to fill the disk.
+MAX_UPLOAD_BYTES = 1024 * 1024 * 1024
 
 DEFAULTS = {
     "hostname": "parashealth.internal",
@@ -1585,6 +1585,7 @@ def make_handler(prefix):
                 self._json(400, {"error": "no file id and no body to import"})
                 return
             if n > MAX_UPLOAD_BYTES:
+                self._drain_body(n)
                 self._json(413, {"error": "that file is larger than the %d MB limit"
                                           % (MAX_UPLOAD_BYTES // (1024 * 1024))})
                 return
@@ -1781,6 +1782,7 @@ def make_handler(prefix):
                 self._json(400, {"error": "bad length"})
                 return
             if n > MAX_UPLOAD_BYTES:
+                self._drain_body(n)
                 self._json(413, {"error": "that file is larger than the %d MB limit"
                                           % (MAX_UPLOAD_BYTES // (1024 * 1024))})
                 return
@@ -2840,6 +2842,7 @@ def make_handler(prefix):
                     except ValueError:
                         n = 0
                     if n <= 0 or n > MAX_UPLOAD_BYTES:
+                        self._drain_body(n)
                         self._json(400, {"error": "bad request body"})
                         return
                     try:
@@ -2857,6 +2860,7 @@ def make_handler(prefix):
                     except ValueError:
                         n = 0
                     if n <= 0 or n > MAX_UPLOAD_BYTES:
+                        self._drain_body(n)
                         self._json(400, {"error": "bad request body"})
                         return
                     try:
@@ -3157,6 +3161,30 @@ def make_handler(prefix):
                 return
             rate_clear(rate_key)
             self._json(200, {"ok": True, "token": otp_issue_token(email)})
+
+        def _drain_body(self, n):
+            """Reads and discards up to n declared-Content-Length bytes.
+
+            Every route that answers an oversized (or otherwise bad) upload
+            with an error before ever reading its body has the same trap: the
+            browser is still in the middle of streaming those bytes, and
+            closing a socket while they sit unread in its receive buffer
+            sends a TCP reset instead of a clean close. A reset arrives at
+            the browser as a bare connection failure -- "Failed to fetch",
+            no status code, nothing to show the user -- not as the JSON error
+            this handler is actually trying to send. A 386MB IP Pharmacy
+            upload hit exactly this: rejected in a fraction of a second by
+            the old, tighter size limit, with 386MB still queued up behind
+            it, so the browser reported "the local server is not answering"
+            instead of the real reason. Draining first lets the response
+            that follows actually arrive.
+            """
+            left = n
+            while left > 0:
+                chunk = self.rfile.read(min(COPY_CHUNK, left))
+                if not chunk:
+                    break
+                left -= len(chunk)
 
         def _json(self, code, payload):
             body = json.dumps(payload).encode("utf-8")

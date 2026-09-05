@@ -104,6 +104,71 @@ def raw_request(base, path, token=None, method="GET"):
     return status, body.decode("utf-8", "replace")
 
 
+def raw_oversized_post(base, path, token, declared_length, actual_body):
+    """POSTs a Content-Length far larger than what actually follows.
+
+    This is what proves _drain_body() actually works, and the signal is
+    specifically whether *sending* actual_body succeeds, not just whether
+    a response eventually comes back. A server that rejects on the
+    declared length without reading anything answers and closes the
+    socket immediately, with actual_body still queued up behind it in the
+    kernel's send buffer -- once that buffer is bigger than the OS will
+    silently absorb (a handful of KB is not enough; low-single-digit MB
+    reliably is, which is why the caller uses a multi-MB body, not a
+    token-sized one), closing the read side while bytes are still
+    arriving sends a TCP reset instead of a clean FIN. The client's
+    sendall() surfaces that reset as BrokenPipeError/ConnectionError --
+    exactly the exception class a real browser's fetch() reports as a
+    bare "Failed to fetch" network error, no status code, nothing to show
+    the user -- regardless of whether a well-formed response happens to
+    have already reached the kernel's receive buffer before the reset
+    (verified by reproducing this exact scenario against the unfixed
+    code: sendall() raised BrokenPipeError there even though a complete,
+    correctly-formed 400 response could still be read back afterward --
+    so reading a clean response is not by itself proof the upload worked;
+    only an unraised sendall() is).
+
+    Returns (send_ok, status, body) -- send_ok is the real pass/fail signal.
+    """
+    from urllib.parse import urlsplit
+    u = urlsplit(base)
+    host, port = u.hostname, u.port
+    target = u.path + path
+    lines = ["POST %s HTTP/1.1" % target, "Host: %s:%d" % (host, port),
+              "Content-Length: %d" % declared_length, "Connection: close"]
+    if token:
+        lines.append("Cookie: paras_session=" + token)
+    lines.append("")
+    lines.append("")
+    s = socket.create_connection((host, port), timeout=15)
+    send_ok = True
+    try:
+        s.sendall("\r\n".join(lines).encode() + actual_body)
+    except OSError:
+        send_ok = False
+    try:
+        s.shutdown(socket.SHUT_WR)
+    except OSError:
+        pass
+    chunks = []
+    try:
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    except OSError:
+        pass
+    s.close()
+    resp = b"".join(chunks)
+    if b"\r\n" not in resp:
+        return send_ok, None, resp.decode("utf-8", "replace")
+    status_line = resp.split(b"\r\n", 1)[0].decode("latin-1")
+    status = int(status_line.split(" ", 2)[1])
+    body = resp.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in resp else b""
+    return send_ok, status, body.decode("utf-8", "replace")
+
+
 def sign_in(base, login, password):
     """Mirrors gate.js: the browser derives the digest, the server compares it."""
     import hashlib
@@ -395,6 +460,31 @@ def main():
               s == 404, "got %d" % s)
         s, _ = raw_request(base, page + "#x", staff, "HEAD")
         check("...over HEAD too", s == 404, "got %d" % s)
+
+        # --- an oversized upload must fail cleanly, not as a dead connection -
+        #
+        # A real 386MB COGS file hit exactly this: rejected on Content-Length
+        # alone in a fraction of a second, with the browser still streaming
+        # hundreds of megabytes into a socket the server had already stopped
+        # reading from -- closing it that way sends a TCP reset, which shows
+        # up client-side as a bare connection failure ("the local server is
+        # not answering"), not the 400/413 JSON this route is actually
+        # trying to send. Every route sharing this check needed the same
+        # fix; __cache's POST body is the cheapest one to reach here (any
+        # signed-in session, not admin-only), so it is what stands in for
+        # all four. A multi-MB body is what actually exercises this -- a
+        # few hundred bytes fits inside the kernel's own receive buffer and
+        # never reveals the difference (checked by hand against the
+        # unfixed code: a 500-byte version of this same test passed either
+        # way).
+        oversized = 1024 * 1024 * 1024 + 1_000_000     # just over MAX_UPLOAD_BYTES
+        send_ok, status, body = raw_oversized_post(
+            base, "/__cache/store-transfer/grn-register/rows", staff,
+            oversized, b"x" * (4 * 1024 * 1024))
+        check("the upload itself completes without the connection being reset",
+              send_ok, "got %r" % body)
+        check("...and it is answered with the real size-rejection, not something else",
+              status == 400, "got %s, %r" % (status, body))
     finally:
         if proc:
             proc.terminate()

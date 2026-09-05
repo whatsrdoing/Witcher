@@ -1215,11 +1215,26 @@
       var b = e.target.closest('button[data-mode]'); if (b) switchMode(b.dataset.mode);
     });
 
+    // renderGrid() replaces every card's DOM node wholesale (innerHTML), so
+    // it re-triggers each visible card's entrance animation and its
+    // backdrop-filter's first paint from scratch -- fine once per real
+    // filter change, but typing "procurement" fired it eleven times in
+    // under a second with nothing to debounce it, each one flashing and
+    // re-blurring every card still on screen. filter.text itself still
+    // updates on every keystroke (so Escape, or anything else reading it
+    // synchronously, sees the latest value); only the expensive rebuild
+    // waits for a short pause, short enough that typing still feels instant.
+    var searchRenderTimer = null;
     $('#search').addEventListener('input', function (e) {
-      filter.text = e.target.value; renderGrid();
+      filter.text = e.target.value;
+      clearTimeout(searchRenderTimer);
+      searchRenderTimer = setTimeout(renderGrid, 120);
     });
     $('#search').addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') { e.target.value = ''; filter.text = ''; renderGrid(); e.target.blur(); }
+      if (e.key === 'Escape') {
+        clearTimeout(searchRenderTimer);
+        e.target.value = ''; filter.text = ''; renderGrid(); e.target.blur();
+      }
     });
 
     $('#chips').addEventListener('click', function (e) {

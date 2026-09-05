@@ -78,13 +78,27 @@ body{
   -webkit-font-smoothing:antialiased; overflow:hidden;
 }
 .bg-field{position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none;}
+/* Static on purpose -- these used to drift via a 26-38s transform animation,
+   which sounds harmless but never actually rests: every dashboard card on
+   the hub grid is also `.glass` (backdrop-filter:blur(22px)), so as long as
+   whatever sits behind those ~16 cards keeps moving, the browser cannot
+   cache a single one of those blurred backdrops and has to recompute all of
+   them, every frame, for as long as the page is open. That combination --
+   many blurred elements over a continuously-changing blurred background --
+   is exactly what made the hub feel sluggish while individual dashboards
+   (no bg-field at all) stayed smooth. Frozen at each blob's own resting
+   frame (the animation's own 0%/100% position, so this is not a visual
+   change at rest), the backdrop behind the grid stops changing and the
+   browser can composite it once instead of forty-some times a second. */
 .bg-field i{position:absolute; border-radius:50%; filter:blur(90px); opacity:.42; display:block;}
-.bg-field i:nth-child(1){width:620px;height:620px;top:-220px;left:-160px;background:radial-gradient(circle,#2E5AA1,transparent 70%);animation:drift1 26s ease-in-out infinite;}
-.bg-field i:nth-child(2){width:520px;height:520px;bottom:-200px;right:-120px;background:radial-gradient(circle,#5B4CE0,transparent 70%);opacity:.3;animation:drift2 32s ease-in-out infinite;}
-.bg-field i:nth-child(3){width:460px;height:460px;top:42%;left:52%;background:radial-gradient(circle,#12A08F,transparent 70%);opacity:.22;animation:drift3 38s ease-in-out infinite;}
+.bg-field i:nth-child(1){width:620px;height:620px;top:-220px;left:-160px;background:radial-gradient(circle,#2E5AA1,transparent 70%);}
+.bg-field i:nth-child(2){width:520px;height:520px;bottom:-200px;right:-120px;background:radial-gradient(circle,#5B4CE0,transparent 70%);opacity:.3;}
+.bg-field i:nth-child(3){width:460px;height:460px;top:42%;left:52%;background:radial-gradient(circle,#12A08F,transparent 70%);opacity:.22;}
 :root[data-theme="light"] .bg-field i{opacity:.3;}
 :root[data-theme="light"] .bg-field i:nth-child(2){opacity:.18;}
 :root[data-theme="light"] .bg-field i:nth-child(3){opacity:.14;}
+/* Still used by .gate-bg's own glow (the sign-in screen, below) -- only
+   .bg-field's own animation-property references above were removed. */
 @keyframes drift1{0%,100%{transform:translate(0,0)}50%{transform:translate(60px,40px)}}
 @keyframes drift2{0%,100%{transform:translate(0,0)}50%{transform:translate(-50px,-40px)}}
 @keyframes drift3{0%,100%{transform:translate(0,0)}50%{transform:translate(-40px,50px)}}

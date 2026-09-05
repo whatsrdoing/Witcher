@@ -46,6 +46,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import uuid
 import webbrowser
@@ -1743,7 +1744,15 @@ def make_handler(prefix):
                 self._json(400, {"error": str(exc)})
                 return
             except Exception as exc:                      # noqa: BLE001
-                print("  ! aggregate failed: %s" % exc)
+                # Full traceback, not just str(exc) -- "tuple index out of
+                # range" on its own names no line, no dataset, no spec, and
+                # everything about which of the several queries a dashboard
+                # fires (and with what filters/measures) that actually hit
+                # this is only in the request that got here, not in the
+                # exception's own message.
+                print("  ! aggregate failed on dataset %r: %s" % (dataset, exc))
+                print("    body: %r" % (body,))
+                traceback.print_exc()
                 self._json(400, {"error": "could not aggregate that"})
                 return
             self._json(200, out)

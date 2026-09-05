@@ -1597,6 +1597,19 @@ function findCategoryIdx(idx){
   let k = keys.find(h=> ['itemcategory','category'].includes(norm(h)));
   return k ? idx[k] : -1;
 }
+/* Store/location column -- the Purchase Register and the GRN Register don't
+   always spell this the same way ("Store Name" vs "Store"), and a real export
+   can use either regardless of which register it is. Matching only the exact
+   literal used to leave every row's store blank whenever a file used the
+   other register's spelling, which then silently dropped every one of that
+   register's rows from the store filter (see storeMatch below) -- an entire
+   register reading as zero with no error anywhere. */
+function findStoreIdx(idx){
+  const keys = Object.keys(idx);
+  const norm = h => h.replace(/\s+/g,'').toLowerCase();
+  let k = keys.find(h=> ['storename','store'].includes(norm(h)));
+  return k ? idx[k] : -1;
+}
 /* Strip a leading UTF-8 BOM, which some exports (e.g. Excel "CSV UTF-8") prepend to the file.
    Left in place, it silently attaches itself to the first header cell and breaks matching. */
 function stripBOM(text){
@@ -1613,6 +1626,7 @@ function processPO(text, progressEl){
   header.forEach((h,i)=> idx[h.trim()] = i);
   const unitIdx = findUnitIdx(idx);
   const categoryIdx = findCategoryIdx(idx);
+  const storeIdx = findStoreIdx(idx);
   const dateColIdxs = [idx['PO Date'], idx['Approved Date']].filter(i=>i!==undefined);
   const slashConvByUnit = detectUnitSlashConventions(lines, dateColIdxs, unitIdx);
   const seen = new Set();
@@ -1644,7 +1658,7 @@ function processPO(text, progressEl){
       poNo, itemCode:(f[idx['Item Code']]||'Unknown Item').trim(),
       itemName:(f[idx['Item Name']]||'').trim(),
       category: categoryIdx>=0 ? (f[categoryIdx]||'').trim() : '',
-      store:(f[idx['Store Name']]||'').trim(), unit:lineUnit, dt:lineDt,
+      store:(storeIdx>=0?(f[storeIdx]||''):'').trim(), unit:lineUnit, dt:lineDt,
       status, qty, amount:amt
     });
     if(seen.has(poNo)){
@@ -1661,7 +1675,7 @@ function processPO(text, progressEl){
       poNo, date:dateRaw, dt, status,
       unit: unitForRow,
       poType:(f[idx['PO Type']]||'').trim(),
-      store:(f[idx['Store Name']]||'').trim(),
+      store:(storeIdx>=0?(f[storeIdx]||''):'').trim(),
       supplier:(f[idx['Supplier Name']]||'').trim(),
       approvedBy:(f[idx['Approved By']]||'').trim(),
       approvedDate: approvedDateRaw, approvedDt,
@@ -1686,6 +1700,7 @@ function processGRN(text, progressEl){
   const idx = {};
   header.forEach((h,i)=> idx[h.trim()] = i);
   const unitIdx = findUnitIdx(idx);
+  const storeIdx = findStoreIdx(idx);
   const dateColIdxs = [idx['GRN Date'], idx['Bill Date']].filter(i=>i!==undefined);
   const slashConvByUnit = detectUnitSlashConventions(lines, dateColIdxs, unitIdx);
   const seen = new Set();
@@ -1701,7 +1716,7 @@ function processGRN(text, progressEl){
     if(!grnNo) continue;
     const poNoRaw = (f[idx['PO No.']]||'').trim();
     const supplier = (f[idx['Supplier Name']]||'').trim();
-    const store = (f[idx['Store']]||'').trim();
+    const store = (storeIdx>=0?(f[storeIdx]||''):'').trim();
     const unit = unitIdx>=0 ? (f[unitIdx]||'').trim() : 'DEFAULT';
     const isLocalLine = isLocalPurchase(poNoRaw, supplier);
     const lineQty = num(f[idx['Received Qty.']]);
@@ -1762,12 +1777,16 @@ function unitMatch(unit){
   if(!unit) return true; // rows with no recorded unit are always included, regardless of the filter
   return selectedUnits.has(unit);
 }
+function storeMatch(store){
+  if(!store) return true; // rows with no recorded store are always included, regardless of the filter
+  return selectedStores.has(store);
+}
 
 function recomputeAggregates(){
-  poRows = allPoRows.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
-  grnRows = allGrnRows.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
-  localItems = allLocalItems.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit));
-  poLineItems = allPoLineItems.filter(r=>selectedStores.has(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
+  poRows = allPoRows.filter(r=>storeMatch(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
+  grnRows = allGrnRows.filter(r=>storeMatch(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
+  localItems = allLocalItems.filter(r=>storeMatch(r.store) && unitMatch(r.unit));
+  poLineItems = allPoLineItems.filter(r=>storeMatch(r.store) && unitMatch(r.unit) && (!r.dt || dateInRange(r.dt)));
 
   dayMap = {}; monthMap = {}; localDayMap = {}; poWithGRN = new Set();
 

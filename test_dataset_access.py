@@ -168,9 +168,60 @@ def main():
         names = [d["dataset"] for d in json.loads(body).get("datasets", [])]
         check("an admin still sees every register", "formulary" in names, "got %r" % (names,))
 
+        # --- the same rules, asked in every other spelling --------------------
+        #
+        # Each of these was a live bypass. A rule that only holds for the one
+        # canonical spelling is not a rule, so they are pinned individually
+        # rather than as one "variants" check: a regression should name which
+        # spelling came back.
+
+        # A dataset name reaches its table through slug(), and SQLite
+        # identifiers are case-insensitive, so all of these read the same
+        # register that "formulary" names.
+        for spelling in ("Formulary", "FORMULARY", "fOrmulary", "formulary%20", "formulary."):
+            s, _ = request(base, "/__data/%s/export" % spelling, staff)
+            check("non-admin refused a restricted register spelled %r" % spelling,
+                  s == 403, "got %d" % s)
+        s, _ = request(base, "/__agg/Formulary", staff, "POST", spec)
+        check("non-admin refused aggregating a restricted register by another spelling",
+              s == 403, "got %d" % s)
+
+        # The file a path reaches is chosen after normalisation, so the check
+        # has to normalise too -- a doubled slash in the address bar was
+        # enough to open a hidden dashboard.
+        for trick in ("/dashboards//Data_Health_Check_Dashboard.html",
+                      "/dashboards/./Data_Health_Check_Dashboard.html",
+                      "/dashboards/%2e/Data_Health_Check_Dashboard.html",
+                      "/dashboards/x/../Data_Health_Check_Dashboard.html",
+                      "/dashboards//Data_Library.html"):
+            s, _ = request(base, trick, staff)
+            check("non-admin refused an admin-only page asked for as %s" % trick,
+                  s == 404, "got %d" % s)
+
+        # --- the cache holds the same rows, so it needs the same rules --------
+        s, _ = request(base, "/__cache/data-health-check/formulary/rows", staff)
+        check("non-admin cannot read the cache of a restricted register",
+              s == 403, "got %d" % s)
+
+        # Nothing can tell rows computed from a register apart from rows
+        # someone typed, and every account reads the same cache, so an open
+        # write let any account put invented figures in front of everyone.
+        forged = {"payload": {"rows": [{"itemName": "PWNED", "qty": 999999}],
+                              "label": "Attacker supplied"}}
+        s, _ = request(base, "/__cache/store-transfer/grn-register/rows",
+                       staff, "POST", forged)
+        check("non-admin cannot write the shared dashboard cache", s == 403, "got %d" % s)
+        s, _ = request(base, "/__cache/store-transfer/grn-register/rows",
+                       admin, "POST", {"payload": {"rows": [], "label": "admin"}})
+        check("an admin still can, so the cache is still warmed", s == 200, "got %d" % s)
+        s, body = request(base, "/__cache/store-transfer/grn-register/rows", staff)
+        check("a non-admin still reads a register it is allowed", s == 200, "got %d" % s)
+
         # --- signed out ------------------------------------------------------
         s, _ = request(base, "/__data/grn-register/export")
         check("signed out, no register is readable at all", s == 401, "got %d" % s)
+        s, _ = request(base, "/__cache/store-transfer/grn-register/rows")
+        check("signed out, the cache is not readable either", s == 401, "got %d" % s)
     finally:
         if proc:
             proc.terminate()

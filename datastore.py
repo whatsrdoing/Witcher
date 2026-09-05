@@ -457,7 +457,13 @@ class DataStore:
                 expr = '"%s"' % col
             group_exprs.append(expr)
             select.append(expr)
-            names.append(spec.get("as") or col)
+            # Named back with the wording the caller used, not the SQL
+            # identifier it became: a caller that groups by "Item Name" and
+            # gets a column called Item_Name has to know about slugging to
+            # read its own result, and looking it up under the name it asked
+            # for silently yields nothing -- the same shape of mistake that
+            # made a dashboard read every total as blank.
+            names.append(spec.get("as") or spec.get("col"))
 
         for m in measures:
             if not isinstance(m, dict):

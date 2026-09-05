@@ -34,6 +34,7 @@ import html
 import http.server
 import json
 import os
+import posixpath
 import re
 import secrets
 import socket
@@ -897,6 +898,22 @@ def store():
         return _store
 
 
+def _dataset_key(dataset):
+    """The one key a register is known by, whatever spelling asked for it.
+
+    datastore.slug() is what turns a dataset name into its table name, and
+    SQLite identifiers are case-insensitive on top of that -- so every
+    spelling that can reach the same table has to collapse to the same key
+    here, or a permission check on the name is not a check on the data."""
+    try:
+        import datastore
+        return datastore.slug(str(dataset or "")).lower()
+    except Exception:                                     # noqa: BLE001
+        # Never fail open: with no way to normalise, fall back to something
+        # that still collapses case and punctuation the same way.
+        return re.sub(r"[^a-z0-9]+", "_", str(dataset or "").lower()).strip("_")
+
+
 def seg_route(path, name):
     """Whatever follows /<name>/ in the path, or None if this is not one.
     self.path arrives percent-encoded and never decoded upstream, so each
@@ -1072,11 +1089,20 @@ def make_handler(prefix):
             _ids, files = self._admin_only_dashboards()
             if not files:
                 return False
-            # Compare on the trailing path so a mount prefix (see PREFIX) or a
-            # "./" in the registry never decides the answer. 404 rather than
-            # 403 on purpose: an account that may not open a dashboard has no
+            # Normalised before comparing, because the file this path reaches
+            # is chosen after normalisation. "/dashboards//X.html",
+            # "/dashboards/./X.html", "/dashboards/%2e/X.html" and
+            # "/dashboards/y/../X.html" all serve X.html, and a check on the
+            # raw text matched none of them -- a doubled slash typed in the
+            # address bar was enough to open a hidden dashboard.
+            #
+            # Unquoting first, then normalising, then comparing on the
+            # trailing path so a mount prefix (see PREFIX) or a "./" in the
+            # registry never decides the answer. 404 rather than 403 on
+            # purpose: an account that may not open a dashboard has no
             # business learning it exists.
-            asked = urllib.parse.unquote(path_only).replace("\\", "/").lstrip("/")
+            asked = urllib.parse.unquote(path_only).replace("\\", "/")
+            asked = posixpath.normpath(asked).lstrip("/")
             return any(asked == f or asked.endswith("/" + f) for f in files)
 
         def _session_token(self):
@@ -1192,15 +1218,22 @@ def make_handler(prefix):
                 bucket = restricted if d.get("adminOnly") else open_to_all
                 for i in (d.get("inputs") or []):
                     if i.get("dataset"):
-                        bucket.add(i["dataset"])
+                        bucket.add(_dataset_key(i["dataset"]))
             return restricted - open_to_all
 
         def _dataset_allowed(self, dataset):
             """True if this request may read `dataset`; sends the refusal and
-            returns False if not."""
+            returns False if not.
+
+            Compared on the same key datastore stores the register under, not
+            on the text as typed. A dataset name reaches a table through
+            slug(), and SQLite identifiers are case-insensitive, so
+            "Formulary", "FORMULARY" and "formulary." all read the one table
+            that "formulary" names -- matching raw strings let any of those
+            spellings walk straight past this check."""
             if self._is_admin():
                 return True
-            if dataset in self._restricted_datasets():
+            if _dataset_key(dataset) in self._restricted_datasets():
                 self._json(403, {"error": "admin only"})
                 return False
             return True
@@ -1448,6 +1481,11 @@ def make_handler(prefix):
             if kind not in self.CACHE_KINDS or len(dashboard_id) > 100 or len(dataset) > 100:
                 self.send_error(404)
                 return
+            # The cache holds the register's own rows, so reading it is
+            # reading the register: same bar as /__data, or hiding a dataset
+            # there would just move where it can be read from.
+            if not self._dataset_allowed(dataset):
+                return
             try:
                 payload = appstore.read_dashboard_cache(dashboard_id, dataset, kind)
             except Exception as exc:                      # noqa: BLE001
@@ -1467,13 +1505,26 @@ def make_handler(prefix):
             computes itself, right now, from datastore's own record of what
             is imported for that dataset -- never a version the caller
             sends (see appstore.py's dashboard_cache section for exactly
-            why that ordering is what keeps a write always honest)."""
+            why that ordering is what keeps a write always honest).
+
+            Admin only, and that is a correctness rule rather than a privacy
+            one. This cache is shared: whatever lands here is what every
+            other account's dashboard draws, admins included, and nothing
+            here can tell rows computed from the register apart from rows
+            someone typed -- the fingerprint proves *when* a payload was
+            written, never *what* it was derived from. Leaving the write open
+            to any signed-in account meant any signed-in account could put
+            invented figures in front of everyone. Reads stay open to anyone
+            allowed the underlying dataset, so a cache warmed once still
+            spares everybody the reparse."""
             if len(tail) != 3:
                 self.send_error(404)
                 return
             dashboard_id, dataset, kind = tail
             if kind not in self.CACHE_KINDS or len(dashboard_id) > 100 or len(dataset) > 100:
                 self.send_error(404)
+                return
+            if not self._require_admin():
                 return
             if not isinstance(body, dict) or "payload" not in body:
                 self._json(400, {"error": "missing payload"})

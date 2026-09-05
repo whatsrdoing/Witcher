@@ -6,3 +6,13 @@ Thumbs.db
 # Files uploaded through the Data Library / dashboards -- real user data,
 # never something to commit. Created on disk by serve.py.
 /data/
+
+# Live credential material. /auth.js is regenerated on every serve.py start
+# (see sync.mirror_auth()) for file:// sign-in; /auth.json is a legacy file
+# nothing reads anymore. Neither belongs in git -- a committed copy is a
+# permanent, offline-crackable (worse: directly replayable, see _send_auth's
+# own docstring) leak of every account's password hash and the admin key
+# hash. Keep them out from here on; already-pushed history still has old
+# copies until that is separately addressed.
+/auth.js
+/auth.json

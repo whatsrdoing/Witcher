@@ -127,6 +127,35 @@ def test_defaults_are_unchanged():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_a_renamed_column_does_not_relabel_other_months():
+    """A register that rewords a heading between months slugs both to one
+    column. The header row must describe the rows actually being exported,
+    not the newest wording of a month that is not in the export -- a
+    dashboard matching the heading exactly would otherwise read the wrong
+    column, silently."""
+    tmp = tempfile.mkdtemp(prefix="paras-hdr-")
+    try:
+        store = seed(tmp, header=["PO No.", "Amt"], rows=[["JUL", "1"]])
+        seed(tmp, header=["PO No", "Amt"], rows=[["AUG", "2"]], period="2026-08")
+        store = datastore.DataStore(os.path.join(tmp, "library.db"))
+        reader = __import__("csv").reader
+
+        jul = next(reader([export(store, "purchase-register", periods=["2026-07"],
+                                  original_headers=True, include_meta=False)[0]]))
+        check("July's export keeps July's wording", jul[0] == "PO No.", "got %r" % (jul,))
+        aug = next(reader([export(store, "purchase-register", periods=["2026-08"],
+                                  original_headers=True, include_meta=False)[0]]))
+        check("August's export keeps August's wording", aug[0] == "PO No", "got %r" % (aug,))
+        check("header_map is scoped to the period asked for",
+              store.header_map("purchase-register", ["2026-07"]).get("PO_No") == "PO No.")
+        both = next(reader([export(store, "purchase-register",
+                                    original_headers=True, include_meta=False)[0]]))
+        check("exporting both months uses the most recent wording",
+              both[0] == "PO No", "got %r" % (both,))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_latest_import_wins_a_renamed_column():
     tmp = tempfile.mkdtemp(prefix="paras-hdr-")
     try:
@@ -185,6 +214,7 @@ def main():
     test_headings_round_trip()
     test_meta_columns_can_be_left_out()
     test_defaults_are_unchanged()
+    test_a_renamed_column_does_not_relabel_other_months()
     test_latest_import_wins_a_renamed_column()
     test_store_written_before_headings_were_kept()
     test_periods_scope_the_export()

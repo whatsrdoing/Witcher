@@ -118,6 +118,29 @@ check('all three COGS parts present reads as complete',
 check('one COGS part present names the two that are missing',
   eq(partsComplete(reg, 'cogs', { parts: [{ part: 'ip' }] }), ['dept', 'op']));
 
+// --- registers a dashboard compares must come from one month -------------
+const { newestSharedPeriod } = agg._internal;
+const mk = ps => ({ info: { periods: ps.map(p => ({ period: p })) } });
+check('the newest month all of them have is chosen',
+  newestSharedPeriod([mk(['2026-06', '2026-07', '2026-08']), mk(['2026-07', '2026-08'])]) === '2026-08');
+check('a month only one of them has is not chosen',
+  newestSharedPeriod([mk(['2026-07', '2026-09']), mk(['2026-07'])]) === '2026-07');
+check('no shared month is reported as none, not guessed at',
+  newestSharedPeriod([mk(['2026-07']), mk(['2026-09'])]) === null);
+check('a dataset with nothing stored means no shared month',
+  newestSharedPeriod([mk(['2026-07']), mk([])]) === null);
+check('one dataset simply uses its own newest',
+  newestSharedPeriod([mk(['2026-07', '2026-08'])]) === '2026-08');
+check('no datasets at all is handled', newestSharedPeriod([]) === null);
+
+// --- a month held as one unnamed part is a whole month, not a third ------
+check('a pre-parts month stored unnamed is complete, not missing everything',
+  partsComplete(reg, 'cogs', { parts: [{ part: '' }] }) === true);
+check('nothing known about the month is not reported as missing parts',
+  partsComplete(reg, 'cogs', null) === true);
+check('a genuinely partial month is still caught',
+  eq(partsComplete(reg, 'cogs', { parts: [{ part: 'ip' }, { part: 'op' }] }), ['dept']));
+
 // --- period selection -----------------------------------------------------
 check('periodsOf sorts oldest first so the newest is last',
   eq(periodsOf({ periods: [{ period: '2026-08' }, { period: '2026-07' }] }),

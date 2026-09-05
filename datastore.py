@@ -530,20 +530,33 @@ class DataStore:
         rows = [list(r) for r in self.con.execute(sql, args).fetchall()]
         return {"columns": names, "rows": rows}
 
-    def header_map(self, dataset):
+    def header_map(self, dataset, periods=None):
         """{identifier: the heading the file actually arrived with}.
 
-        Built from what import_csv recorded, most recent import last so a
-        register that renamed a column between months reports its current
-        wording. Identifiers with nothing on record -- imported before
-        headers were kept, or a column only an older month had -- are simply
-        absent, and callers fall back to the identifier itself.
+        Scoped to the periods being read, not the whole dataset. A register
+        that renames a column between months -- "PO No." in July, "PO No" in
+        August -- slugs both to one column, so merging every import made the
+        newest wording describe every month's rows, including months that
+        never used it. Exporting July then handed back August's heading over
+        July's data, and a dashboard that matches the heading exactly read
+        the wrong thing. Restricting this to the months actually being
+        exported keeps the header row honest about the rows under it.
+
+        Within that scope the most recent import still wins, which is the
+        right answer when one month was re-imported with a correction.
+        Identifiers with nothing on record -- imported before headers were
+        kept, or a column only another month had -- are simply absent, and
+        callers fall back to the identifier itself.
         """
         out = {}
+        sql = "SELECT headers FROM _imports WHERE dataset=?"
+        args = [dataset]
+        if periods:
+            sql += " AND period IN (%s)" % ",".join("?" * len(periods))
+            args += list(periods)
+        sql += " ORDER BY imported_at ASC"
         try:
-            rows = self.con.execute(
-                "SELECT headers FROM _imports WHERE dataset=? ORDER BY imported_at ASC",
-                (dataset,)).fetchall()
+            rows = self.con.execute(sql, args).fetchall()
         except sqlite3.OperationalError:
             return out
         for (blob,) in rows:
@@ -587,7 +600,7 @@ class DataStore:
             args = args + [int(limit), int(offset)]
         cur = self.con.execute(sql, args)
         if original_headers:
-            names = self.header_map(dataset)
+            names = self.header_map(dataset, periods)
             yield [names.get(c, c) for c in cols]
         else:
             yield cols

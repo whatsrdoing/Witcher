@@ -68,9 +68,28 @@
     if (!_once[url]) {
       _once[url] = fetch(BASE + url).then(function (r) {
         return r.ok ? (parse === 'text' ? r.text() : r.json()) : null;
-      })['catch'](function () { return null; });
+      })['catch'](function () { return null; })
+        .then(function (v) {
+          // Only a real answer is worth keeping. Caching the failure too
+          // meant one dropped request at page load left the dashboard on the
+          // upload prompt for as long as the tab stayed open, with nothing
+          // said and no way back short of a reload -- and the next thing the
+          // dashboard did was ask again, which would have succeeded.
+          if (v === null) delete _once[url];
+          return v;
+        });
     }
     return _once[url];
+  }
+
+  /* Forget what has been fetched, so the next ask goes to the server.
+   *
+   * The listing of what is imported is only unchanging for as long as
+   * nobody imports anything, and the Data Library sitting in another tab is
+   * the normal way this app is used. A dashboard that wants to reflect an
+   * import that just happened calls this first. */
+  function refresh() {
+    _once = {};
   }
 
   function postJson(url, body) {
@@ -108,6 +127,19 @@
       .filter(Boolean).sort();
   }
 
+  /* The newest month every one of these datasets has, or null when they
+   * share none. Registers a dashboard compares have to come from the same
+   * month for the comparison to mean anything. */
+  function newestSharedPeriod(entries) {
+    if (!entries.length) return null;
+    var lists = entries.map(function (e) { return periodsOf(e.info); });
+    if (lists.some(function (l) { return !l.length; })) return null;
+    var shared = lists[0].filter(function (p) {
+      return lists.every(function (l) { return l.indexOf(p) >= 0; });
+    });
+    return shared.length ? shared[shared.length - 1] : null;
+  }
+
   /* Whether every part a dataset is declared to arrive in has actually been
    * imported for one period. COGS arrives as three files (department
    * consumption, IP pharmacy, OP pharmacy); a month with only one of them is
@@ -119,8 +151,17 @@
       if (d.id === dataset) declared = (d.parts || []).map(function (p) { return p.id; });
     });
     if (!declared.length) return true;                 // no parts declared: one file is the month
+    var stored = ((periodEntry && periodEntry.parts) || [])
+      .map(function (p) { return p.part || ''; });
+    if (!stored.length) return true;                   // nothing known about this month either way
+    // A month imported before parts existed is held as a single unnamed
+    // part, and datastore's own migration keeps it that way on purpose --
+    // it is the whole month in one file, not a third of one. Reading its
+    // blank part id as "none of the three are here" put a missing-data
+    // warning over complete data.
+    if (stored.length === 1 && stored[0] === '') return true;
     var have = {};
-    ((periodEntry && periodEntry.parts) || []).forEach(function (p) { have[p.part || ''] = 1; });
+    stored.forEach(function (p) { have[p] = 1; });
     var missing = declared.filter(function (id) { return !have[id]; });
     return missing.length ? missing : true;
   }
@@ -175,10 +216,37 @@
           // on; without this it loaded every month ever imported, merged them
           // into one report still captioned with a single month, and grew
           // without bound as more were added.
-          var partial = [];
+          //
+          // The same month for all of them, though, not the newest of each.
+          // These dashboards exist to compare registers against one another
+          // -- a local-purchase GRN against the POs raised for that item, a
+          // return against the receipt it came from -- and those comparisons
+          // are only meaningful within one month. Resolved per dataset, a
+          // September purchase register next to an August GRN register
+          // looked completely normal while every cross-check silently had
+          // nothing to match against.
+          var month = newestSharedPeriod(have);
+          var partial = [], mismatched = [];
           have.forEach(function (x) {
             var months = periodsOf(x.info);
-            x.periods = months.length ? [months[months.length - 1]] : [];
+            if (month && months.indexOf(month) >= 0) {
+              x.periods = [month];
+            } else {
+              // No month covers everything. Fall back to this register's own
+              // newest so the dashboard still opens, and say so -- silently
+              // comparing two different months is the failure being avoided.
+              //
+              // Flagged whether or not a shared month was found at all: when
+              // none was, every register is on a month of its own, which is
+              // the worst version of this rather than a reason to say
+              // nothing. Only meaningful with more than one register to
+              // disagree -- a single one is never mismatched with itself.
+              x.periods = months.length ? [months[months.length - 1]] : [];
+              if (have.length > 1 && x.periods.length) {
+                mismatched.push({ label: x.label, dataset: x.dataset,
+                                  period: x.periods[0] });
+              }
+            }
             var entry = ((x.info.periods || []).filter(function (p) {
               return p.period === x.periods[0];
             })[0]) || null;
@@ -190,7 +258,8 @@
           });
 
           return { ready: have.length > 0, complete: missing.length === 0,
-                   datasets: have, missing: missing, partial: partial };
+                   datasets: have, missing: missing, partial: partial,
+                   period: month || null, mismatched: mismatched };
         });
       });
   }
@@ -367,7 +436,12 @@
       if (!bar) {
         bar = d.createElement('div');
         bar.id = 'parasAggNotice';
-        bar.style.cssText = 'position:sticky;top:0;z-index:9999;padding:9px 14px;'
+        // Deliberately in the flow rather than sticky/fixed: most of these
+        // dashboards have their own sticky header at top:0, and a banner
+        // floating over it covered the logo and the first row of figures.
+        // Sitting in the flow pushes the page down by its own height
+        // instead, which is what a message about the whole page should do.
+        bar.style.cssText = 'position:relative;z-index:9999;padding:9px 14px;'
           + 'font:600 12.5px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;'
           + 'display:flex;gap:10px;align-items:center;justify-content:space-between;';
         var close = d.createElement('button');
@@ -425,12 +499,22 @@
         // -- refusing to show anything would be worse -- but it must not look
         // like a finished month, because every total on the page is then a
         // total of part of it.
+        var warnings = [];
+        // Registers from different months cannot be compared against each
+        // other, and this dashboard exists to compare them, so this is said
+        // first and plainly.
+        if (loaded.length && (state.mismatched || []).length) {
+          warnings.push('Not all registers have the same month: '
+            + state.mismatched.map(function (m) { return m.label + ' is showing ' + m.period; }).join(', ')
+            + '. Comparisons between registers will not line up until the missing month is imported.');
+        }
         if (loaded.length && (state.partial || []).length) {
-          notice((state.partial || []).map(function (p) {
+          warnings.push((state.partial || []).map(function (p) {
             return p.label + ' ' + p.period + ' is missing '
                  + p.missingParts.join(' and ') + ' — figures below cover only what has been imported.';
           }).join('  '));
         }
+        if (warnings.length) notice(warnings.join('  '));
         return { loaded: loaded, missing: state.missing || [],
                  partial: state.partial || [], periods: used };
       });
@@ -474,6 +558,7 @@
     rows: rows,
     compare: compare,
     notice: notice,
+    refresh: refresh,
     // Exposed for test_agg_client.js only. These are the pieces that decide
     // what a dashboard's column is called, which is where a mistake is
     // silent -- a column nothing can find reads as blank, not as an error --
@@ -484,6 +569,7 @@
       restoreHeaders: restoreHeaders,
       expectedHeaders: expectedHeaders,
       partsComplete: partsComplete,
+      newestSharedPeriod: newestSharedPeriod,
       periodsOf: periodsOf
     }
   };

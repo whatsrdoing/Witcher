@@ -909,9 +909,22 @@ def _dataset_key(dataset):
         import datastore
         return datastore.slug(str(dataset or "")).lower()
     except Exception:                                     # noqa: BLE001
-        # Never fail open: with no way to normalise, fall back to something
-        # that still collapses case and punctuation the same way.
-        return re.sub(r"[^a-z0-9]+", "_", str(dataset or "").lower()).strip("_")
+        # Never fail open: with no way to normalise, fall back to a mirror
+        # of datastore.slug() precise enough that it cannot itself become a
+        # bypass -- the difference between this and datastore.slug() is the
+        # only gap this whole function exists to close, so an inexact
+        # fallback would just move the bug rather than remove it. Mirrors
+        # every rule: non-alphanumeric runs to "_", trimmed, "c_" prefixed
+        # when the result would not start with a letter, "col" when it is
+        # empty, cut to 63 characters -- then lowercased on top, the one
+        # step slug() itself does not do, because SQLite's own
+        # case-insensitivity is what makes that step necessary here.
+        s = re.sub(r"[^A-Za-z0-9]+", "_", str(dataset or "")).strip("_")
+        if not s:
+            s = "col"
+        if not s[0].isalpha():
+            s = "c_" + s
+        return s[:63].lower()
 
 
 def seg_route(path, name):
@@ -1081,29 +1094,49 @@ def make_handler(prefix):
 
         def _is_admin_only_file(self, path_only):
             """Whether this path is a dashboard currently marked admin-only,
-            being requested by a session that is not an admin."""
-            if not path_only.lower().endswith((".html", ".htm")):
-                return False
+            being requested by a session that is not an admin.
+
+            The previous version of this check normalised the path before
+            comparing it, but bailed out before that -- on an ".html"/".htm"
+            suffix test run against the *raw* path -- as a cheap early exit.
+            "/X.html/.", "/X.html/x/..", "//X.html" and "/X.html/%2e" all
+            fail that raw suffix test (they end in ".", "..", "X.html" after
+            a blank segment, or "%2e"), so the function returned False and
+            the request fell through to the static file handler, which
+            normalises the path itself and serves the file anyway. The
+            normalisation this function did was never wrong; it just never
+            ran. There is no cheap pre-check here now -- everything is
+            normalised first, unconditionally, and only then compared.
+            """
             if self._is_admin():
                 return False
             _ids, files = self._admin_only_dashboards()
             if not files:
                 return False
-            # Normalised before comparing, because the file this path reaches
-            # is chosen after normalisation. "/dashboards//X.html",
-            # "/dashboards/./X.html", "/dashboards/%2e/X.html" and
-            # "/dashboards/y/../X.html" all serve X.html, and a check on the
-            # raw text matched none of them -- a doubled slash typed in the
-            # address bar was enough to open a hidden dashboard.
-            #
-            # Unquoting first, then normalising, then comparing on the
-            # trailing path so a mount prefix (see PREFIX) or a "./" in the
-            # registry never decides the answer. 404 rather than 403 on
-            # purpose: an account that may not open a dashboard has no
-            # business learning it exists.
+            # Unquoted, backslashes folded to forward slashes (a request line
+            # cannot literally contain one, but a client on this app's own
+            # Windows install can still send one), then normalised so
+            # "/dashboards//X.html", "/dashboards/./X.html",
+            # "/dashboards/%2e/X.html" and "/dashboards/y/../X.html" all
+            # collapse to the same path X.html resolves to -- a doubled
+            # slash or a trailing "/." was enough on its own to reach a
+            # hidden dashboard before this ran unconditionally.
             asked = urllib.parse.unquote(path_only).replace("\\", "/")
             asked = posixpath.normpath(asked).lstrip("/")
-            return any(asked == f or asked.endswith("/" + f) for f in files)
+            # A trailing "." or run of spaces on a path segment is silently
+            # dropped by Windows when it resolves a file -- this app ships
+            # for Windows (see start.bat) -- so "X.html." and "X.html "
+            # reach the same file there and have to compare equal here too.
+            asked = "/".join(seg.rstrip(". ") for seg in asked.split("/"))
+            # Compared case-insensitively: an NTFS volume resolves
+            # "Data_Health_Check_Dashboard.html" and its lowercase twin to
+            # one file, so a check that only recognises one spelling misses
+            # every request in the other on exactly the filesystem this runs
+            # on. 404 rather than 403 throughout, on purpose: an account
+            # that may not open a dashboard has no business learning it
+            # exists.
+            asked = asked.lower()
+            return any(asked == f.lower() or asked.endswith("/" + f.lower()) for f in files)
 
         def _session_token(self):
             cookie = self.headers.get("Cookie") or ""
@@ -1274,6 +1307,13 @@ def make_handler(prefix):
         def do_HEAD(self):
             if self._redirect():
                 return
+            # Same rule as do_GET, for the same reason: a HEAD carries no
+            # body, but its status code and Content-Length alone tell a
+            # non-admin whether a hidden dashboard exists and how large it
+            # is -- an oracle this route must refuse exactly like GET does.
+            if self._is_admin_only_file(self.path.split("?")[0]):
+                self.send_error(404)
+                return
             super().do_HEAD()
 
         def do_DELETE(self):
@@ -1290,9 +1330,27 @@ def make_handler(prefix):
                 return
             self._library_delete(tail[0])
 
+        def _library_dataset_of(self, rec):
+            """The dataset id a library file was uploaded into, if it was
+            uploaded into one, from the same 'ds:<id>' convention the Data
+            Library page itself writes and reads (see its sectionScope()).
+            None for a file with no such scope -- an ad-hoc upload nothing
+            declares a canonical dataset for stays out of this check
+            entirely, same as it always has."""
+            did = str(rec.get("dashboardId") or "")
+            return did[3:] if did.startswith("ds:") else None
+
         def _library_get(self, tail):
+            """A dataset-scoped upload is the same register /__data/<ds>
+            reads, filed a second way -- gating one route and not the other
+            would just move where a restricted register can still be read
+            from, which is exactly what happened before this existed."""
             files = library_read_index()
             if not tail:
+                if not self._is_admin():
+                    restricted = self._restricted_datasets()
+                    files = [f for f in files
+                            if _dataset_key(self._library_dataset_of(f) or "") not in restricted]
                 self._json(200, {"files": files})
                 return
             if len(tail) != 1 or not SAFE_ID.match(tail[0]):
@@ -1302,6 +1360,9 @@ def make_handler(prefix):
             blob_path = os.path.join(LIBRARY_BLOBS, tail[0])
             if not rec or not os.path.exists(blob_path):
                 self.send_error(404)
+                return
+            ds = self._library_dataset_of(rec)
+            if ds and not self._dataset_allowed(ds):
                 return
             size = os.path.getsize(blob_path)
             self.send_response(200)
@@ -1321,7 +1382,16 @@ def make_handler(prefix):
                     sets = store().datasets()
                     if not self._is_admin():
                         blocked = self._restricted_datasets()
-                        sets = [d for d in sets if d.get("dataset") not in blocked]
+                        # _restricted_datasets() holds normalised keys (see
+                        # _dataset_key) precisely because two different
+                        # spellings can name the same table; comparing a
+                        # stored dataset's raw name against that set missed
+                        # every restricted register whose name needed
+                        # normalising to match its own key, and left it in a
+                        # non-admin's listing -- rows still 403'd, but the
+                        # listing named the register, its months and its row
+                        # counts regardless.
+                        sets = [d for d in sets if _dataset_key(d.get("dataset")) not in blocked]
                     self._json(200, {"datasets": sets})
                     return
                 dataset = tail[0]

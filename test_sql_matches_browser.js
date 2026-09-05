@@ -104,14 +104,30 @@ async function signIn(page) {
         js: { from: '1999-01-01', to: '1999-01-02' } },
     ];
     if (stores.length) {
-      filters.push({ name: 'one from-store', spec: { filters: { 'From Store': [stores[0]] } },
+      // trim: true, matching how sqlDefaultViewPayload groups stores --
+      // getStores() returns already-trimmed names (rawRows itself only ever
+      // holds trimmed values), so a plain untrimmed IN would undercount
+      // against any row whose stored value has incidental whitespace.
+      filters.push({ name: 'one from-store',
+                     spec: { filters: { 'From Store': { in: [stores[0]], trim: true } } },
                      js: { fromStores: [stores[0]] } });
       if (stores.length > 1) {
         filters.push({ name: 'two from-stores',
-                       spec: { filters: { 'From Store': [stores[0], stores[1]] } },
+                       spec: { filters: { 'From Store': { in: [stores[0], stores[1]], trim: true } } },
                        js: { fromStores: [stores[0], stores[1]] } });
       }
     }
+
+    // getUnitFiltered() reflects rawRows, and rawRows never contained a row
+    // with a blank From Store or To Store in the first place -- parseCsvText
+    // drops those before rawRows is ever built (see its comment, around line
+    // 1531), not merely at display time. So the browser side of every
+    // comparison below is already "real transfers only", and the database
+    // side has to ask the identical question -- the same not_blank filter
+    // sqlDefaultViewPayload() uses -- or a register with even one blank-store
+    // row makes this test compare two different definitions of "all rows"
+    // and call the gap a defect in SQLite when the gap is in the test.
+    const NOT_BLANK = { 'From Store': { not_blank: true }, 'To Store': { not_blank: true } };
 
     for (const f of filters) {
       // --- the browser's own answer, using its own parseNum ---------------
@@ -135,6 +151,11 @@ async function signIn(page) {
       }, f.js);
 
       // --- SQLite's answer, same question ---------------------------------
+      // A case's own filters (an IN-list on From Store, say) replace the
+      // default not_blank for that one column -- the IN-list already can
+      // never match a blank value -- and leave the other column's not_blank
+      // in place.
+      const mergedFilters = Object.assign({}, NOT_BLANK, (f.spec && f.spec.filters) || {});
       const sqlSpec = Object.assign({}, scope, {
         measures: [
           { fn: 'count', as: 'lineItems' },
@@ -142,7 +163,7 @@ async function signIn(page) {
           { fn: 'sum', col: 'Transfered Qty.', as: 'qty' },
           { fn: 'sum_product', cols: ['Transfered Qty.', 'EPR'], as: 'epr' }
         ]
-      }, f.spec);
+      }, f.spec, { filters: mergedFilters });
       const sql = await page.evaluate(
         async ([ds, spec]) => await window.parasAgg.summary(ds, spec), [DATASET, sqlSpec]);
 
@@ -161,7 +182,7 @@ async function signIn(page) {
         const topSpec = Object.assign({}, scope, {
           measures: [{ fn: 'sum', col: 'Transfered Qty.', as: 'qty' }],
           groupBy: ['Item Name'], orderBy: 'qty', descending: true, limit: 1
-        }, f.spec);
+        }, f.spec, { filters: mergedFilters });
         const top = await page.evaluate(
           async ([ds, spec]) => await window.parasAgg.rows(ds, spec), [DATASET, topSpec]);
         const row = top && top[0];

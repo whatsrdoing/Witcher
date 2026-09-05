@@ -272,12 +272,81 @@ def test_periods_and_filters():
             check("a list on an unknown column is still refused", False, "was accepted")
         except datastore.DataStoreError:
             check("a list on an unknown column is still refused", True)
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"From Store": {"nonsense": True}})
+            check("an unrecognised filter shape is refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("an unrecognised filter shape is refused", True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_not_blank_and_trimmed_filters():
+    """A row with a blank or whitespace-only value in a column naming one
+    side of a relationship (Store Transfer's From/To Store) is not a real
+    record of that relationship, and a dashboard drops it entirely rather
+    than counting a transfer to or from nowhere -- these two filter shapes
+    are what let SQL agree with that."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", "TN-2", " Main Store ", "Pharm B", "20", "1.00"),
+            ("GGN", "03-07-2026 10:00", "TN-3", "", "Pharm C", "999", "1.00"),
+            ("GGN", "04-07-2026 10:00", "TN-4", "Main Store", "   ", "999", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        naive = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}])
+        check("without the filter, the blank-store rows are counted (sanity check)",
+              close(naive["rows"][0][0], 10 + 20 + 999 + 999))
+
+        clean = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+                                 {"fn": "count", "as": "n"}],
+                                filters={"From Store": {"not_blank": True},
+                                         "To Store": {"not_blank": True}})
+        check("not_blank drops a truly empty cell and a whitespace-only one alike",
+              clean["rows"][0][1] == 2, "got %r" % clean["rows"][0][1])
+        check("...and the total reflects only the two real rows",
+              close(clean["rows"][0][0], 30), "got %r" % clean["rows"][0][0])
+
+        trimmed = store.aggregate("stock-transfer",
+                                  [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                  filters={"From Store": {"in": ["Main Store"], "trim": True},
+                                           "To Store": {"not_blank": True}})
+        check("trim: true matches a padded value the same as the plain one",
+              close(trimmed["rows"][0][0], 30), "got %r" % trimmed["rows"][0][0])
+
+        untrimmed = store.aggregate("stock-transfer",
+                                    [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                    filters={"From Store": {"in": ["Main Store"]},
+                                             "To Store": {"not_blank": True}})
+        check("without trim, the padded row is a different value and is missed",
+              close(untrimmed["rows"][0][0], 10), "got %r" % untrimmed["rows"][0][0])
+
+        stores = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 group_by=[{"col": "From Store", "trim": True}],
+                                 filters={"From Store": {"not_blank": True},
+                                          "To Store": {"not_blank": True}})
+        check("grouping with trim collapses the padded duplicate to one row",
+              stores["rows"] == [["Main Store", 2]], "got %r" % stores["rows"])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def main():
     test_numbers_match_parsenum()
+    test_not_blank_and_trimmed_filters()
     test_date_range_is_real_dates_not_text()
     test_group_by()
     test_rejects_bad_input()

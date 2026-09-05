@@ -2317,7 +2317,16 @@ document.querySelectorAll('#laneSortToggle .toggle-btn').forEach(btn => {
    */
   function sqlDefaultViewPayload(periods){
     if(!window.parasAgg || !window.parasAgg.available()) return Promise.resolve(null);
+    // Matches parseCsvText's own row admission exactly (see its comment
+    // above, around line 1531): a row with no From Store or no To Store --
+    // once trimmed, so a whitespace-only cell counts as blank too -- is
+    // dropped from rawRows entirely, not merely displayed oddly. The first
+    // build of this query summed every row instead, which is why its
+    // opening figures could run measurably higher than the dashboard's own:
+    // a stray blank-store row that the browser never counts at all still
+    // has a quantity and an EPR, and SQL was adding both in.
     var scope = periods && periods.length ? { periods: periods } : {};
+    scope.filters = { 'From Store': { not_blank: true }, 'To Store': { not_blank: true } };
     function q(spec){
       var body = {}; for(var k in scope) body[k] = scope[k];
       for(var j in spec) body[j] = spec[j];
@@ -2332,9 +2341,15 @@ document.querySelectorAll('#laneSortToggle .toggle-btn').forEach(btn => {
         { fn:'min', col:'Transfer Date', as:'ignored' }
       ]})),
       // Stores are the union of both ends of a transfer, so they need their
-      // own two groupings rather than one column's distinct values.
-      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}], groupBy:['From Store'] })),
-      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}], groupBy:['To Store'] })),
+      // own two groupings rather than one column's distinct values. trim:
+      // true so " Main Store" and "Main Store" -- one store to the
+      // dashboard, which reads every value through .trim() -- collapse to
+      // one entry here too, instead of inflating storesCount and listing
+      // the same store twice.
+      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}],
+                                        groupBy:[{ col:'From Store', trim:true }] })),
+      window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}],
+                                        groupBy:[{ col:'To Store', trim:true }] })),
       window.parasAgg.rows(DATASET, q({ measures:[{fn:'count', as:'n'}],
                                         groupBy:[{ col:'Transfer Date', by:'day', as:'day' }] }))
     ]).then(function(parts){

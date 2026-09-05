@@ -327,7 +327,37 @@ class DataStore:
             c = slug(col)
             if c not in known:
                 raise DataStoreError("no column %r in %s" % (col, dataset))
-            if isinstance(val, (list, tuple, set)):
+            if isinstance(val, dict):
+                if val.get("not_blank"):
+                    # A row with nothing (or only spaces) in a column that
+                    # names one side of a relationship is not a real record
+                    # of that relationship -- Store Transfer drops a row
+                    # with no From Store or no To Store entirely, rather
+                    # than counting it as a transfer to or from nowhere.
+                    # TRIM matches that exactly; a bare "!= ''" would not,
+                    # since a cell holding only whitespace is blank to the
+                    # browser's own .trim() but not to SQLite's own equality.
+                    clauses.append("TRIM(COALESCE(\"%s\", '')) != ''" % c)
+                elif "in" in val:
+                    # Same list-of-values filter as below, but matched after
+                    # trimming the column -- for exactly the same reason
+                    # group_by's own trim option exists: a dashboard reads
+                    # every store name through .trim() before it is ever
+                    # compared or displayed, so "Main Store" and " Main
+                    # Store " are the one store it would let you filter by,
+                    # not two different values a plain IN would tell apart.
+                    vals = list(val["in"])
+                    if not vals:
+                        clauses.append("0")
+                        continue
+                    if len(vals) > 900:
+                        raise DataStoreError("too many values for %r (max 900)" % col)
+                    col_expr = "TRIM(\"%s\")" % c if val.get("trim") else '"%s"' % c
+                    clauses.append("%s IN (%s)" % (col_expr, ",".join("?" * len(vals))))
+                    args += vals
+                else:
+                    raise DataStoreError("unknown filter shape for %r: %r" % (col, val))
+            elif isinstance(val, (list, tuple, set)):
                 # A dashboard's store/unit picker is a set, not one value.
                 # An empty set means "none of them", which is not the same
                 # question as "no filter" -- answering it with every row
@@ -455,6 +485,15 @@ class DataStore:
                 raise DataStoreError("unknown group transform %r" % by)
             else:
                 expr = '"%s"' % col
+            if spec.get("trim"):
+                # " Main Store" and "Main Store" are one store to a
+                # dashboard, which reads every value through .trim() before
+                # ever comparing or displaying it -- grouping on the raw
+                # column would count that pair as two, and a store list
+                # built from it would show both. Only meaningful undated
+                # (by/trim together makes no sense and is not something any
+                # caller here does).
+                expr = "TRIM(%s)" % expr
             group_exprs.append(expr)
             select.append(expr)
             # Named back with the wording the caller used, not the SQL

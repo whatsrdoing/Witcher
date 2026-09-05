@@ -295,6 +295,41 @@ def main():
         check("signed out, no register is readable at all", s == 401, "got %d" % s)
         s, _ = request(base, "/__cache/store-transfer/grn-register/rows")
         check("signed out, the cache is not readable either", s == 401, "got %d" % s)
+
+        # --- auth.js / the legacy auth.json must never reach anyone over HTTP -
+        #
+        # The 4th audit's most serious finding: sync.mirror_auth() writes the
+        # *unredacted* account list -- every password hash, the admin-key
+        # hash -- into auth.js in the app folder, for file://-mode sign-in.
+        # serve.py's static handler had no idea that file was special, so it
+        # served it to anyone, no session at all, and the leaked hash is not
+        # merely crackable offline -- _session_login_post compares it with
+        # hmac.compare_digest, so it *is* the credential the server accepts.
+        # No session/token needed for any of these -- that is the point.
+        s, _ = request(base, "/auth.js")
+        check("auth.js is never served over HTTP, signed out", s == 404, "got %d" % s)
+        s, _ = request(base, "/auth.js", staff)
+        check("...nor to a signed-in non-admin", s == 404, "got %d" % s)
+        s, _ = request(base, "/auth.js", admin)
+        check("...nor even to the admin -- file:// mode is the only consumer", s == 404, "got %d" % s)
+
+        # The app root also still carries a stale, unredacted auth.json --
+        # nothing reads it any more (accounts live in appstore's state.db),
+        # but it sat there on disk, servable, until this fix. The live
+        # /auth.json route matches on the *raw* final path segment, so a
+        # percent-encoded spelling used to walk past that match and reach
+        # the stale file underneath -- served by the static handler with
+        # every hash intact -- instead of the redacted route. Every one of
+        # these has to come back exactly as the plain spelling does.
+        s, canonical = request(base, "/auth.json")
+        canonical_hash = json.loads(canonical)["accounts"][0].get("hash")
+        check("the canonical /auth.json route is already redacted (sanity check)",
+              not canonical_hash, "got hash %r" % canonical_hash)
+        for spelling in ("/%61uth.json", "/auth%2ejson", "/auth.%6ason",
+                         "/./%61uth.json", "/dashboards/../%61uth.json"):
+            s, body = request(base, spelling)
+            check("auth.json asked for as %s is still the redacted route, not the raw file" % spelling,
+                  s == 200 and json.loads(body) == json.loads(canonical), "got %d, %r" % (s, body[:120]))
     finally:
         if proc:
             proc.terminate()
@@ -304,8 +339,75 @@ def main():
                 proc.kill()
         shutil.rmtree(tmp, ignore_errors=True)
 
+    test_data_folder_fallback_is_blocked()
     print("\n%d passed, %d failed" % (passed, failed))
     return 0 if failed == 0 else 1
+
+
+def test_data_folder_fallback_is_blocked():
+    """paths.py keeps the data directory outside the app folder normally,
+    but falls back to "<app folder>/data" when the real per-machine
+    location cannot be created -- a supported, documented install state,
+    not a hypothetical one. When it happens, the static file handler would
+    otherwise serve state.db (every account, every password hash),
+    library.db (every register, restricted ones included), and every blob
+    under library/ to anyone who can reach the port at all -- none of that
+    ever goes through _require_session, because it is not meant to be a
+    route in the first place. This starts a server with the data directory
+    deliberately inside the app folder to pin that it is refused."""
+    tmp = tempfile.mkdtemp(prefix="paras-access-fallback-")
+    app = os.path.join(tmp, "app")
+    shutil.copytree(ROOT, app, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+    data = os.path.join(app, "data")            # inside the app folder, on purpose
+    env = dict(os.environ, PARAS_DATA_DIR=data)
+    proc = None
+    try:
+        # No pre-seeded content: the point is that whatever the app itself
+        # creates there for real (accounts, registers, blobs) at PARAS_DATA_DIR
+        # -- which, this once, is deliberately inside the app folder -- must
+        # never come back out over the same port that serves the app's own
+        # static files.
+        port = free_port()
+        base = "http://127.0.0.1:%d/supply-chain/command-centre" % port
+        proc = subprocess.Popen([sys.executable, "serve.py", "--port", str(port)],
+                                cwd=app, env=env,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(60):
+            try:
+                request(base, "/")
+                break
+            except Exception:                             # noqa: BLE001
+                time.sleep(0.5)
+        else:
+            raise AssertionError("server did not start")
+
+        subprocess.run([sys.executable, "set_password.py", "someone/here", "SomePass123!x"],
+                       cwd=app, env=env, capture_output=True, timeout=120)
+        check("the fallback location really did get real content (sanity check)",
+              os.path.exists(os.path.join(data, "state.db")))
+
+        for path in ("/data/", "/data/state.db", "/data/library/",
+                     "/%64ata/state.db", "/dashboards/../data/state.db", "/DATA/state.db"):
+            s, _ = request(base, path)
+            check("the app-folder data fallback refuses %s" % path, s == 404, "got %d" % s)
+        s, _ = request(base, "/data/state.db", method="HEAD")
+        check("...over HEAD too", s == 404, "got %d" % s)
+
+        # The rest of the app still has to work with data living there --
+        # this is a supported fallback, not a broken state, and the fix
+        # must not have blocked the folder's own legitimate consumers
+        # (appstore/datastore, which never go through HTTP to reach it).
+        s, _ = request(base, "/")
+        check("the app itself still loads with data in the fallback location",
+              s == 200, "got %d" % s)
+    finally:
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

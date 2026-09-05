@@ -904,10 +904,16 @@ def _dataset_key(dataset):
     datastore.slug() is what turns a dataset name into its table name, and
     SQLite identifiers are case-insensitive on top of that -- so every
     spelling that can reach the same table has to collapse to the same key
-    here, or a permission check on the name is not a check on the data."""
+    here, or a permission check on the name is not a check on the data.
+
+    Called with the same fallback datastore._table() itself uses ("dataset",
+    not slug()'s own default "col") -- otherwise a dataset whose slug comes
+    out empty gets table ds_dataset but permission key "col", two identities
+    for one register, which is precisely the class of bug this function
+    exists to close."""
     try:
         import datastore
-        return datastore.slug(str(dataset or "")).lower()
+        return datastore.slug(str(dataset or ""), "dataset").lower()
     except Exception:                                     # noqa: BLE001
         # Never fail open: with no way to normalise, fall back to a mirror
         # of datastore.slug() precise enough that it cannot itself become a
@@ -915,16 +921,54 @@ def _dataset_key(dataset):
         # only gap this whole function exists to close, so an inexact
         # fallback would just move the bug rather than remove it. Mirrors
         # every rule: non-alphanumeric runs to "_", trimmed, "c_" prefixed
-        # when the result would not start with a letter, "col" when it is
-        # empty, cut to 63 characters -- then lowercased on top, the one
-        # step slug() itself does not do, because SQLite's own
-        # case-insensitivity is what makes that step necessary here.
+        # when the result would not start with a letter, the same "dataset"
+        # fallback datastore._table() uses when it is empty, cut to 63
+        # characters -- then lowercased on top, the one step slug() itself
+        # does not do, because SQLite's own case-insensitivity is what makes
+        # that step necessary here.
         s = re.sub(r"[^A-Za-z0-9]+", "_", str(dataset or "")).strip("_")
         if not s:
-            s = "col"
+            s = "dataset"
         if not s[0].isalpha():
             s = "c_" + s
         return s[:63].lower()
+
+
+def _normalized_path(path_only):
+    """Percent-decoded, backslash-folded, dot-segment-resolved, per-segment
+    trailing dots/spaces stripped (Windows resolves "X." and "X " to "X"),
+    and lowercased.
+
+    This is the normalisation _is_admin_only_file already applied to its
+    own comparison, generalised: every exact-name route match in this file
+    (auth.json, dashboards.json, __where, and the rest) has to compare
+    against what a request actually resolves to, not its raw, possibly
+    percent-encoded spelling, or a request for "/%61uth.json" walks past
+    the special-cased handling here and falls through unnormalised to the
+    static file handler underneath it -- which is exactly the bug that let
+    a percent-encoded auth.json reach the real (unredacted) file on disk
+    instead of the redacted /auth.json route.
+    """
+    asked = urllib.parse.unquote(path_only).replace("\\", "/")
+    asked = posixpath.normpath(asked).lstrip("/")
+    asked = "/".join(seg.rstrip(". ") for seg in asked.split("/"))
+    return asked.lower()
+
+
+def _route_name(path_only):
+    """The final segment of the normalised path -- what a route match
+    against an exact filename or route name should compare against,
+    instead of the raw tail of the (possibly percent-encoded) request."""
+    return _normalized_path(path_only).rsplit("/", 1)[-1]
+
+
+# Filenames that must never reach the static file handler, however the
+# request spells the path -- both carry live credential hashes. auth.js is
+# the file://-mode mirror sync.mirror_auth() regenerates on every start;
+# auth.json at the app root is a legacy file nothing reads any more. The
+# sign-in flow over HTTP gets its data from _send_auth()'s redacted
+# /auth.json route instead, so neither file needs to be reachable at all.
+_NEVER_SERVE_STATIC = ("auth.js", "auth.json")
 
 
 def seg_route(path, name):
@@ -1014,7 +1058,7 @@ def make_handler(prefix):
             # exact name, so it is served here under the name it asks for.
             # Reachable without a session on purpose -- it is what the sign-in
             # screen itself loads before there is one to have.
-            if path_only.rstrip("/").rsplit("/", 1)[-1] == "auth.json":
+            if _route_name(path_only) == "auth.json":
                 self._send_auth()
                 return
             # dashboards.json itself still ships as a plain file (new
@@ -1026,7 +1070,7 @@ def make_handler(prefix):
             # already fetches -- registry.js does not need to know this
             # changed. No session required, same reasoning as dashboards.js:
             # the hub needs the list before anyone has signed in.
-            if path_only.rstrip("/").rsplit("/", 1)[-1] == "dashboards.json":
+            if _route_name(path_only) == "dashboards.json":
                 reg = appstore.read_dashboards_registry()
                 if not reg:
                     self.send_error(404)
@@ -1035,7 +1079,7 @@ def make_handler(prefix):
                 return
             # Where is my data? Answerable from inside the app rather than
             # only from this terminal window.
-            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__where":
+            if _route_name(path_only) == "__where":
                 self._json(200, {"dataDir": paths.data_dir(),
                                  "library": LIBRARY_DIR,
                                  "database": DB_PATH,
@@ -1047,7 +1091,7 @@ def make_handler(prefix):
             # cleared them" without pulling an actual page of data to find
             # out. No session required to ask -- the answer itself is the
             # point, not something that needs to already be signed in.
-            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__session":
+            if _route_name(path_only) == "__session":
                 login = session_login(self._session_token())
                 if login:
                     totp_enabled = bool((read_totp().get(login) or {}).get("enabled"))
@@ -1070,7 +1114,7 @@ def make_handler(prefix):
             # admin-only full list (that is __admin/feedback), just enough
             # for the "Raise a request" window to show "here's where yours
             # stand" without needing email notifications.
-            if path_only.rstrip("/").rsplit("/", 1)[-1] == "__feedback":
+            if _route_name(path_only) == "__feedback":
                 login = session_login(self._session_token())
                 if not login:
                     self._json(401, {"error": "sign in required"})
@@ -1088,6 +1132,16 @@ def make_handler(prefix):
             # has to mean the page cannot be fetched at all, not merely that
             # it is not linked.
             if self._is_admin_only_file(path_only):
+                self.send_error(404)
+                return
+            # Everything above this line either already answered the
+            # request or is a dynamic route with its own dataset/session
+            # gating -- what's left falls through to the plain static file
+            # handler below, so this is where a path that must never reach
+            # it (auth.js, the legacy auth.json, the data folder if it
+            # ever ends up inside the app folder) gets refused, unrelated
+            # to whether the caller is an admin.
+            if self._is_blocked_static_path(path_only):
                 self.send_error(404)
                 return
             super().do_GET()
@@ -1113,30 +1167,46 @@ def make_handler(prefix):
             _ids, files = self._admin_only_dashboards()
             if not files:
                 return False
-            # Unquoted, backslashes folded to forward slashes (a request line
-            # cannot literally contain one, but a client on this app's own
-            # Windows install can still send one), then normalised so
-            # "/dashboards//X.html", "/dashboards/./X.html",
-            # "/dashboards/%2e/X.html" and "/dashboards/y/../X.html" all
-            # collapse to the same path X.html resolves to -- a doubled
-            # slash or a trailing "/." was enough on its own to reach a
-            # hidden dashboard before this ran unconditionally.
-            asked = urllib.parse.unquote(path_only).replace("\\", "/")
-            asked = posixpath.normpath(asked).lstrip("/")
-            # A trailing "." or run of spaces on a path segment is silently
-            # dropped by Windows when it resolves a file -- this app ships
-            # for Windows (see start.bat) -- so "X.html." and "X.html "
-            # reach the same file there and have to compare equal here too.
-            asked = "/".join(seg.rstrip(". ") for seg in asked.split("/"))
-            # Compared case-insensitively: an NTFS volume resolves
-            # "Data_Health_Check_Dashboard.html" and its lowercase twin to
-            # one file, so a check that only recognises one spelling misses
-            # every request in the other on exactly the filesystem this runs
-            # on. 404 rather than 403 throughout, on purpose: an account
-            # that may not open a dashboard has no business learning it
-            # exists.
-            asked = asked.lower()
+            # 404 rather than 403 throughout, on purpose: an account that
+            # may not open a dashboard has no business learning it exists.
+            asked = _normalized_path(path_only)
             return any(asked == f.lower() or asked.endswith("/" + f.lower()) for f in files)
+
+        def _is_blocked_static_path(self, path_only):
+            """Files and folders that must never reach the static file
+            handler, however the request spells the path -- checked before
+            do_GET/do_HEAD fall through to it, and unconditionally: this is
+            not an admin-only gate like the one above, since the whole
+            point is that these are never meant to be reachable over HTTP
+            at all, admin session or not.
+
+            auth.js/auth.json: see _NEVER_SERVE_STATIC's comment.
+
+            The data directory: paths.py normally keeps it outside the app
+            folder, but falls back to "<app folder>/data" when the real
+            per-machine location cannot be created. When that happens, the
+            static handler would otherwise serve every account, register
+            and cache file under it -- state.db, library.db, every blob in
+            library/ -- to anyone who can reach this port, gating or no
+            gating, since none of that ever goes through _require_session.
+
+            The app is not necessarily served from "/" -- site.json can
+            give it a friendly path prefix like "/supply-chain/command-
+            centre", and translate_path() strips exactly that prefix
+            before mapping the rest onto the filesystem. A check here
+            against the *un*stripped path would never match "data" as the
+            first segment once a prefix is configured, so this strips the
+            same prefix translate_path does before asking the same
+            question it will.
+            """
+            p = path_only
+            if prefix != "/" and p.startswith(prefix):
+                p = "/" + p[len(prefix):]
+            asked = _normalized_path(p)
+            name = asked.rsplit("/", 1)[-1]
+            if name in _NEVER_SERVE_STATIC:
+                return True
+            return asked == "data" or asked.startswith("data/")
 
         def _session_token(self):
             cookie = self.headers.get("Cookie") or ""
@@ -1307,11 +1377,15 @@ def make_handler(prefix):
         def do_HEAD(self):
             if self._redirect():
                 return
+            path_only = self.path.split("?")[0]
+            if self._is_blocked_static_path(path_only):
+                self.send_error(404)
+                return
             # Same rule as do_GET, for the same reason: a HEAD carries no
             # body, but its status code and Content-Length alone tell a
             # non-admin whether a hidden dashboard exists and how large it
             # is -- an oracle this route must refuse exactly like GET does.
-            if self._is_admin_only_file(self.path.split("?")[0]):
+            if self._is_admin_only_file(path_only):
                 self.send_error(404)
                 return
             super().do_HEAD()
@@ -1338,7 +1412,9 @@ def make_handler(prefix):
             declares a canonical dataset for stays out of this check
             entirely, same as it always has."""
             did = str(rec.get("dashboardId") or "")
-            return did[3:] if did.startswith("ds:") else None
+            if did[:3].lower() != "ds:":
+                return None
+            return urllib.parse.unquote(did[3:]).strip()
 
         def _library_get(self, tail):
             """A dataset-scoped upload is the same register /__data/<ds>
@@ -2837,7 +2913,7 @@ def make_handler(prefix):
                     self._admin_post(atail, body)
                 return
 
-            last_seg = path_only.rstrip("/").rsplit("/", 1)[-1]
+            last_seg = _route_name(path_only)
             if last_seg == "__logout":
                 token = self._session_token()
                 logout_login = session_login(token)
@@ -3080,7 +3156,7 @@ def make_handler(prefix):
         def _redirect(self):
             if prefix == "/":
                 return False
-            if self.path.rstrip("/").rsplit("/", 1)[-1] == "__auth":
+            if _route_name(self.path.split("?")[0]) == "__auth":
                 return False
             # Anything outside the friendly path goes to it, so the browser
             # never settles on a URL that is not the real one.

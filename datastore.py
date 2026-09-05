@@ -35,6 +35,26 @@ META = ("_period", "_source", "_rowno", "_part")
 # came from and imports that slowed from 25s to 100s as they were maintained.
 KEYISH = re.compile(r"(^|_)(code|no|num|number|id|sku)$", re.I)
 
+# Every character JavaScript's String.prototype.trim() strips from each end:
+# ECMA-262 WhiteSpace (tab, VT, FF, space, NBSP, the Zs-category separators,
+# and the BOM/ZWNBSP) plus LineTerminator (LF, CR, LS, PS). SQLite's built-in
+# TRIM() only strips a plain space -- a cell padded with a tab or NBSP (both
+# routine in registers pasted from Excel or the web) would still count as a
+# distinct value, or as non-blank, to SQL while the browser's own .trim()
+# already calls it blank. jstrim() (registered as a SQL function below) is
+# how every "match the browser's .trim()" filter in this file agrees with it
+# on every character, not just the common one.
+_JS_TRIM_CHARS = (
+    "\t\n\x0b\x0c\r \xa0        "
+    "        　﻿"
+)
+
+
+def _js_trim(value):
+    if value is None:
+        return None
+    return str(value).strip(_JS_TRIM_CHARS)
+
 
 def slug(name, fallback="col"):
     """A safe SQL identifier for an arbitrary column heading."""
@@ -59,6 +79,7 @@ class DataStore:
         self.con = sqlite3.connect(path, timeout=30, check_same_thread=False)
         self.con.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer
         self.con.execute("PRAGMA synchronous=NORMAL")
+        self.con.create_function("jstrim", 1, _js_trim, deterministic=True)
         self.con.execute("""CREATE TABLE IF NOT EXISTS _imports (
                 dataset TEXT, period TEXT, part TEXT DEFAULT '', source TEXT, rows INTEGER,
                 columns INTEGER, imported_at INTEGER,
@@ -328,16 +349,26 @@ class DataStore:
             if c not in known:
                 raise DataStoreError("no column %r in %s" % (col, dataset))
             if isinstance(val, dict):
+                if val.get("not_blank") and "in" in val:
+                    # Not a shape any caller here sends, and not blank is
+                    # not something an IN-list can also ask for -- silently
+                    # keeping one and dropping the other would mean the
+                    # filter actually applied is not the one the caller
+                    # wrote, and no caller should ever see that quietly.
+                    raise DataStoreError(
+                        "unknown filter shape for %r: not_blank and in together" % col)
                 if val.get("not_blank"):
-                    # A row with nothing (or only spaces) in a column that
-                    # names one side of a relationship is not a real record
-                    # of that relationship -- Store Transfer drops a row
-                    # with no From Store or no To Store entirely, rather
+                    # A row with nothing (or only whitespace) in a column
+                    # that names one side of a relationship is not a real
+                    # record of that relationship -- Store Transfer drops a
+                    # row with no From Store or no To Store entirely, rather
                     # than counting it as a transfer to or from nowhere.
-                    # TRIM matches that exactly; a bare "!= ''" would not,
-                    # since a cell holding only whitespace is blank to the
-                    # browser's own .trim() but not to SQLite's own equality.
-                    clauses.append("TRIM(COALESCE(\"%s\", '')) != ''" % c)
+                    # jstrim() matches that exactly; SQLite's own TRIM()
+                    # only strips U+0020 and would miss a cell holding a
+                    # tab, NBSP, or other whitespace the browser's own
+                    # .trim() (which strips all of them) already treats as
+                    # blank -- see jstrim's own docstring for the exact set.
+                    clauses.append("jstrim(COALESCE(\"%s\", '')) != ''" % c)
                 elif "in" in val:
                     # Same list-of-values filter as below, but matched after
                     # trimming the column -- for exactly the same reason
@@ -352,7 +383,7 @@ class DataStore:
                         continue
                     if len(vals) > 900:
                         raise DataStoreError("too many values for %r (max 900)" % col)
-                    col_expr = "TRIM(\"%s\")" % c if val.get("trim") else '"%s"' % c
+                    col_expr = "jstrim(\"%s\")" % c if val.get("trim") else '"%s"' % c
                     clauses.append("%s IN (%s)" % (col_expr, ",".join("?" * len(vals))))
                     args += vals
                 else:
@@ -490,10 +521,12 @@ class DataStore:
                 # dashboard, which reads every value through .trim() before
                 # ever comparing or displaying it -- grouping on the raw
                 # column would count that pair as two, and a store list
-                # built from it would show both. Only meaningful undated
-                # (by/trim together makes no sense and is not something any
-                # caller here does).
-                expr = "TRIM(%s)" % expr
+                # built from it would show both. jstrim(), not SQLite's
+                # built-in TRIM(): the latter only strips U+0020, and a
+                # tab- or NBSP-padded duplicate would still group apart.
+                # Only meaningful undated (by/trim together makes no sense
+                # and is not something any caller here does).
+                expr = "jstrim(%s)" % expr
             group_exprs.append(expr)
             select.append(expr)
             # Named back with the wording the caller used, not the SQL
@@ -523,7 +556,16 @@ class DataStore:
                 c = self._checked_col(known, m.get("col"))
                 # Blank cells are not a value anyone counts -- the browser's
                 # Set-based equivalents never add an empty string either.
-                expr = "COUNT(DISTINCT NULLIF(TRIM(\"%s\"), ''))" % c
+                # Untrimmed by default, on purpose: a dashboard's own
+                # Set.add() runs on the raw column value with no .trim()
+                # of its own (only its truthiness is checked, so "0" and
+                # " " both still count, only "" does not), so trimming
+                # here would call " TN0001" and "TN0001" the same note
+                # when the browser counts them as two. trim:true opts a
+                # caller into jstrim() instead, for one that does mean to
+                # match on the trimmed value.
+                col_expr = "jstrim(\"%s\")" % c if m.get("trim") else '"%s"' % c
+                expr = "COUNT(DISTINCT NULLIF(%s, ''))" % col_expr
             else:
                 c = self._checked_col(known, m.get("col"))
                 expr = "%s(%s)" % (fn.upper(), self._num_expr(c))

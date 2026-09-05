@@ -344,9 +344,105 @@ def test_not_blank_and_trimmed_filters():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_jstrim_matches_js_whitespace():
+    """The 4th audit found not_blank/trim only matching SQLite's own TRIM(),
+    which strips a plain space and nothing else -- so a cell holding a tab
+    or a non-breaking space (both routine in a register pasted from Excel
+    or the web) was still "not blank" and still its own distinct group to
+    SQL, while the browser's .trim() already calls both of those blank.
+    jstrim() is meant to strip the same characters JS does; this pins that
+    against the two most likely real-world offenders, not just plain
+    space."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", "TN-2", "Main Store\t", "Pharm B", "20", "1.00"),
+            ("GGN", "03-07-2026 10:00", "TN-3", " ", "Pharm C", "999", "1.00"),
+            ("GGN", "04-07-2026 10:00", "TN-4", "Main Store", "\t ", "999", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        clean = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+                                 {"fn": "count", "as": "n"}],
+                                filters={"From Store": {"not_blank": True},
+                                         "To Store": {"not_blank": True}})
+        check("not_blank drops a tab-only cell and an NBSP-only one, not just a plain-space one",
+              clean["rows"][0][1] == 2, "got %r" % clean["rows"][0][1])
+        check("...and the total reflects only the two real rows",
+              close(clean["rows"][0][0], 30), "got %r" % clean["rows"][0][0])
+
+        stores = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 group_by=[{"col": "From Store", "trim": True}],
+                                 filters={"From Store": {"not_blank": True},
+                                          "To Store": {"not_blank": True}})
+        check("grouping with trim collapses a tab-padded duplicate too, not just a space-padded one",
+              stores["rows"] == [["Main Store", 2]], "got %r" % stores["rows"])
+
+        matched = store.aggregate("stock-transfer",
+                                  [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                  filters={"From Store": {"in": ["Main Store"], "trim": True},
+                                           "To Store": {"not_blank": True}})
+        check("trim: true on an IN-list matches a tab-padded value the same as the plain one",
+              close(matched["rows"][0][0], 30), "got %r" % matched["rows"][0][0])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_count_distinct_untrimmed_by_default():
+    """A dashboard's own distinct-notes count runs on the browser's Set,
+    which adds the raw column value and only checks it is not an empty
+    string (r.transferNo||'' then `if (r.transferNo)`) -- it never trims.
+    So " TN-1" and "TN-1" are two notes to the browser, and a whitespace-
+    only note is still a truthy, counted string. count_distinct without
+    trim:true has to agree with that exactly, or SQL and the browser
+    disagree on the same figure whenever a note has incidental
+    whitespace -- the 4th audit's finding 5."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", " TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "03-07-2026 10:00", "  ", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "04-07-2026 10:00", "", "Main Store", "Pharm A", "10", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        untrimmed = store.aggregate("stock-transfer",
+                                    [{"fn": "count_distinct", "col": "Transfer No.", "as": "notes"}])
+        check("by default, count_distinct matches the browser's untrimmed truthiness check: "
+              "'TN-1' and ' TN-1' are two notes, and a whitespace-only note still counts as one, "
+              "only the truly empty row is excluded",
+              untrimmed["rows"][0][0] == 3, "got %r" % untrimmed["rows"][0][0])
+
+        trimmed = store.aggregate("stock-transfer",
+                                  [{"fn": "count_distinct", "col": "Transfer No.", "as": "notes",
+                                    "trim": True}])
+        check("trim: true opts a caller that does mean to match on the trimmed value: "
+              "'TN-1' and ' TN-1' collapse to one, and a whitespace-only note is now blank too",
+              trimmed["rows"][0][0] == 1, "got %r" % trimmed["rows"][0][0])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     test_numbers_match_parsenum()
     test_not_blank_and_trimmed_filters()
+    test_jstrim_matches_js_whitespace()
+    test_count_distinct_untrimmed_by_default()
     test_date_range_is_real_dates_not_text()
     test_group_by()
     test_rejects_bad_input()

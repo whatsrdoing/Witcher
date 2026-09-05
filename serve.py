@@ -948,8 +948,17 @@ def _normalized_path(path_only):
     static file handler underneath it -- which is exactly the bug that let
     a percent-encoded auth.json reach the real (unredacted) file on disk
     instead of the redacted /auth.json route.
+
+    The fragment is stripped first, the same way and for the same reason
+    translate_path() itself does it (it splits on "?" then "#" before ever
+    unquoting): callers here already split off the query string, but a
+    trailing "#..." on the request target survives that split untouched,
+    so "auth.js#x" compared unequal to "auth.js" right up until the static
+    handler resolved it -- reopening every fix built on this function,
+    auth.js's exposure included, for that one extra character.
     """
-    asked = urllib.parse.unquote(path_only).replace("\\", "/")
+    asked = path_only.split("#", 1)[0]
+    asked = urllib.parse.unquote(asked).replace("\\", "/")
     asked = posixpath.normpath(asked).lstrip("/")
     asked = "/".join(seg.rstrip(". ") for seg in asked.split("/"))
     return asked.lower()
@@ -1078,12 +1087,16 @@ def make_handler(prefix):
                 self._json(200, reg)
                 return
             # Where is my data? Answerable from inside the app rather than
-            # only from this terminal window.
+            # only from this terminal window -- but only to someone already
+            # signed in: an absolute install path routinely contains the OS
+            # username, and on --lan this otherwise answered anyone on the
+            # network with no session at all.
             if _route_name(path_only) == "__where":
-                self._json(200, {"dataDir": paths.data_dir(),
-                                 "library": LIBRARY_DIR,
-                                 "database": DB_PATH,
-                                 "inAppFolder": paths.fell_back()})
+                if self._require_session():
+                    self._json(200, {"dataDir": paths.data_dir(),
+                                     "library": LIBRARY_DIR,
+                                     "database": DB_PATH,
+                                     "inAppFolder": paths.fell_back()})
                 return
             # A cheap way for the gate to check "is sessionStorage's unlock
             # flag backed by a real session, or just left over from before

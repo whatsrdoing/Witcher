@@ -69,6 +69,41 @@ def request(base, path, token=None, method="GET", body=None):
         return e.code, e.read().decode("utf-8", "replace")
 
 
+def raw_request(base, path, token=None, method="GET"):
+    """Sends a request target exactly as spelled, over a bare socket.
+
+    urllib -- and every real browser -- treats a "#" in a URL as a
+    fragment: client-side only, never put on the wire. That is exactly
+    why the 5th audit's fragment bypass survived undetected by the first
+    61-case suite here, which is built entirely on urllib's request(). A
+    hand-rolled request line is the only way to prove the server-side fix
+    actually holds against a request that spells one out.
+    """
+    from urllib.parse import urlsplit
+    u = urlsplit(base)
+    host, port = u.hostname, u.port
+    target = u.path + path
+    lines = ["%s %s HTTP/1.1" % (method, target), "Host: %s:%d" % (host, port),
+             "Connection: close"]
+    if token:
+        lines.append("Cookie: paras_session=" + token)
+    lines.append("")
+    lines.append("")
+    with socket.create_connection((host, port), timeout=15) as s:
+        s.sendall("\r\n".join(lines).encode())
+        chunks = []
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    resp = b"".join(chunks)
+    status_line = resp.split(b"\r\n", 1)[0].decode("latin-1")
+    status = int(status_line.split(" ", 2)[1])
+    body = resp.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in resp else b""
+    return status, body.decode("utf-8", "replace")
+
+
 def sign_in(base, login, password):
     """Mirrors gate.js: the browser derives the digest, the server compares it."""
     import hashlib
@@ -295,6 +330,11 @@ def main():
         check("signed out, no register is readable at all", s == 401, "got %d" % s)
         s, _ = request(base, "/__cache/store-transfer/grn-register/rows")
         check("signed out, the cache is not readable either", s == 401, "got %d" % s)
+        s, _ = request(base, "/__where")
+        check("signed out, /__where does not disclose the install's absolute paths",
+              s == 401, "got %d" % s)
+        s, body = request(base, "/__where", staff)
+        check("a signed-in account still gets it", s == 200 and "dataDir" in json.loads(body), "got %d" % s)
 
         # --- auth.js / the legacy auth.json must never reach anyone over HTTP -
         #
@@ -330,6 +370,31 @@ def main():
             s, body = request(base, spelling)
             check("auth.json asked for as %s is still the redacted route, not the raw file" % spelling,
                   s == 200 and json.loads(body) == json.loads(canonical), "got %d, %r" % (s, body[:120]))
+
+        # --- a URL fragment must not survive to bypass any of the above ------
+        #
+        # The 5th audit's finding: do_GET/do_HEAD compute path_only by
+        # splitting off "?" only, but translate_path() -- the code that
+        # actually resolves a static file -- splits off "?" *and* "#"
+        # (stdlib http.server does this itself, unprompted). So
+        # "auth.js#x" and "auth.js" compared unequal to every check built
+        # on _normalized_path(), while the static handler underneath
+        # resolved them identically -- reopening auth.js's exposure, the
+        # stale auth.json's, and the admin-only-dashboard bypass, all for
+        # one extra character. A real browser never puts a fragment on the
+        # wire, which is exactly why this needs a raw socket to catch.
+        for frag in ("#", "#x", "##", "#?a=1"):
+            s, _ = raw_request(base, "/auth.js" + frag)
+            check("auth.js is still refused with a fragment appended (%r)" % frag,
+                  s == 404, "got %d" % s)
+        s, body = raw_request(base, "/auth.json#x")
+        check("auth.json#x is still the redacted route, not the raw file",
+              s == 200 and json.loads(body) == json.loads(canonical), "got %d, %r" % (s, body[:120]))
+        s, _ = raw_request(base, page + "#x", staff)
+        check("an admin-only dashboard page is still refused with a fragment appended",
+              s == 404, "got %d" % s)
+        s, _ = raw_request(base, page + "#x", staff, "HEAD")
+        check("...over HEAD too", s == 404, "got %d" % s)
     finally:
         if proc:
             proc.terminate()
@@ -392,6 +457,9 @@ def test_data_folder_fallback_is_blocked():
             check("the app-folder data fallback refuses %s" % path, s == 404, "got %d" % s)
         s, _ = request(base, "/data/state.db", method="HEAD")
         check("...over HEAD too", s == 404, "got %d" % s)
+        s, _ = raw_request(base, "/data/state.db#x")
+        check("a fragment cannot resurrect the app-folder data path either "
+              "(it can only truncate a suffix, never grow one back)", s == 404, "got %d" % s)
 
         # The rest of the app still has to work with data living there --
         # this is a supported fallback, not a broken state, and the fix

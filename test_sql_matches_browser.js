@@ -181,7 +181,13 @@ async function signIn(page) {
       if (js.topItem) {
         const topSpec = Object.assign({}, scope, {
           measures: [{ fn: 'sum', col: 'Transfered Qty.', as: 'qty' }],
-          groupBy: ['Item Name'], orderBy: 'qty', descending: true, limit: 1
+          // trim: true -- parseCsvText assigns itemName as
+          // (r['Item Name']||'').trim(), so the browser side above is
+          // already grouping on the trimmed value; asking SQL to group on
+          // the raw column would split a whitespace-padded item into its
+          // own row and this comparison would call that a defect in
+          // SQLite when the gap is really in the question this test asks.
+          groupBy: [{ col: 'Item Name', trim: true }], orderBy: 'qty', descending: true, limit: 1
         }, f.spec, { filters: mergedFilters });
         const top = await page.evaluate(
           async ([ds, spec]) => await window.parasAgg.rows(ds, spec), [DATASET, topSpec]);
@@ -219,7 +225,11 @@ async function signIn(page) {
         const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(/,/g, '').trim());
                            return isNaN(n) ? 0 : n; };
         const txt = await (await fetch('../__data/' + ds + '/export?headings=original&meta=0')).text();
-        const lines = txt.split('\n').filter(l => l.trim().length);
+        // The export writes CRLF, so a plain split('\n') leaves a trailing
+        // "\r" on every line -- invisible on the last column, which then
+        // never matches its real heading (at(o.num) returns -1, quietly
+        // zeroing every figure that depends on it) or its real value.
+        const lines = txt.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim().length);
         const split = l => { const out = []; let cur = '', q = false;
           for (let i = 0; i < l.length; i++) { const c = l[i];
             if (c === '"') { if (q && l[i+1] === '"') { cur += '"'; i++; } else q = !q; }

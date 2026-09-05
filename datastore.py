@@ -14,6 +14,7 @@ writes "1,250.00" or "(45)" or a leading-zero item code survives a round
 trip unchanged, which it would not if the importer guessed types.
 """
 import csv
+import json
 import os
 import re
 import sqlite3
@@ -64,6 +65,7 @@ class DataStore:
                 PRIMARY KEY (dataset, period, part))""")
         self.con.commit()
         self._migrate_parts()
+        self._migrate_headers()
 
     def _migrate_parts(self):
         """Bring a store written before parts existed up to date.
@@ -95,6 +97,28 @@ class DataStore:
         except Exception:
             self.con.rollback()
             raise
+
+    def _migrate_headers(self):
+        """Remember each import's original column headings.
+
+        A heading becomes a safe SQL identifier on the way in (slug(): "PO
+        Amount" -> PO_Amount, "EPR." -> EPR), and until now that was the only
+        form kept. Anything reading the data back therefore had to guess the
+        original wording, and a consumer that guessed wrong got a column it
+        could not find -- silently, because a missing column reads as blank
+        rather than raising.
+
+        Storing the headings the file actually arrived with removes the guess
+        entirely. Added rather than rebuilt: ALTER TABLE ADD COLUMN is cheap
+        and non-destructive, and rows imported before this stay readable with
+        headers NULL, which header_map() below treats as "no record, fall
+        back to the identifier" exactly as it behaved before.
+        """
+        cols = [r[1] for r in self.con.execute("PRAGMA table_info(_imports)")]
+        if "headers" in cols:
+            return
+        self.con.execute("ALTER TABLE _imports ADD COLUMN headers TEXT")
+        self.con.commit()
 
     def close(self):
         self.con.close()
@@ -215,9 +239,13 @@ class DataStore:
                             progress(n)
                 if batch:
                     self.con.executemany(sql, batch)
+                # cols and header are parallel: cols[i] is the identifier that
+                # header[i] became, dedupe suffix included, so the pairing is
+                # exact even when a file repeats a heading.
                 self.con.execute(
-                    "INSERT OR REPLACE INTO _imports VALUES (?,?,?,?,?,?,?)",
-                    (dataset, period, part, source, n, ncols, int(time.time() * 1000)))
+                    "INSERT OR REPLACE INTO _imports VALUES (?,?,?,?,?,?,?,?)",
+                    (dataset, period, part, source, n, ncols, int(time.time() * 1000),
+                     json.dumps(list(zip(cols, header)))))
                 self.con.commit()
             except Exception:
                 self.con.rollback()
@@ -483,17 +511,67 @@ class DataStore:
         rows = [list(r) for r in self.con.execute(sql, args).fetchall()]
         return {"columns": names, "rows": rows}
 
-    def rows(self, dataset, periods=None, filters=None, limit=None, offset=0):
-        """Streams matching rows. Never materialises the whole result."""
+    def header_map(self, dataset):
+        """{identifier: the heading the file actually arrived with}.
+
+        Built from what import_csv recorded, most recent import last so a
+        register that renamed a column between months reports its current
+        wording. Identifiers with nothing on record -- imported before
+        headers were kept, or a column only an older month had -- are simply
+        absent, and callers fall back to the identifier itself.
+        """
+        out = {}
+        try:
+            rows = self.con.execute(
+                "SELECT headers FROM _imports WHERE dataset=? ORDER BY imported_at ASC",
+                (dataset,)).fetchall()
+        except sqlite3.OperationalError:
+            return out
+        for (blob,) in rows:
+            if not blob:
+                continue
+            try:
+                pairs = json.loads(blob)
+            except ValueError:
+                continue
+            for pair in pairs:
+                if isinstance(pair, (list, tuple)) and len(pair) == 2 and pair[1]:
+                    out[pair[0]] = pair[1]
+        return out
+
+    def rows(self, dataset, periods=None, filters=None, limit=None, offset=0,
+             original_headers=False, include_meta=True):
+        """Streams matching rows. Never materialises the whole result.
+
+        original_headers replaces the SQL identifiers in the header row with
+        the headings the files were imported with (see header_map), so a
+        consumer that only knows the register's own wording can read the
+        export without translating anything.
+
+        include_meta=False drops the four bookkeeping columns this store adds
+        (_period, _source, _rowno, _part). They are the store's record of
+        where a row came from, not part of the register, and a consumer that
+        treats every column as data will otherwise count them -- a blank
+        _part on a register that has no parts reads as an empty column.
+        """
         table = self._table(dataset)
         cols = self._existing_columns(table)
+        if not include_meta:
+            cols = [c for c in cols if c not in META]
+        if not cols:
+            yield []
+            return
         where, args = self._where(dataset, periods, filters)
         sql = "SELECT %s FROM %s%s" % (",".join('"%s"' % c for c in cols), table, where)
         if limit is not None:
             sql += " LIMIT ? OFFSET ?"
             args = args + [int(limit), int(offset)]
         cur = self.con.execute(sql, args)
-        yield cols
+        if original_headers:
+            names = self.header_map(dataset)
+            yield [names.get(c, c) for c in cols]
+        else:
+            yield cols
         while True:
             chunk = cur.fetchmany(2000)
             if not chunk:
@@ -501,10 +579,12 @@ class DataStore:
             for r in chunk:
                 yield list(r)
 
-    def export_csv(self, out, dataset, periods=None, filters=None, limit=None):
+    def export_csv(self, out, dataset, periods=None, filters=None, limit=None,
+                   original_headers=False, include_meta=True):
         w = csv.writer(out)
         n = -1
-        for row in self.rows(dataset, periods, filters, limit):
+        for row in self.rows(dataset, periods, filters, limit,
+                             original_headers=original_headers, include_meta=include_meta):
             w.writerow(row)
             n += 1
         return n

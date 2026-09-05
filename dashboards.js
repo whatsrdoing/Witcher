@@ -396,17 +396,18 @@ window.__PARAS_REGISTRY__ = {
             "To Store",
             "Item Name",
             "Transfered Qty.",
-            "EPR."
+            "EPR"
           ],
           "keep": [
             "UNIT",
             "Transfer Date",
+            "Transfer No.",
             "From Store",
             "To Store",
             "Item Name",
             "Item Code",
             "Transfered Qty.",
-            "EPR."
+            "EPR"
           ],
           "auto": false,
           "dataset": "stock-transfer"
@@ -424,17 +425,18 @@ window.__PARAS_REGISTRY__ = {
             "To Store",
             "Item Name",
             "Transfered Qty.",
-            "EPR."
+            "EPR"
           ],
           "keep": [
             "UNIT",
             "Transfer Date",
+            "Transfer No.",
             "From Store",
             "To Store",
             "Item Name",
             "Item Code",
             "Transfered Qty.",
-            "EPR."
+            "EPR"
           ],
           "auto": false,
           "dataset": "stock-transfer"

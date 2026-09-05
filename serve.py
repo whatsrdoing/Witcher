@@ -1051,7 +1051,33 @@ def make_handler(prefix):
                 return
             if self._redirect():
                 return
+            # An admin-only dashboard is hidden from the hub's grid by app.js,
+            # but that is a decision made in the browser: the file itself was
+            # still served to anyone signed in who typed its address, and it
+            # would then load its own registers and render in full. Hiding it
+            # has to mean the page cannot be fetched at all, not merely that
+            # it is not linked.
+            if self._is_admin_only_file(path_only):
+                self.send_error(404)
+                return
             super().do_GET()
+
+        def _is_admin_only_file(self, path_only):
+            """Whether this path is a dashboard currently marked admin-only,
+            being requested by a session that is not an admin."""
+            if not path_only.lower().endswith((".html", ".htm")):
+                return False
+            if self._is_admin():
+                return False
+            _ids, files = self._admin_only_dashboards()
+            if not files:
+                return False
+            # Compare on the trailing path so a mount prefix (see PREFIX) or a
+            # "./" in the registry never decides the answer. 404 rather than
+            # 403 on purpose: an account that may not open a dashboard has no
+            # business learning it exists.
+            asked = urllib.parse.unquote(path_only).replace("\\", "/").lstrip("/")
+            return any(asked == f or asked.endswith("/" + f) for f in files)
 
         def _session_token(self):
             cookie = self.headers.get("Cookie") or ""
@@ -1113,6 +1139,71 @@ def make_handler(prefix):
             else:
                 self._json(403, {"error": "admin only"})
             return False
+
+        def _is_admin(self):
+            """Whether this request is an admin one, without answering it.
+
+            _require_admin() above both decides and sends the refusal, which
+            is right for a route that is simply admin-only. The checks below
+            need the answer first so they can decide what to refuse and with
+            which message."""
+            if not auth_configured():
+                return True
+            token = self._session_token()
+            login = session_login(token)
+            if not login:
+                return False
+            return login == admin_login() or admin_overlay_active(token)
+
+        def _admin_only_dashboards(self):
+            """Ids and files of the dashboards currently marked admin-only.
+
+            Read through appstore so an admin who hides a dashboard from the
+            panel takes effect here immediately, rather than only in the
+            shipped dashboards.json."""
+            try:
+                reg = appstore.read_dashboards_registry()
+            except Exception:                             # noqa: BLE001
+                return set(), set()
+            ids, files = set(), set()
+            for d in reg.get("dashboards", []):
+                if d.get("adminOnly"):
+                    ids.add(d.get("id"))
+                    if d.get("file"):
+                        files.add(str(d["file"]).replace("\\", "/").lstrip("./"))
+            return ids, files
+
+        def _restricted_datasets(self):
+            """Datasets no non-admin dashboard reads.
+
+            A register is only withheld when *every* dashboard that declares
+            it is admin-only -- withholding one that a visible dashboard
+            needs would just break that dashboard for everyone who is not an
+            admin, which is exactly the trap _require_admin's docstring warns
+            about. So this is deliberately narrow: hiding a dashboard hides
+            its data too, but only data nothing else legitimately shows.
+            """
+            try:
+                reg = appstore.read_dashboards_registry()
+            except Exception:                             # noqa: BLE001
+                return set()
+            restricted, open_to_all = set(), set()
+            for d in reg.get("dashboards", []):
+                bucket = restricted if d.get("adminOnly") else open_to_all
+                for i in (d.get("inputs") or []):
+                    if i.get("dataset"):
+                        bucket.add(i["dataset"])
+            return restricted - open_to_all
+
+        def _dataset_allowed(self, dataset):
+            """True if this request may read `dataset`; sends the refusal and
+            returns False if not."""
+            if self._is_admin():
+                return True
+            if dataset in self._restricted_datasets():
+                self._json(403, {"error": "admin only"})
+                return False
+            return True
 
         def _send_auth(self):
             """auth.json, read from the data folder -- with the password
@@ -1194,9 +1285,15 @@ def make_handler(prefix):
                GET __data/<ds>/export  -> matching rows as CSV"""
             try:
                 if not tail:
-                    self._json(200, {"datasets": store().datasets()})
+                    sets = store().datasets()
+                    if not self._is_admin():
+                        blocked = self._restricted_datasets()
+                        sets = [d for d in sets if d.get("dataset") not in blocked]
+                    self._json(200, {"datasets": sets})
                     return
                 dataset = tail[0]
+                if not self._dataset_allowed(dataset):
+                    return
                 what = tail[1] if len(tail) > 1 else ""
                 if what == "columns":
                     self._json(200, {"columns": store().columns(dataset)})
@@ -1208,19 +1305,29 @@ def make_handler(prefix):
                         if k.startswith("f_") and v and v[0] != "":
                             filters[k[2:]] = v[0]
                     limit = int((qs.get("limit") or ["0"])[0]) or None
+                    # headings=original gives the register's own column wording
+                    # back instead of the SQL identifiers, and meta=0 leaves out
+                    # this store's own _period/_source/_rowno/_part bookkeeping
+                    # columns -- together, an export a dashboard can read with
+                    # no translation step of its own. Both default to the old
+                    # behaviour so existing callers are unaffected.
+                    original = (qs.get("headings") or [""])[0] == "original"
+                    include_meta = (qs.get("meta") or ["1"])[0] != "0"
                     name = "%s%s.csv" % (dataset, ("-" + "-".join(periods)) if periods else "")
                     self.send_response(200)
                     self.send_header("Content-Type", "text/csv; charset=utf-8")
                     self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
                     self.send_header("Transfer-Encoding", "chunked")
                     self.end_headers()
-                    self._write_csv_chunked(dataset, periods, filters, limit)
+                    self._write_csv_chunked(dataset, periods, filters, limit,
+                                            original_headers=original, include_meta=include_meta)
                     return
                 self.send_error(404)
             except Exception as exc:                      # noqa: BLE001
                 self._json(400, {"error": str(exc)})
 
-        def _write_csv_chunked(self, dataset, periods, filters, limit):
+        def _write_csv_chunked(self, dataset, periods, filters, limit,
+                               original_headers=False, include_meta=True):
             """Streamed, because an export can be millions of rows and the
             row count is not known before the query runs."""
             import csv as _csv
@@ -1228,7 +1335,9 @@ def make_handler(prefix):
             buf = _io.StringIO()
             w = _csv.writer(buf)
             try:
-                for row in store().rows(dataset, periods, filters, limit):
+                for row in store().rows(dataset, periods, filters, limit,
+                                        original_headers=original_headers,
+                                        include_meta=include_meta):
                     w.writerow(row)
                     if buf.tell() > 256 * 1024:
                         self._chunk(buf.getvalue().encode("utf-8"))
@@ -1396,6 +1505,8 @@ def make_handler(prefix):
                 self.send_error(404)
                 return
             dataset = tail[0]
+            if not self._dataset_allowed(dataset):
+                return
             if not isinstance(body, dict):
                 self._json(400, {"error": "bad request body"})
                 return

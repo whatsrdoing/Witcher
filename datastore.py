@@ -215,14 +215,26 @@ class DataStore:
             if not header:
                 raise DataStoreError("that file has no header row")
 
-            cols, seen = [], {}
+            # Compared case-insensitively, not as plain strings: SQLite treats
+            # column names that way (CREATE TABLE ("UNIT" TEXT, "Unit" TEXT)
+            # fails with "duplicate column name: UNIT", since the two are the
+            # same column to it), so two headings differing only in case are
+            # exactly as much "the same heading twice" as two that are
+            # identical -- a real COGS export had "UNIT" and "Unit" together,
+            # which the previous case-sensitive check let straight through to
+            # that crash. Suffixed names are also checked against what is
+            # already used, so renaming one duplicate can never collide with
+            # another (a file that already has a column literally called
+            # "Unit_1", however unlikely, does not get a silent clash).
+            cols, used = [], set()
             for i, h in enumerate(header):
                 c = slug(h, "col%d" % (i + 1))
-                if c in seen:                      # duplicate headings happen
-                    seen[c] += 1
-                    c = "%s_%d" % (c, seen[c])
-                else:
-                    seen[c] = 0
+                if c.lower() in used:
+                    n = 1
+                    while ("%s_%d" % (c, n)).lower() in used:
+                        n += 1
+                    c = "%s_%d" % (c, n)
+                used.add(c.lower())
                 cols.append(c)
 
             self._ensure_table(table, cols)

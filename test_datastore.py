@@ -111,6 +111,25 @@ def main():
         check("short row padded, long row trimmed",
               vals[1] == ["4", "5", ""] and vals[2] == ["6", "7", "8"], str(vals))
 
+        # A real COGS export had "UNIT" and "Unit" as two different columns
+        # -- a case-sensitive dedup let both straight through as literal
+        # column names, and SQLite (case-insensitive on identifiers) then
+        # refused the CREATE TABLE with "duplicate column name: UNIT".
+        caseDup = write(os.path.join(tmp, "casedup.csv"),
+                       "UNIT,Item Code,Unit,unit\nGGN,IT9,ml,1\n")
+        cd = db.import_csv(caseDup, "case-dup", "2026-07")
+        check("a file with UNIT/Unit/unit imports without the SQLite crash",
+              cd["rows"] == 1, "got %r" % cd)
+        cdCols = db.columns("case-dup")
+        check("only one column keeps the bare name, case-insensitively",
+              len([c for c in cdCols if c.lower() == "unit"]) == 1, "got %r" % cdCols)
+        check("the other two duplicates were renamed, not dropped",
+              len(cdCols) == 4, "got %r" % cdCols)
+        cdRow = list(db.rows("case-dup"))
+        check("all four columns' values survived, none overwritten by the rename",
+              cdRow[1][cdRow[0].index("UNIT"):] == ["GGN", "IT9", "ml", "1"],
+              str(cdRow))
+
         # export must round-trip
         buf = io.StringIO()
         n = db.export_csv(buf, "cogs", ["2026-08"])

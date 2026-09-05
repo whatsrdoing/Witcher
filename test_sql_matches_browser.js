@@ -1,7 +1,7 @@
 /* Proves the database and the browser compute the same figures.
  *
  *   node test_sql_matches_browser.js            # needs a running server
- *   PARAS_TEST_BASE=http://127.0.0.1:8931/supply-chain/command-centre \
+ *   PARAS_TEST_BASE=http://127.0.0.1:8951/supply-chain/command-centre \
  *   PARAS_TEST_ADMIN='admin/ritik' PARAS_TEST_PW='TestPass123!x' \
  *     node test_sql_matches_browser.js
  *
@@ -27,7 +27,7 @@
 const { chromium } = require('/opt/node22/lib/node_modules/playwright');
 
 const BASE = process.env.PARAS_TEST_BASE
-  || 'http://127.0.0.1:8931/supply-chain/command-centre';
+  || 'http://127.0.0.1:8951/supply-chain/command-centre';
 const LOGIN = process.env.PARAS_TEST_ADMIN || 'admin/ritik';
 const PW = process.env.PARAS_TEST_PW || 'TestPass123!x';
 const DATASET = 'stock-transfer';
@@ -81,6 +81,18 @@ async function signIn(page) {
     check('the dashboard has parsed rows to compare against', n > 0, 'got ' + n);
     if (!n) throw new Error('no rows loaded; seed the dataset first');
 
+    // The dashboard now opens on the newest stored month alone, so the
+    // database side has to be asked about that same month -- otherwise this
+    // compares one month of parsed rows against every month in the store and
+    // reports the difference as a defect.
+    const period = await page.evaluate(async (ds) => {
+      const info = await window.parasAgg.datasetInfo(ds);
+      const ps = ((info && info.periods) || []).map(p => p.period).sort();
+      return ps.length ? ps[ps.length - 1] : null;
+    }, DATASET);
+    check('the month under comparison is known', !!period, 'got ' + period);
+    const scope = period ? { periods: [period] } : {};
+
     const stores = await page.evaluate(() => window.getStores ? window.getStores() : []);
     const filters = [
       { name: 'no filter', spec: {}, js: null },
@@ -123,7 +135,7 @@ async function signIn(page) {
       }, f.js);
 
       // --- SQLite's answer, same question ---------------------------------
-      const sqlSpec = Object.assign({
+      const sqlSpec = Object.assign({}, scope, {
         measures: [
           { fn: 'count', as: 'lineItems' },
           { fn: 'count_distinct', col: 'Transfer No.', as: 'notes' },
@@ -146,17 +158,98 @@ async function signIn(page) {
       // The top item by quantity: a grouped question, not just a total, so
       // it catches a grouping or ordering difference a sum would hide.
       if (js.topItem) {
-        const topSpec = Object.assign({
+        const topSpec = Object.assign({}, scope, {
           measures: [{ fn: 'sum', col: 'Transfered Qty.', as: 'qty' }],
           groupBy: ['Item Name'], orderBy: 'qty', descending: true, limit: 1
         }, f.spec);
         const top = await page.evaluate(
           async ([ds, spec]) => await window.parasAgg.rows(ds, spec), [DATASET, topSpec]);
         const row = top && top[0];
-        check(f.name + ' — top item by quantity',
-              !!row && row['Item Name'] === js.topItem && near(row.qty, js.topQty),
+        // Compared on the total, not on which name came first: when two
+        // items tie, "the largest" has no single right answer and JavaScript
+        // and SQLite are both entitled to break it differently.
+        check(f.name + ' — largest item total',
+              !!row && near(row.qty, js.topQty),
               'browser ' + js.topItem + '/' + js.topQty
               + ' vs database ' + (row && row['Item Name']) + '/' + (row && row.qty));
+      }
+    }
+    // --- the other registers ------------------------------------------
+    //
+    // Store Transfer is compared against the dashboard's own parsed rows
+    // above. The rest have no such array to reach into, so the browser side
+    // here parses the same export the dashboard would have been given and
+    // totals it with the same parseNum() rule the dashboards use. That still
+    // answers the question that matters: does SQLite total this register the
+    // way the browser would.
+    var others = [
+      { ds: 'grn-register', num: 'Received Qty.', pair: ['Received Qty.', 'EPR'],
+        distinct: 'GRN No.', group: 'Item Name' },
+      { ds: 'purchase-register', num: 'PO Amount', pair: null,
+        distinct: 'PO No', group: 'Status' }
+    ];
+    for (const o of others) {
+      const info = await page.evaluate(async (ds) => await window.parasAgg.datasetInfo(ds), o.ds);
+      if (!info) { console.log('  SKIP  ' + o.ds + ' (not imported)'); continue; }
+
+      const local = await page.evaluate(async ([ds, o]) => {
+        // Same rule every dashboard's parseNum() uses: strip commas, then
+        // parseFloat, and treat anything unparseable as 0.
+        const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(/,/g, '').trim());
+                           return isNaN(n) ? 0 : n; };
+        const txt = await (await fetch('../__data/' + ds + '/export?headings=original&meta=0')).text();
+        const lines = txt.split('\n').filter(l => l.trim().length);
+        const split = l => { const out = []; let cur = '', q = false;
+          for (let i = 0; i < l.length; i++) { const c = l[i];
+            if (c === '"') { if (q && l[i+1] === '"') { cur += '"'; i++; } else q = !q; }
+            else if (c === ',' && !q) { out.push(cur); cur = ''; } else cur += c; }
+          out.push(cur); return out; };
+        const head = split(lines[0]).map(h => h.replace(/^"|"$/g, ''));
+        const rows = lines.slice(1).map(split);
+        const at = name => head.indexOf(name);
+        const iNum = at(o.num), iA = o.pair ? at(o.pair[0]) : -1, iB = o.pair ? at(o.pair[1]) : -1;
+        const iD = at(o.distinct), iG = at(o.group);
+        let sum = 0, prod = 0; const seen = new Set(), groups = {};
+        rows.forEach(r => {
+          if (iNum >= 0) sum += num(r[iNum]);
+          if (iA >= 0 && iB >= 0) prod += num(r[iA]) * num(r[iB]);
+          if (iD >= 0 && String(r[iD] || '').trim()) seen.add(r[iD]);
+          if (iG >= 0) groups[r[iG]] = (groups[r[iG]] || 0) + 1;
+        });
+        const top = Object.entries(groups).sort((a, b) => b[1] - a[1])[0] || [null, 0];
+        return { n: rows.length, sum: sum, prod: prod, distinct: seen.size,
+                 headerHasNum: iNum >= 0, topGroup: top[0], topCount: top[1] };
+      }, [o.ds, o]);
+
+      check(o.ds + ' — the export carries the heading the dashboard reads (' + o.num + ')',
+            local.headerHasNum, 'header did not contain it');
+
+      const ms = [{ fn: 'count', as: 'n' },
+                  { fn: 'sum', col: o.num, as: 'sum' },
+                  { fn: 'count_distinct', col: o.distinct, as: 'distinct' }];
+      if (o.pair) ms.push({ fn: 'sum_product', cols: o.pair, as: 'prod' });
+      const sql = await page.evaluate(async ([ds, ms]) =>
+        await window.parasAgg.summary(ds, { measures: ms }), [o.ds, ms]);
+
+      check(o.ds + ' — row count', sql && sql.n === local.n,
+            'browser ' + local.n + ' vs database ' + (sql && sql.n));
+      check(o.ds + ' — sum of ' + o.num, sql && near(sql.sum || 0, local.sum),
+            'browser ' + local.sum + ' vs database ' + (sql && sql.sum));
+      check(o.ds + ' — distinct ' + o.distinct, sql && sql.distinct === local.distinct,
+            'browser ' + local.distinct + ' vs database ' + (sql && sql.distinct));
+      if (o.pair) {
+        check(o.ds + ' — ' + o.pair.join(' x '), sql && near(sql.prod || 0, local.prod),
+              'browser ' + local.prod + ' vs database ' + (sql && sql.prod));
+      }
+      if (local.topGroup) {
+        const g = await page.evaluate(async ([ds, col]) => await window.parasAgg.rows(ds,
+          { measures: [{ fn: 'count', as: 'n' }], groupBy: [col], orderBy: 'n', descending: true, limit: 1 }),
+          [o.ds, o.group]);
+        const row = g && g[0];
+        check(o.ds + ' — largest group size by ' + o.group,
+              !!row && row.n === local.topCount,
+              'browser ' + local.topGroup + '/' + local.topCount
+              + ' vs database ' + (row && row[o.group]) + '/' + (row && row.n));
       }
     }
   } catch (e) {

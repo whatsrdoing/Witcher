@@ -1492,7 +1492,10 @@ let DATE_CONV = { '/': 'DMY', '-': 'DMY', '.': 'DMY' };
    any GRN date over the 12th was reached, and July went back to being read
    as twelve different months. */
 function conventionsIn(values){
-  const conv = { '/': null, '-': null, '.': null };
+  // Counted, not settled by the first value that happens to prove something:
+  // one column can hold both conventions at once, and whichever appeared
+  // first would otherwise speak for all of it.
+  const votes = { '/': {DMY:0, MDY:0}, '-': {DMY:0, MDY:0}, '.': {DMY:0, MDY:0} };
   for(const v of values){
     if(v === null || v === undefined || v instanceof Date) continue;
     const s = String(v).trim();
@@ -1502,16 +1505,49 @@ function conventionsIn(values){
     const m = s.match(/^(\d{1,2})([-\/.])(\d{1,2})[-\/.](\d{2,4})/);
     if(!m) continue;
     const sep = m[2];
-    if(conv[sep]) continue;                       // already settled for this separator
     const a = Number(m[1]), b = Number(m[3]);
-    if(a > 12 && b <= 12) conv[sep] = 'DMY';
-    else if(b > 12 && a <= 12) conv[sep] = 'MDY';
+    if(a > 12 && b <= 12) votes[sep].DMY++;
+    else if(b > 12 && a <= 12) votes[sep].MDY++;
   }
-  return {
-    '/': conv['/'] || 'DMY',
-    '-': conv['-'] || 'DMY',
-    '.': conv['.'] || 'DMY',
-  };
+  const pick = sep => votes[sep].MDY > votes[sep].DMY ? 'MDY' : 'DMY';
+  return { '/': pick('/'), '-': pick('-'), '.': pick('.') };
+}
+
+/* One convention per unit, not per file.
+ *
+ * A real GRN Register holds both: 7,918 rows written "13/07/26" beside 347
+ * written "7/13/26", in the same column of the same file, because the units
+ * export from their own systems. One verdict for the column silently
+ * destroys whichever group loses -- read month-first, every "13/07/26"
+ * becomes a 13th month and is dropped.
+ *
+ * So each unit's rows decide for that unit, from the values that prove it
+ * outright, exactly as Procurement's detectUnitSlashConventions() already
+ * does for its own registers. A unit whose dates never settle it falls back
+ * to what the rest of the file says, and then to day-first. */
+function conventionsByUnit(rows, dateKeys, unitKeys){
+  const byUnit = {};
+  const all = [];
+  (rows || []).forEach(r => {
+    const v = get(r, dateKeys);
+    if(v === undefined || v === null || v === '') return;
+    const u = String(get(r, unitKeys) || '').trim() || 'DEFAULT';
+    (byUnit[u] = byUnit[u] || []).push(v);
+    all.push(v);
+  });
+  const fallback = conventionsIn(all);
+  const out = { __fallback: fallback };
+  Object.keys(byUnit).forEach(u => {
+    const c = conventionsIn(byUnit[u]);
+    // conventionsIn() defaults an undecided separator to day-first; where
+    // this unit gave no evidence at all, prefer the whole file's reading
+    // over that default.
+    out[u] = {
+      '/': byUnit[u].some(v => /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(String(v).trim())) ? c['/'] : fallback['/'],
+      '-': c['-'], '.': c['.'],
+    };
+  });
+  return out;
 }
 /* Reads one column out of a set of rows and works out its own convention. */
 function conventionForColumn(rows, keys){
@@ -1543,9 +1579,19 @@ function parseAnyDate(v, conv){
   if(m){
     let y = Number(m[4]); if(y < 100) y += 2000;
     const a = Number(m[1]), b = Number(m[3]);
-    const mdy = conv[m[2]] === 'MDY';
-    const day = mdy ? b : a;
-    const mon = mdy ? a : b;
+    let day, mon;
+    // A value that can only be read one way settles itself, whatever the
+    // column's prevailing convention is: "13/07/26" has no 13th month and
+    // "7/13/26" has no 13th month the other way round. Only a value that
+    // genuinely works both ways ("7/1/26") needs to be told which to take.
+    if(a > 12 && b <= 12){ day = a; mon = b; }
+    else if(b > 12 && a <= 12){ mon = a; day = b; }
+    else if(a > 12 && b > 12){ return null; }
+    else {
+      const mdy = conv[m[2]] === 'MDY';
+      day = mdy ? b : a;
+      mon = mdy ? a : b;
+    }
     // A month outside 1-12 is a misread, not a date. Left to the Date
     // constructor it would roll silently into the next year (month 13 ->
     // January) and look like perfectly good data; better to say "no date"
@@ -1688,9 +1734,10 @@ function fmtDateRange(minDt, maxDt){
 }
 
 function processGRN(rows){
-  // Each date column decides for itself -- see conventionsIn().
-  const convGrn = conventionForColumn(rows, ['GRN Date']);
-  const convExp = conventionForColumn(rows, ['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date']);
+  // Each date column decides for itself, and each unit within it -- see
+  // conventionsByUnit().
+  const convGrnBy = conventionsByUnit(rows, ['GRN Date'], ['UNIT','Unit']);
+  const convExpBy = conventionsByUnit(rows, ['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date'], ['UNIT','Unit']);
   const lines = [];
   const aggMap = new Map();
   for(const r of rows){
@@ -1713,9 +1760,9 @@ function processGRN(rows){
     const mrp = mrpRate * qty;
     const value = epr;
     const dateRaw = get(r,['GRN Date']);
-    const dt = parseAnyDate(dateRaw, convGrn);
+    const dt = parseAnyDate(dateRaw, convGrnBy[unit] || convGrnBy.__fallback);
     const expiryRaw = get(r,['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date']);
-    const expiryDt = parseAnyDate(expiryRaw, convExp);
+    const expiryDt = parseAnyDate(expiryRaw, convExpBy[unit] || convExpBy.__fallback);
     const local = isLocalPurchase(poNo, supplier);
     const reason = local ? localPurchaseReason(poNo, supplier) : '';
     const key = unit+'||'+grnNo;
@@ -1730,7 +1777,7 @@ function processGRN(rows){
   return { lines, grns: Array.from(aggMap.values()) };
 }
 function processPO(rows){
-  const convPo = conventionForColumn(rows, ['PO Date']);
+  const convPoBy = conventionsByUnit(rows, ['PO Date'], ['UNIT','Unit']);
   const list = [];
   for(const r of rows){
     const poNo = String(get(r,['PO No','PO No.'])||'').trim();
@@ -1739,7 +1786,7 @@ function processPO(rows){
     const itemCode = String(get(r,['Item Code'])||'').trim();
     const status = String(get(r,['Status'])||'').trim();
     const dateRaw = get(r,['PO Date']);
-    const dt = parseAnyDate(dateRaw, convPo);
+    const dt = parseAnyDate(dateRaw, convPoBy[unit] || convPoBy.__fallback);
     if(!itemCode || !dt) continue;
     list.push({poNo, unit, itemCode, status, date:dateRaw, dt});
   }

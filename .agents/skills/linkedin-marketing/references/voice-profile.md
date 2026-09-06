@@ -74,15 +74,12 @@ and every skill will mirror your actual rhythm instead of this description.
 
 ## 6. Brand assets (for illustrations)
 
-Requested source: https://www.parashospitals.com/ — I could not fetch this
-site (this session's network gateway blocks it, same restriction that blocked
-Publora and postimg.cc earlier), so nothing below is verified from the live
-site. Do not treat any color/logo guess as accurate; these fields stay
-unset until confirmed by hand (open the site, inspect the logo/CSS, or paste
-the hex code here directly).
+Source confirmed by user screenshot of https://www.parashospitals.com/
+(this session still cannot fetch the site directly — network gateway
+blocks it — so this is from a visual screenshot, not sampled CSS).
 
 - Handle to stamp on images: (not set)
-- Brand color (hex): (not set — unverified; #0A66C2 was used as a generic LinkedIn-blue placeholder in illustration prompts so far, not a confirmed Paras Hospitals brand color)
-- Logo: (not set)
+- Brand color (hex): approx. #1E4B9E-#2E5AA8 (medium royal blue) — ESTIMATED from a screenshot, not pixel-sampled. Confirm exact hex via inspecting the site's CSS before relying on it for precise brand-matched overlays.
+- Logo: "PARAS HEALTH" wordmark (blue) + blue medical-cross icon. Tagline seen on homepage: "Bridging Gaps, Building Healthier Bharat" (context, not necessarily for overlay use).
 - Overlay position: (not set — default bottom-right)
-- Visual style default: minimal flat-vector, editorial, non-literal (matches the images used this week)
+- Visual style default: clean, corporate-clinical, heavy white space, real photography (doctor-patient moments) over illustration, blue as the singular accent color — this supersedes the earlier flat-vector default for anything meant to feel on-brand with Paras Hospitals specifically

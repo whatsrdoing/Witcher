@@ -320,11 +320,18 @@
       el.src = db.file;
       $('#frameLoading').style.display = 'flex';
       $('#frameLoadingTxt').textContent = 'Opening ' + db.name + '…';
+      // No auto-fill from the Data Library's own files here any more: a
+      // dashboard opens itself from the database instead (parasAgg's
+      // openFromDatabase), which hands it every stored month merged into one
+      // file rather than whichever single monthly upload happened to match a
+      // slot. Filling the file inputs from here won that race and cost the
+      // dashboard its own multi-month load -- see the match bar's "Fill
+      // upload boxes" button, still there for a register the database has
+      // nothing for.
       el.addEventListener('load', function () {
         myFrames[id].loaded = true;
         if (current === id) { $('#frameLoading').style.display = 'none'; refreshMatchBar(); }
         sendThemeTo(id, currentTheme());
-        tryAutoRun(id);
       });
       $('#frames').appendChild(el);
       f = myFrames[id] = { el: el, loaded: false, openedAt: Date.now() };
@@ -652,7 +659,7 @@
   // opened the same way as any other. What is left below is only the part
   // that could not move with it: the shell is still the one place that can
   // reach every OTHER open dashboard's iframe directly, so the auto-match
-  // bar (matchesFor/refreshMatchBar/tryAutoRun/fillAllFromLibrary, further
+  // bar (matchesFor/refreshMatchBar/fillAllFromLibrary, further
   // down) and the cross-frame "send this file over" relay (sendToDashboard,
   // and the 'requestFill' branch on the message listener) stay here.
 
@@ -1036,75 +1043,6 @@
           (r.failed ? ' (' + r.failed + ' failed)' : '') +
           ' — press the dashboard\'s own build button to run it.', r.failed ? 'warn' : 'ok', 6000);
         else toast('Could not fill any upload box' + (r.lastError ? ' — ' + r.lastError : '') + '.', 'err', 8000);
-      });
-    });
-  }
-
-  /* ---- auto-run on open --------------------------------------------------
-     If every required upload box has an unambiguous, non-oversized match in
-     the Data Library the moment a dashboard's iframe finishes loading, fill
-     them and run the dashboard's own build button automatically — no "Fill
-     upload boxes" click needed. Anything less than a full, clean match (a
-     required slot still empty, or blocked on a file too large to auto-fill)
-     is left exactly as before: the match bar stays up and the user fills it
-     by hand, since guessing at an incomplete run would be worse than asking. */
-  var BUILD_BTN_IDS = ['buildBtn', 'processBtn'];
-  function clickBuildButton(id) {
-    var doc = frameDoc(id);
-    if (!doc) return false;
-    for (var i = 0; i < BUILD_BTN_IDS.length; i++) {
-      var btn = doc.getElementById(BUILD_BTN_IDS[i]);
-      if (btn && !btn.disabled) { btn.click(); return true; }
-    }
-    // Fallback for a dashboard that names its own button something else:
-    // the first non-disabled button in its upload panel that isn't an
-    // obvious reset/clear/change-files action.
-    var panel = doc.querySelector('.upload-panel, .upload-bar, #uploadPanel');
-    if (panel) {
-      var candidates = panel.querySelectorAll('button:not([disabled])');
-      for (var j = 0; j < candidates.length; j++) {
-        var b = candidates[j];
-        if (!/reset|clear|change|different/i.test(b.id + ' ' + b.textContent)) { b.click(); return true; }
-      }
-    }
-    return false;
-  }
-  function tryAutoRun(id) {
-    matchesFor(id).then(function (m) {
-      if (!m || !m.pairs.length || m.blocked.length) return;
-      var required = m.slots.filter(function (s) { return s.auto && !s.optional; }).length;
-      if (m.pairs.length < required) return;
-      fillPairs(m.pairs).then(function (r) {
-        if (!r.done || r.failed) return;
-        // fillInput only dispatches the 'change' event -- it does not wait
-        // for the dashboard's own handler to finish reading the file, which
-        // for a large register (tens of thousands of rows, an .xlsx read
-        // via FileReader) can take several seconds. A single click attempt
-        // shortly after filling used to fire while the dashboard's own
-        // build button was still disabled -- silently doing nothing, with
-        // every box showing filled or "Reading..." forever and no retry.
-        // Poll instead: cheap per attempt (skips straight past if nothing
-        // is ready yet), and 30s covers even a very large workbook.
-        var attempts = 0, maxAttempts = 100;
-        var tryClick = function () {
-          attempts++;
-          var clicked = clickBuildButton(id);
-          if (clicked) {
-            if (current === id) refreshMatchBar();
-            var db = byId(id);
-            toast('"' + (db ? db.name : id) + '" auto-filled and run from ' + r.done + ' Data Library file' + (r.done === 1 ? '' : 's') + '.', 'ok', 5000);
-            return;
-          }
-          if (attempts >= maxAttempts) {
-            var db2 = byId(id);
-            toast('Auto-filled ' + r.done + ' upload box' + (r.done === 1 ? '' : 'es') + ' from the Data Library for "' +
-              (db2 ? db2.name : id) + '" — it is still reading a large file; press the dashboard\'s own build button once it says everything is loaded.',
-              'warn', 8000);
-            return;
-          }
-          setTimeout(tryClick, 300);
-        };
-        setTimeout(tryClick, 150);
       });
     });
   }

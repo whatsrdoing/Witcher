@@ -12,19 +12,27 @@ ignored, so drafts fall back to the generic voice rules until you populate it.
 ## Status
 
 - filled: yes
-- source: user-provided (positioning confirmed; voice fingerprint and signature examples still pending real samples)
+- source: user-provided (positioning + personality confirmed; exact sentence-level samples still pending)
 - updated: 2026-09-06
 
 ## 1. Voice fingerprint
 
-Not yet learned from real posts. Until you paste signature examples in
-section 5 (or run `linkedin-humanizer --mode profile` against a few of your
-posts), drafts default to the bundle's generic 2026 voice rules: specific
-numbers over adjectives, one concrete first-person detail per 100 words,
-em dashes capped at ~1 per 100 words, no AI-vocab blacklist words.
+Personality confirmed by the user, not yet learned from pasted real posts.
+Self-described as: a deep thinker who goes into detail before concluding
+anything, and someone driven by curiosity — asks questions rather than
+asserting. Draft accordingly: reasoning shown before the conclusion, not
+conclusion-first; genuine curiosity in the framing, not rhetorical curiosity
+("what nobody tells you" is banned anyway); real questions, not just at the
+close but sometimes mid-post when genuinely unsure of the answer.
 
-- Sentence rhythm: (pending — no samples yet)
-- Signature openers: (pending)
+Until real post samples are pasted into section 5, exact word choice and
+rhythm still default to the bundle's generic 2026 voice rules layered on
+top of the above: specific numbers over adjectives, one concrete first-person
+detail per 100 words, em dashes capped at ~1 per 100 words, no AI-vocab
+blacklist words.
+
+- Sentence rhythm: deliberate, exploratory — walks through reasoning rather than leading with the conclusion; comfortable with longer thinking-out-loud sentences broken by short landing lines
+- Signature openers: (pending real samples — for now, favor a concrete observation or number over a flat assertion)
 - Punctuation habits: (pending — defaulting to em-dash cap, `..` allowed as soft pause)
 - Words and phrases you use a lot: (pending)
 - Words and phrases you NEVER use: (pending — inherits the global banned-vocab list: leverage, fundamentally, streamline, harness, delve, unlock, foster)
@@ -48,15 +56,17 @@ em dashes capped at ~1 per 100 words, no AI-vocab blacklist words.
 
 ## 4. Links and CTA
 
-- Primary link you point people to: (not set — tell me if you have a site, newsletter, or company page)
-- Where it goes: (default: first comment, not in-body — in-body links get suppressed ~40-60% reach)
-- Your CTA style: (default: soft invite via closing question, not a direct ask)
+- Primary link you point people to: https://www.parashospitals.com/
+- Where it goes: first comment, not in-body (in-body links get suppressed ~40-60% reach)
+- Your CTA style: soft invite via closing question, not a direct ask
 
 ## 5. Signature examples
 
-Not yet provided. Paste 2-4 of your own real LinkedIn posts or lines here
+Not yet provided as real post text. What's confirmed so far is personality,
+not sentence samples (see section 1): a deep thinker, detail-first, curious,
+question-driven. Paste 2-4 of your own real LinkedIn posts or lines here
 (or ask me to run `linkedin-humanizer --mode profile` on posts you paste)
-and every skill will mirror your actual rhythm instead of this default.
+and every skill will mirror your actual rhythm instead of this description.
 
 -
 -
@@ -64,8 +74,15 @@ and every skill will mirror your actual rhythm instead of this default.
 
 ## 6. Brand assets (for illustrations)
 
+Requested source: https://www.parashospitals.com/ — I could not fetch this
+site (this session's network gateway blocks it, same restriction that blocked
+Publora and postimg.cc earlier), so nothing below is verified from the live
+site. Do not treat any color/logo guess as accurate; these fields stay
+unset until confirmed by hand (open the site, inspect the logo/CSS, or paste
+the hex code here directly).
+
 - Handle to stamp on images: (not set)
-- Brand color (hex): (not set — used #0A66C2, LinkedIn blue, as a placeholder in illustration prompts so far)
+- Brand color (hex): (not set — unverified; #0A66C2 was used as a generic LinkedIn-blue placeholder in illustration prompts so far, not a confirmed Paras Hospitals brand color)
 - Logo: (not set)
 - Overlay position: (not set — default bottom-right)
 - Visual style default: minimal flat-vector, editorial, non-literal (matches the images used this week)

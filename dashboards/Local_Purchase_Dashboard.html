@@ -1462,6 +1462,51 @@ function cleanNum(x){
   return isNaN(v) ? 0 : v;
 }
 const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+/* Is a bare "7/8/26" the 7th of August or the 8th of July?
+ *
+ * Nothing in the value says which, and getting it wrong is not a near miss:
+ * read day-first, an Excel-written "7/13/26" becomes month 13, which rolls
+ * into January of the next year, and "7/31/26" rolls two years on. A whole
+ * register's worth of July then scatters itself across twenty-odd phantom
+ * months -- which is exactly what a real GRN Register did here.
+ *
+ * It cannot be assumed per file either. A register uploaded as .xlsx is
+ * converted to CSV on its way into the database and comes back written the
+ * way Excel writes an unformatted date (month-first, "7/13/26"), while one
+ * uploaded as .csv keeps whatever the source system wrote (day-first,
+ * "14-07-2026" here) -- and once the months are merged, one file holds both.
+ *
+ * So the convention is worked out from the data, per separator, the same way
+ * the Procurement dashboard already does it for its own registers: any value
+ * whose first part is over 12 proves day-first for that separator, any value
+ * whose second part is over 12 proves month-first, and a column that never
+ * settles it (only days 1-12 ever appear) keeps the day-first default this
+ * dashboard has always used. */
+let DATE_CONV = { '/': 'DMY', '-': 'DMY', '.': 'DMY' };
+function detectDateConventions(values){
+  const conv = { '/': null, '-': null, '.': null };
+  for(const v of values){
+    if(v === null || v === undefined || v instanceof Date) continue;
+    const s = String(v).trim();
+    if(!s) continue;
+    // Only the bare numeric shapes are ambiguous; "01-Jul-26" and ISO name
+    // their month outright and are parsed by their own branches below.
+    const m = s.match(/^(\d{1,2})([-\/.])(\d{1,2})[-\/.](\d{2,4})/);
+    if(!m) continue;
+    const sep = m[2];
+    if(conv[sep]) continue;                       // already settled for this separator
+    const a = Number(m[1]), b = Number(m[3]);
+    if(a > 12 && b <= 12) conv[sep] = 'DMY';
+    else if(b > 12 && a <= 12) conv[sep] = 'MDY';
+  }
+  DATE_CONV = {
+    '/': conv['/'] || 'DMY',
+    '-': conv['-'] || 'DMY',
+    '.': conv['.'] || 'DMY',
+  };
+  return DATE_CONV;
+}
+
 function parseAnyDate(v){
   if(v === null || v === undefined || v === '') return null;
   if(v instanceof Date) return isNaN(v) ? null : v;
@@ -1477,10 +1522,19 @@ function parseAnyDate(v){
   }
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ](\d{1,2}):(\d{2}))?/);
   if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]), Number(m[4]||0), Number(m[5]||0));
-  m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})(?:[ ,]+(\d{1,2}):(\d{2}))?/);
+  m = s.match(/^(\d{1,2})([-\/.])(\d{1,2})[-\/.](\d{2,4})(?:[ ,]+(\d{1,2}):(\d{2}))?/);
   if(m){
-    let y = Number(m[3]); if(y < 100) y += 2000;
-    return new Date(y, Number(m[2])-1, Number(m[1]), Number(m[4]||0), Number(m[5]||0));
+    let y = Number(m[4]); if(y < 100) y += 2000;
+    const a = Number(m[1]), b = Number(m[3]);
+    const mdy = DATE_CONV[m[2]] === 'MDY';
+    const day = mdy ? b : a;
+    const mon = mdy ? a : b;
+    // A month outside 1-12 is a misread, not a date. Left to the Date
+    // constructor it would roll silently into the next year (month 13 ->
+    // January) and look like perfectly good data; better to say "no date"
+    // and let the row through the filters unclaimed.
+    if(mon < 1 || mon > 12 || day < 1 || day > 31) return null;
+    return new Date(y, mon - 1, day, Number(m[5]||0), Number(m[6]||0));
   }
   if(/^\d+(\.\d+)?$/.test(s)){
     const n = Number(s);
@@ -1709,6 +1763,19 @@ document.getElementById('buildBtn').addEventListener('click', () => {
 
   setTimeout(() => {
     try{
+      // Settle day-first vs month-first once, from every date column in both
+      // registers, before a single row is parsed -- one register's dates can
+      // be ambiguous all the way through while the other's prove the
+      // convention on its first row over the 12th.
+      const dateSamples = [];
+      const collect = (rows, keys) => (rows || []).forEach(r => keys.forEach(k => {
+        const v = get(r, [k]);
+        if(v !== undefined && v !== null && v !== '') dateSamples.push(v);
+      }));
+      collect(loaded.grn, ['GRN Date', 'Bill Date', 'Expiry Date']);
+      collect(loaded.po, ['PO Date']);
+      detectDateConventions(dateSamples);
+
       const g = processGRN(loaded.grn);
       const poList = processPO(loaded.po);
       RAW = {

@@ -56,8 +56,8 @@ blacklist words.
 
 ## 4. Links and CTA
 
-- Primary link you point people to: https://www.parashospitals.com/
-- Where it goes: first comment, not in-body (in-body links get suppressed ~40-60% reach)
+- Primary link you point people to: (removed — not set)
+- Where it goes: (default: first comment, not in-body — in-body links get suppressed ~40-60% reach)
 - Your CTA style: soft invite via closing question, not a direct ask
 
 ## 5. Signature examples
@@ -74,12 +74,8 @@ and every skill will mirror your actual rhythm instead of this description.
 
 ## 6. Brand assets (for illustrations)
 
-Source confirmed by user screenshot of https://www.parashospitals.com/
-(this session still cannot fetch the site directly — network gateway
-blocks it — so this is from a visual screenshot, not sampled CSS).
-
 - Handle to stamp on images: (not set)
-- Brand color (hex): approx. #1E4B9E-#2E5AA8 (medium royal blue) — ESTIMATED from a screenshot, not pixel-sampled. Confirm exact hex via inspecting the site's CSS before relying on it for precise brand-matched overlays.
-- Logo: "PARAS HEALTH" wordmark (blue) + blue medical-cross icon. Tagline seen on homepage: "Bridging Gaps, Building Healthier Bharat" (context, not necessarily for overlay use).
+- Brand color (hex): (not set)
+- Logo: (not set)
 - Overlay position: (not set — default bottom-right)
-- Visual style default: clean, corporate-clinical, heavy white space, real photography (doctor-patient moments) over illustration, blue as the singular accent color — this supersedes the earlier flat-vector default for anything meant to feel on-brand with Paras Hospitals specifically
+- Visual style default: minimal flat-vector, editorial, non-literal

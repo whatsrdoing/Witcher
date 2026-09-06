@@ -1026,6 +1026,15 @@ footer b{color:var(--text-muted);}
       <span class="upb-label">HOSPITAL UNIT</span>
       <div class="unit-pills" id="unitPills"></div>
     </div>
+    <!-- Its own filter, not a sub-filter of the unit row above: the two
+         narrow the same report independently, so GGN + July, GGN + August
+         and GGN + both are each one click apart. Hidden when the loaded
+         registers only cover a single month, where it would be a row of
+         one pill that can never change anything. -->
+    <div class="unit-pill-bar-inner" id="monthFilterRow" style="display:none;">
+      <span class="upb-label">MONTH</span>
+      <div class="unit-pills" id="monthPills"></div>
+    </div>
   </div>
 </header>
 
@@ -1425,9 +1434,10 @@ document.getElementById('resetBtn').addEventListener('click', () => {
     document.getElementById('status-' + k).textContent = 'Not loaded';
   });
   Object.keys(charts).forEach(id => killChart(id));
-  RAW = null; allUnits = []; selectedUnits = [];
+  RAW = null; allUnits = []; selectedUnits = []; allMonths = []; selectedMonths = [];
   document.getElementById('dashboardBody').classList.remove('visible');
   document.getElementById('unitFilterBox').style.display = 'none';
+  document.getElementById('monthFilterRow').style.display = 'none';
   document.getElementById('resetBtn').style.display = 'none';
   document.getElementById('uploadPanel').classList.remove('collapsed');
   checkAllLoaded();
@@ -1556,6 +1566,33 @@ const PALETTE = ['#5B8DEF','#2DD4BF','#FBBF24','#FB7185','#A78BFA','#34D399','#e
 let RAW = null;      // { grnLines, grnAgg, poGroups }
 let allUnits = [];
 let selectedUnits = [];
+let allMonths = [];
+let selectedMonths = [];
+
+/* The month a row belongs to, as a sortable 'YYYY-MM' key, off the Date
+   parseAnyDate() already put on every GRN line and aggregate at parse time.
+   The registers arrive one file per month but the dashboard reads them
+   merged, and the merged export carries no period column of its own
+   (dashboard-agg asks for meta=0), so the row's own date is what says which
+   month it belongs to -- which is also what makes this work identically for
+   a file picked by hand, that never had a period to begin with. */
+function monthKeyOf(dt){
+  if(!dt || isNaN(dt)) return null;
+  return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0');
+}
+const MONTH_LABELS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function monthLabelOf(key){
+  const parts = String(key || '').split('-');
+  const mi = Number(parts[1]) - 1;
+  return (MONTH_LABELS[mi] || key) + " '" + String(parts[0] || '').slice(2);
+}
+/* A row with no readable date is never hidden by a filter nobody set --
+   the same allowance the unit filter already makes for a blank UNIT. */
+function inSelectedMonth(row){
+  if(!selectedMonths.length) return true;
+  const k = monthKeyOf(row && row.dt);
+  return k === null || selectedMonths.indexOf(k) >= 0;
+}
 // Consistent color per unit across every chart -- based on the unit's position in allUnits.
 function unitColor(u){
   const idx = allUnits.indexOf(u);
@@ -1686,7 +1723,15 @@ document.getElementById('buildBtn').addEventListener('click', () => {
         alert('No matching UNIT values were found in the GRN Register. Please check the "UNIT" column.');
         return;
       }
+      // Months come off the GRN rows themselves, oldest first. Built before
+      // the first render so that render sees a populated selectedMonths
+      // rather than filtering against an empty one.
+      const monthSet = new Set();
+      g.grns.forEach(x => { const k = monthKeyOf(x.dt); if(k) monthSet.add(k); });
+      allMonths = Array.from(monthSet).sort();
+
       buildUnitPills(allUnits);
+      buildMonthPills(allMonths);
       render(allUnits.slice());
 
       document.getElementById('unitFilterBox').style.display = 'block';
@@ -1755,6 +1800,66 @@ function buildUnitPills(units){
   });
 }
 
+/* Month pills, behaving exactly like the unit pills above them: clicking one
+   while everything is selected narrows to just that one, clicking a selected
+   one removes it, and removing the last one falls back to all rather than
+   leaving a report of nothing. Deliberately the same interaction, so there is
+   only one thing to learn on this page -- but a separate filter: the two are
+   ANDed, never linked. */
+function buildMonthPills(months){
+  const row = document.getElementById('monthFilterRow');
+  const container = document.getElementById('monthPills');
+  container.innerHTML = '';
+  selectedMonths = [...months];
+  // One month is not a filter, it is a label -- and a pill that can only ever
+  // be on is worse than no pill at all.
+  row.style.display = months.length > 1 ? '' : 'none';
+  if(months.length < 2) return;
+
+  const allPill = document.createElement('button');
+  allPill.type = 'button';
+  allPill.className = 'unit-pill all-pill active';
+  allPill.textContent = 'All Months';
+  container.appendChild(allPill);
+
+  const monthPillEls = {};
+  months.forEach(m => {
+    const pill = document.createElement('button');
+    pill.type = 'button';
+    pill.className = 'unit-pill';
+    pill.textContent = monthLabelOf(m);
+    monthPillEls[m] = pill;
+    container.appendChild(pill);
+  });
+
+  function updatePillStates(){
+    const allSelected = selectedMonths.length === months.length;
+    allPill.classList.toggle('active', allSelected);
+    months.forEach(m => monthPillEls[m].classList.toggle('active', !allSelected && selectedMonths.includes(m)));
+  }
+
+  allPill.addEventListener('click', () => {
+    selectedMonths = [...months];
+    updatePillStates();
+    render(selectedUnits);
+  });
+  months.forEach(m => {
+    monthPillEls[m].addEventListener('click', () => {
+      const allCurrentlySelected = selectedMonths.length === months.length;
+      if(allCurrentlySelected){
+        selectedMonths = [m];
+      } else if(selectedMonths.includes(m)){
+        selectedMonths = selectedMonths.filter(x => x !== m);
+        if(selectedMonths.length === 0) selectedMonths = [...months];
+      } else {
+        selectedMonths = [...selectedMonths, m];
+      }
+      updatePillStates();
+      render(selectedUnits);
+    });
+  });
+}
+
 /* ============================================================
    RENDER — master
    ============================================================ */
@@ -1777,9 +1882,15 @@ function render(units){
   if(!RAW) return;
   const selSet = new Set(units);
 
-  const unitGrnAgg = RAW.grnAgg.filter(g => selSet.has(g.unit));
+  // Month narrows the same rows the unit filter does, independently of it.
+  const unitGrnAgg = RAW.grnAgg.filter(g => selSet.has(g.unit) && inSelectedMonth(g));
   const localGrnAgg = unitGrnAgg.filter(g => g.isLocal);
-  const localLines = RAW.grnLines.filter(l => l.isLocal && selSet.has(l.unit));
+  const localLines = RAW.grnLines.filter(l => l.isLocal && selSet.has(l.unit) && inSelectedMonth(l));
+  // Every unit's own totals, for the unit-vs-unit table: not narrowed by the
+  // unit filter (that table IS the per-unit breakdown) but narrowed by month
+  // like everything else, or picking July would leave this one table quoting
+  // July+August totals beside cards that had moved to July.
+  const monthGrnAgg = RAW.grnAgg.filter(g => inSelectedMonth(g));
 
   const itemAgg = buildItemAgg(localLines);
   const unitItemAgg = buildUnitItemAgg(localLines);
@@ -1797,7 +1908,7 @@ function render(units){
   buildRepeatUnitPills(units);
   renderRepeatTable(unitItemAgg);
   renderRepeatChart(unitItemAgg);
-  renderCompare(units, RAW.grnAgg);
+  renderCompare(units, monthGrnAgg);
 
   document.getElementById('unitMetricToggle').querySelectorAll('button').forEach(b=>{
     b.onclick = () => {

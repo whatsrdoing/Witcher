@@ -215,55 +215,38 @@
           var missing = all.filter(function (x) { return !x.info; })
                             .map(function (x) { return x.label; });
 
-          // The month to show. Every one of these dashboards was built around
-          // one report at a time, so the newest stored month is what it opens
-          // on; without this it loaded every month ever imported, merged them
-          // into one report still captioned with a single month, and grew
-          // without bound as more were added.
+          // Every period a dataset actually has, not just the newest one
+          // -- a register with July and August both loads July and August.
+          // Each dataset's own periods, independently: a row already
+          // carries its own real date, so cross-register comparisons (a
+          // local-purchase GRN against the PO it names, a return against
+          // the receipt it came from) already match up per-row from that,
+          // not from both files having been the one upload -- there is no
+          // "different month" state left to guard against here. This was
+          // once restricted to a single shared month for exactly that
+          // guard; see git history if that reasoning is ever needed again.
           //
-          // The same month for all of them, though, not the newest of each.
-          // These dashboards exist to compare registers against one another
-          // -- a local-purchase GRN against the POs raised for that item, a
-          // return against the receipt it came from -- and those comparisons
-          // are only meaningful within one month. Resolved per dataset, a
-          // September purchase register next to an August GRN register
-          // looked completely normal while every cross-check silently had
-          // nothing to match against.
-          var month = newestSharedPeriod(have);
-          var partial = [], mismatched = [];
+          // Not yet bounded by how much history has piled up -- fine while
+          // a register has a handful of months on record; worth capping to
+          // a trailing window (or a picker) once one has a year or more.
+          var partial = [];
           have.forEach(function (x) {
             var months = periodsOf(x.info);
-            if (month && months.indexOf(month) >= 0) {
-              x.periods = [month];
-            } else {
-              // No month covers everything. Fall back to this register's own
-              // newest so the dashboard still opens, and say so -- silently
-              // comparing two different months is the failure being avoided.
-              //
-              // Flagged whether or not a shared month was found at all: when
-              // none was, every register is on a month of its own, which is
-              // the worst version of this rather than a reason to say
-              // nothing. Only meaningful with more than one register to
-              // disagree -- a single one is never mismatched with itself.
-              x.periods = months.length ? [months[months.length - 1]] : [];
-              if (have.length > 1 && x.periods.length) {
-                mismatched.push({ label: x.label, dataset: x.dataset,
-                                  period: x.periods[0] });
+            x.periods = months;
+            months.forEach(function (period) {
+              var entry = ((x.info.periods || []).filter(function (p) {
+                return p.period === period;
+              })[0]) || null;
+              var parts = partsComplete(reg, x.dataset, entry);
+              if (parts !== true) {
+                partial.push({ label: x.label, dataset: x.dataset,
+                               period: period, missingParts: parts });
               }
-            }
-            var entry = ((x.info.periods || []).filter(function (p) {
-              return p.period === x.periods[0];
-            })[0]) || null;
-            var parts = partsComplete(reg, x.dataset, entry);
-            if (parts !== true) {
-              partial.push({ label: x.label, dataset: x.dataset,
-                             period: x.periods[0], missingParts: parts });
-            }
+            });
           });
 
           return { ready: have.length > 0, complete: missing.length === 0,
-                   datasets: have, missing: missing, partial: partial,
-                   period: month || null, mismatched: mismatched };
+                   datasets: have, missing: missing, partial: partial };
         });
       });
   }
@@ -504,14 +487,6 @@
         // like a finished month, because every total on the page is then a
         // total of part of it.
         var warnings = [];
-        // Registers from different months cannot be compared against each
-        // other, and this dashboard exists to compare them, so this is said
-        // first and plainly.
-        if (loaded.length && (state.mismatched || []).length) {
-          warnings.push('Not all registers have the same month: '
-            + state.mismatched.map(function (m) { return m.label + ' is showing ' + m.period; }).join(', ')
-            + '. Comparisons between registers will not line up until the missing month is imported.');
-        }
         if (loaded.length && (state.partial || []).length) {
           warnings.push((state.partial || []).map(function (p) {
             return p.label + ' ' + p.period + ' is missing '

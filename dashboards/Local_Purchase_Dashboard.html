@@ -1483,7 +1483,15 @@ const MONTHS = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:
  * settles it (only days 1-12 ever appear) keeps the day-first default this
  * dashboard has always used. */
 let DATE_CONV = { '/': 'DMY', '-': 'DMY', '.': 'DMY' };
-function detectDateConventions(values){
+/* Per column, never pooled across columns. One export can write its columns
+   to different conventions -- an expiry as "30/11/27" (day-first, because
+   that column carried an explicit format) beside a GRN date as "7/13/26"
+   (month-first, because that one did not) -- and pooling them lets whichever
+   column happens to be read first decide for all of them. That is exactly
+   what happened here: a day-first expiry settled the slash convention before
+   any GRN date over the 12th was reached, and July went back to being read
+   as twelve different months. */
+function conventionsIn(values){
   const conv = { '/': null, '-': null, '.': null };
   for(const v of values){
     if(v === null || v === undefined || v instanceof Date) continue;
@@ -1499,15 +1507,24 @@ function detectDateConventions(values){
     if(a > 12 && b <= 12) conv[sep] = 'DMY';
     else if(b > 12 && a <= 12) conv[sep] = 'MDY';
   }
-  DATE_CONV = {
+  return {
     '/': conv['/'] || 'DMY',
     '-': conv['-'] || 'DMY',
     '.': conv['.'] || 'DMY',
   };
-  return DATE_CONV;
+}
+/* Reads one column out of a set of rows and works out its own convention. */
+function conventionForColumn(rows, keys){
+  const vals = [];
+  (rows || []).forEach(r => {
+    const v = get(r, keys);
+    if(v !== undefined && v !== null && v !== '') vals.push(v);
+  });
+  return conventionsIn(vals);
 }
 
-function parseAnyDate(v){
+function parseAnyDate(v, conv){
+  conv = conv || DATE_CONV;
   if(v === null || v === undefined || v === '') return null;
   if(v instanceof Date) return isNaN(v) ? null : v;
   const s = String(v).trim();
@@ -1526,7 +1543,7 @@ function parseAnyDate(v){
   if(m){
     let y = Number(m[4]); if(y < 100) y += 2000;
     const a = Number(m[1]), b = Number(m[3]);
-    const mdy = DATE_CONV[m[2]] === 'MDY';
+    const mdy = conv[m[2]] === 'MDY';
     const day = mdy ? b : a;
     const mon = mdy ? a : b;
     // A month outside 1-12 is a misread, not a date. Left to the Date
@@ -1671,6 +1688,9 @@ function fmtDateRange(minDt, maxDt){
 }
 
 function processGRN(rows){
+  // Each date column decides for itself -- see conventionsIn().
+  const convGrn = conventionForColumn(rows, ['GRN Date']);
+  const convExp = conventionForColumn(rows, ['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date']);
   const lines = [];
   const aggMap = new Map();
   for(const r of rows){
@@ -1693,9 +1713,9 @@ function processGRN(rows){
     const mrp = mrpRate * qty;
     const value = epr;
     const dateRaw = get(r,['GRN Date']);
-    const dt = parseAnyDate(dateRaw);
+    const dt = parseAnyDate(dateRaw, convGrn);
     const expiryRaw = get(r,['Expiry Date','Expiry','Exp Date','Exp. Date','Batch Expiry Date']);
-    const expiryDt = parseAnyDate(expiryRaw);
+    const expiryDt = parseAnyDate(expiryRaw, convExp);
     const local = isLocalPurchase(poNo, supplier);
     const reason = local ? localPurchaseReason(poNo, supplier) : '';
     const key = unit+'||'+grnNo;
@@ -1710,6 +1730,7 @@ function processGRN(rows){
   return { lines, grns: Array.from(aggMap.values()) };
 }
 function processPO(rows){
+  const convPo = conventionForColumn(rows, ['PO Date']);
   const list = [];
   for(const r of rows){
     const poNo = String(get(r,['PO No','PO No.'])||'').trim();
@@ -1718,7 +1739,7 @@ function processPO(rows){
     const itemCode = String(get(r,['Item Code'])||'').trim();
     const status = String(get(r,['Status'])||'').trim();
     const dateRaw = get(r,['PO Date']);
-    const dt = parseAnyDate(dateRaw);
+    const dt = parseAnyDate(dateRaw, convPo);
     if(!itemCode || !dt) continue;
     list.push({poNo, unit, itemCode, status, date:dateRaw, dt});
   }
@@ -1763,19 +1784,6 @@ document.getElementById('buildBtn').addEventListener('click', () => {
 
   setTimeout(() => {
     try{
-      // Settle day-first vs month-first once, from every date column in both
-      // registers, before a single row is parsed -- one register's dates can
-      // be ambiguous all the way through while the other's prove the
-      // convention on its first row over the 12th.
-      const dateSamples = [];
-      const collect = (rows, keys) => (rows || []).forEach(r => keys.forEach(k => {
-        const v = get(r, [k]);
-        if(v !== undefined && v !== null && v !== '') dateSamples.push(v);
-      }));
-      collect(loaded.grn, ['GRN Date', 'Bill Date', 'Expiry Date']);
-      collect(loaded.po, ['PO Date']);
-      detectDateConventions(dateSamples);
-
       const g = processGRN(loaded.grn);
       const poList = processPO(loaded.po);
       RAW = {

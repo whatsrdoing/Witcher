@@ -2916,6 +2916,16 @@ function updateBtn(){
    then Process Files is clicked once both have landed -- nothing about
    how this dashboard reads or computes anything changes. A file the user
    picks by hand always wins (see assets/js/dashboard-agg.js). */
+/* Database auto-load is turned OFF for this dashboard, on purpose, for
+   now: it was showing stale/wrong figures (all-zero KPIs, a month that
+   didn't match the actual uploaded file) and we're debugging that
+   dashboard by dashboard rather than leaving auto-load live everywhere
+   while it does. Every other dashboard's auto-load is untouched. This
+   dashboard now always starts from its own upload panel, exactly like
+   Session mode already forces -- pick Purchase Register + GRN Register
+   by hand every time. Re-enable by restoring the IIFE below once the
+   underlying issue is found and fixed. */
+/*
 (function(){
   if(!window.parasAgg || !window.parasAgg.available()) return;
   const SLOT = {
@@ -2936,6 +2946,7 @@ function updateBtn(){
     if(!window.__parasUserLoaded && poFileObj && grnFileObj) document.getElementById('processBtn').click();
   });
 })();
+*/
 document.getElementById('processBtn').addEventListener('click', async ()=>{
   const btn = document.getElementById('processBtn');
   const progressEl = document.getElementById('progress');

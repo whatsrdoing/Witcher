@@ -43,11 +43,23 @@
       "skillPath": "skills/improve-animations/SKILL.md",
       "computedHash": "eeb219a407e325b687af88db25771cc3018e3148245604112f5ac6990b6fd79c"
     },
+    "linkedin-marketing": {
+      "source": "sergebulaev/linkedin-skills",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "bdb240fd341a43ab51a7f3058d25e316b73923d514e5b47a71ee99c945be458c"
+    },
     "pick-ui-library": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
       "skillPath": "skills/pick-ui-library/SKILL.md",
       "computedHash": "f8d4d2cf4677bf54b14f35f62a741add93541bfcb67863315a40164365161b49"
+    },
+    "prompt-master": {
+      "source": "nidhinjs/prompt-master",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "b85718374d27bbada453791af92b7ae0b3256e5552d2f3f9d940ca4183131e4b"
     },
     "prototype": {
       "source": "emilkowalski/skills",
@@ -60,12 +72,6 @@
       "sourceType": "github",
       "skillPath": "skills/review-animations/SKILL.md",
       "computedHash": "b9f669af5ae280c19a592a94611520335a81de25c88f225bf60ae4b2d66c8c7c"
-    },
-    "prompt-master": {
-      "source": "nidhinjs/prompt-master",
-      "sourceType": "github",
-      "skillPath": "SKILL.md",
-      "computedHash": "b85718374d27bbada453791af92b7ae0b3256e5552d2f3f9d940ca4183131e4b"
     }
   }
 }

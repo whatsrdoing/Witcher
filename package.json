@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "animejs": "^4.5.0"
+  },
+  "devDependencies": {
+    "shadcn": "^4.21.0"
   }
 }

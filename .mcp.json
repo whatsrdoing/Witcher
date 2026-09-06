@@ -8,6 +8,13 @@
       ],
       "cwd": "/home/user/Witcher",
       "type": "stdio"
+    },
+    "shadcn": {
+      "command": "npx",
+      "args": [
+        "shadcn@latest",
+        "mcp"
+      ]
     }
   }
 }

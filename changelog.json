@@ -1,0 +1,103 @@
+{
+  "entries": [
+    {
+      "date": "2026-09-04",
+      "version": "ad317db",
+      "title": "Data moved into a real database, Data Library is now its own dashboard",
+      "notes": [
+        "Accounts, passwords, 2FA, pending requests, feedback, and every log (login history, usage, Ask usage) now live in a proper database instead of flat files -- faster, and safer against a half-written file if something interrupts a save.",
+        "The Data Library is no longer a topbar drawer -- it is its own dashboard, with the same upload/browse/rename/delete it always had, plus a way to see exactly where your data is stored on this computer and download any stored month as a CSV to check it yourself.",
+        "Store Transfer is the first dashboard that loads itself straight from the database the moment you open it -- upload each month once, and every visit after that (yours or anyone else's) sees it instantly with no re-uploading, and it stays accurate the moment a month gets corrected.",
+        "Data Library and Data Health Check are now admin-only and sit at the very end of the dashboard list -- they are tools for whoever runs the install, not part of the day-to-day reports.",
+        "The Ask panel's header now shows Claude's own mark, animated, so you can see which model is actually answering."
+      ]
+    },
+    {
+      "date": "2026-09-03",
+      "version": "f9f8632",
+      "title": "PO by Item redesigned, smoother scrolling everywhere, new Pharmacy Space Calculator",
+      "notes": [
+        "Procurement Operations' \"PO by Item\" card now has Item Name, Unit and Category filters (with Select All/Clear All), Approved-PO-only filtering, click-to-sort on every numeric column, and pages properly at real data scale.",
+        "Fixed real scroll lag on dashboards with many cards -- removed heavy blur effects that were quietly slowing down scrolling.",
+        "Fixed the idle \"Are you there?\" popup showing invisible text in light theme.",
+        "New dashboard: Pharmacy Space Calculator -- enter a bed count, get total pharmacy area and a store-wise breakdown, no file upload needed.",
+        "The topbar is decluttered: only Admin, Theme and Lock stay visible; Data Library, Raise a Request, What's New and notifications now live behind one \"More\" menu."
+      ]
+    },
+    {
+      "date": "2026-09-01",
+      "version": "7f93297",
+      "title": "Data Assistant is now its own floating panel, smoother pickers",
+      "notes": [
+        "Ask (the Data Assistant) is now its own floating panel you can open from anywhere, admin-only, instead of being tucked inside one screen.",
+        "You can now pick which Claude model answers each question, and see a running token-usage window for the day and the month.",
+        "Sign-up's Designation/Department/Category fields now use a smooth, physical wheel picker instead of a plain dropdown.",
+        "Fixed two real performance issues found during a full audit -- login history and usage stats no longer replay the whole log on every check and stop slowing down as they grow."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": 1,
+      "title": "Two-factor authentication, request approvals, and more",
+      "notes": [
+        "Sign-in can now ask for a code from an authenticator app (or a one-time backup code) as a second step -- turn it on from the account menu, under Security.",
+        "New accounts, password resets, and sign-in name changes now go to the admin for approval instead of taking effect immediately.",
+        "\"Raise a request\" in the topbar sends a feature idea, a bug, or a question straight to the admin, and shows you its status.",
+        "The data folder now backs itself up automatically once a day, with a manual \"Back up now\" and downloadable backups in the admin panel.",
+        "New passwords need at least 10 characters, and can't be the sign-in name or a common password.",
+        "Each dashboard card now shows when its data was last updated.",
+        "A new admin panel: live sessions, accounts, login history (with IP), pending requests, suggestions, backups, and per-dashboard visibility.",
+        "The admin panel's Accounts card now shows each person's designation, department, category, phone, email and Paras ID, with an \"Edit profile\" button to correct any of them.",
+        "Login history is now grouped per person, most recently active first, with a click to expand their full history and a \"Load more\" for a longer window.",
+        "A new \"Usage\" view per account shows time spent per day or per month, which dashboards were viewed and for how long, and whether that person is signed in right now.",
+        "Sign-up now also offers IT and Management as departments, GCOO/MD/CHRO as designations, and \"All\" as a category, with the designation/department/category fields shown three across instead of two.",
+        "A \"How to sign in / reset your password\" link on the sign-in screen opens a short walkthrough of the current sign-in, reset, sign-up and 2FA flow."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": 2,
+      "title": "Email: sign-up verification, admin notifications, broadcasts",
+      "notes": [
+        "Once email is set up on the server (see set_mail.py), sign-up now sends a verification code to the address you type -- the request can't be sent until you enter it back.",
+        "The admin is emailed the moment a new signup, password reset, or sign-in name change lands in the pending-requests queue.",
+        "A new \"Broadcast email\" card in the admin panel sends a message to every account with an email on file, or to specific accounts you pick.",
+        "All of the above quietly does nothing until email is configured -- nothing about sign-up, requests, or the admin panel changes on a server that hasn't run set_mail.py."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": "f293c8f",
+      "title": "Delete an account from the admin panel",
+      "notes": [
+        "The Accounts card's Disable button is now \"Disable / delete\" -- click it and choose which one, rather than disabling being the only option.",
+        "Deleting is permanent: the account, its password, and its 2FA setup are removed. Its past login history stays, same as a renamed or disabled account's does.",
+        "Guarded against the two ways this could go wrong: you can't delete the only remaining account, and you can't delete the account you're currently signed in as.",
+        "Fixed the Edit profile fields (name/phone/email/employee ID) sometimes appearing to auto-complete a previous account's value while typing -- that was the browser's own autofill remembering an earlier entry, not the app; the fields now opt out of it.",
+        "Broadcast email now waits for every send to finish and reports what actually happened -- \"Sent to N accounts\" or exactly who it failed for -- instead of just \"Sending to N accounts\" the moment it was queued."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": "c85eadc",
+      "title": "Reordered signup fields, friendlier verification emails",
+      "notes": [
+        "Sign-up now asks for Employee ID above Email, with the \"Send verification code\" button right beneath Email instead of further down the form.",
+        "The sign-up verification email and the admin's new-request email are now a proper welcome note -- a greeting, a plain-language explanation of what's happening, and the code itself in bold, larger type.",
+        "Fixed a crash: a non-signup request (password reset, sign-in name change) could fail to notify the admin by email due to a formatting bug in the message builder."
+      ]
+    },
+    {
+      "date": "2026-08-31",
+      "version": "18c7011",
+      "title": "Notification bell, topbar cleanup, renamed to SCM Gen-Dash",
+      "notes": [
+        "A bell in the topbar now shows pending requests from anywhere in the app, not just inside the admin panel -- with a live count and a preview list.",
+        "The admin panel auto-refreshes roughly every 10 seconds while it's open, so a new request shows up without leaving and coming back.",
+        "Removed the topbar's Home button -- the Paras Health logo already goes home, so this frees up space for the other icons.",
+        "The Data Library button is now icon-only like its neighbours, with its name shown on hover.",
+        "Renamed the product from \"Supply Chain Command Centre\" to \"SCM Gen-Dash\" everywhere it's shown. The logo is unchanged."
+      ]
+    }
+  ]
+}

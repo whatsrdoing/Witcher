@@ -1,0 +1,743 @@
+#!/usr/bin/env python3
+"""Keeps every row of every register, month after month, in one file.
+
+The Data Library holds files. This holds their *contents* -- so July, August
+and September of the same register stack up in one place and can be asked
+questions across all of them, right down to a single bill.
+
+    data/library.db        one SQLite file, backed up by copying it
+
+Nothing here needs installing: SQLite comes with Python, same as the web
+server does. Every value is stored as text exactly as it appeared in the
+CSV, and converted only when a query asks for a number -- a register that
+writes "1,250.00" or "(45)" or a leading-zero item code survives a round
+trip unchanged, which it would not if the importer guessed types.
+"""
+import csv
+import json
+import os
+import re
+import sqlite3
+import time
+
+# Table and column names go into SQL, so they are built from this and
+# nothing else. Anything a register actually contains is mapped onto it
+# rather than trusted.
+SAFE_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,62}$")
+BATCH = 20000                       # rows per executemany; keeps memory flat
+META = ("_period", "_source", "_rowno", "_part")
+
+# Columns worth an index: the ones a single record is looked up by, which in
+# practice means identifiers -- a column *ending* in code/no/id, not merely
+# mentioning it. Matching "item" or "store" anywhere also caught Item Name,
+# Store Name, Supplier and the date columns, which nobody looks a row up by:
+# ten indexes instead of five, for a database 2.3x the size of the CSVs it
+# came from and imports that slowed from 25s to 100s as they were maintained.
+KEYISH = re.compile(r"(^|_)(code|no|num|number|id|sku)$", re.I)
+
+# Every character JavaScript's String.prototype.trim() strips from each end:
+# ECMA-262 WhiteSpace (tab, VT, FF, space, NBSP, the Zs-category separators,
+# and the BOM/ZWNBSP) plus LineTerminator (LF, CR, LS, PS). SQLite's built-in
+# TRIM() only strips a plain space -- a cell padded with a tab or NBSP (both
+# routine in registers pasted from Excel or the web) would still count as a
+# distinct value, or as non-blank, to SQL while the browser's own .trim()
+# already calls it blank. jstrim() (registered as a SQL function below) is
+# how every "match the browser's .trim()" filter in this file agrees with it
+# on every character, not just the common one.
+_JS_TRIM_CHARS = (
+    "\t\n\x0b\x0c\r \xa0        "
+    "        　﻿"
+)
+
+
+def _js_trim(value):
+    if value is None:
+        return None
+    return str(value).strip(_JS_TRIM_CHARS)
+
+
+def slug(name, fallback="col"):
+    """A safe SQL identifier for an arbitrary column heading."""
+    s = re.sub(r"[^A-Za-z0-9]+", "_", str(name or "")).strip("_")
+    if not s:
+        s = fallback
+    if not s[0].isalpha():
+        s = "c_" + s
+    return s[:63]
+
+
+class DataStoreError(Exception):
+    pass
+
+
+class DataStore:
+    def __init__(self, path):
+        self.path = path
+        d = os.path.dirname(os.path.abspath(path))
+        if d:
+            os.makedirs(d, exist_ok=True)
+        self.con = sqlite3.connect(path, timeout=30, check_same_thread=False)
+        self.con.execute("PRAGMA journal_mode=WAL")      # readers don't block the writer
+        self.con.execute("PRAGMA synchronous=NORMAL")
+        self.con.create_function("jstrim", 1, _js_trim, deterministic=True)
+        self.con.execute("""CREATE TABLE IF NOT EXISTS _imports (
+                dataset TEXT, period TEXT, part TEXT DEFAULT '', source TEXT, rows INTEGER,
+                columns INTEGER, imported_at INTEGER,
+                PRIMARY KEY (dataset, period, part))""")
+        self.con.commit()
+        self._migrate_parts()
+        self._migrate_headers()
+
+    def _migrate_parts(self):
+        """Bring a store written before parts existed up to date.
+
+        Some registers arrive split across several files for the same month --
+        COGS comes as department consumption, IP pharmacy and OP pharmacy --
+        and each has to be able to land, and be replaced, without disturbing
+        the others. That needs a part alongside the period.
+
+        Existing rows belong to the single unnamed part, so they become ''.
+        SQLite cannot alter a primary key, so _imports is rebuilt; the data
+        tables only need a column added, which is cheap and non-destructive.
+        """
+        cols = [r[1] for r in self.con.execute("PRAGMA table_info(_imports)")]
+        if "part" in cols:
+            return
+        self.con.execute("BEGIN")
+        try:
+            self.con.execute("""CREATE TABLE _imports_new (
+                    dataset TEXT, period TEXT, part TEXT DEFAULT '', source TEXT, rows INTEGER,
+                    columns INTEGER, imported_at INTEGER,
+                    PRIMARY KEY (dataset, period, part))""")
+            self.con.execute("""INSERT INTO _imports_new
+                    (dataset, period, part, source, rows, columns, imported_at)
+                    SELECT dataset, period, '', source, rows, columns, imported_at FROM _imports""")
+            self.con.execute("DROP TABLE _imports")
+            self.con.execute("ALTER TABLE _imports_new RENAME TO _imports")
+            self.con.commit()
+        except Exception:
+            self.con.rollback()
+            raise
+
+    def _migrate_headers(self):
+        """Remember each import's original column headings.
+
+        A heading becomes a safe SQL identifier on the way in (slug(): "PO
+        Amount" -> PO_Amount, "EPR." -> EPR), and until now that was the only
+        form kept. Anything reading the data back therefore had to guess the
+        original wording, and a consumer that guessed wrong got a column it
+        could not find -- silently, because a missing column reads as blank
+        rather than raising.
+
+        Storing the headings the file actually arrived with removes the guess
+        entirely. Added rather than rebuilt: ALTER TABLE ADD COLUMN is cheap
+        and non-destructive, and rows imported before this stay readable with
+        headers NULL, which header_map() below treats as "no record, fall
+        back to the identifier" exactly as it behaved before.
+        """
+        cols = [r[1] for r in self.con.execute("PRAGMA table_info(_imports)")]
+        if "headers" in cols:
+            return
+        self.con.execute("ALTER TABLE _imports ADD COLUMN headers TEXT")
+        self.con.commit()
+
+    def close(self):
+        self.con.close()
+
+    # ---- schema ---------------------------------------------------------
+    def _table(self, dataset):
+        t = slug(dataset, "dataset")
+        if not SAFE_NAME.match(t):
+            raise DataStoreError("bad dataset name: %r" % dataset)
+        return "ds_" + t
+
+    def _existing_columns(self, table):
+        rows = self.con.execute("PRAGMA table_info(%s)" % table).fetchall()
+        return [r[1] for r in rows]
+
+    def _ensure_table(self, table, columns):
+        """Create the table, or widen it if this month has new columns.
+
+        A register gaining a column in August must not orphan July, and must
+        not silently drop the new one -- so columns are added, never removed,
+        and older rows simply read NULL there.
+        """
+        have = self._existing_columns(table)
+        if not have:
+            cols = ", ".join('"%s" TEXT' % c for c in columns)
+            self.con.execute("CREATE TABLE %s (_period TEXT, _source TEXT, _rowno INTEGER, "
+                             "_part TEXT DEFAULT '', %s)" % (table, cols))
+            self.con.execute('CREATE INDEX "ix_%s_period" ON %s(_period)' % (table, table))
+            self.con.commit()
+            return columns, []
+        if "_part" not in have:
+            # A table written before parts existed. Everything in it belongs
+            # to the single unnamed part, which is what the default gives it.
+            self.con.execute("ALTER TABLE %s ADD COLUMN _part TEXT DEFAULT ''" % table)
+            self.con.execute("UPDATE %s SET _part='' WHERE _part IS NULL" % table)
+            self.con.commit()
+            have = self._existing_columns(table)
+        # Case-insensitively, same reason as import_csv's own within-file
+        # dedup just above: SQLite already has this exact column under
+        # whatever case an earlier month's import happened to use, and a
+        # plain-string comparison against `have` would not recognise that --
+        # this month's "UNIT" looks new when only "Unit" is in `have`, so it
+        # would be handed to ALTER TABLE ADD COLUMN as if it were, and
+        # SQLite refuses that with the same "duplicate column name" error,
+        # just one release later, from a register's second month rather
+        # than its first. The INSERT below still works once this is fixed:
+        # SQLite resolves column names in DML case-insensitively, so writing
+        # to "UNIT" when the table calls it "Unit" is not itself a problem --
+        # only CREATE TABLE/ALTER TABLE ever refused the collision.
+        have_lower = set(c.lower() for c in have)
+        added = [c for c in columns if c.lower() not in have_lower]
+        for c in added:
+            self.con.execute('ALTER TABLE %s ADD COLUMN "%s" TEXT' % (table, c))
+        if added:
+            self.con.commit()
+        return columns, added
+
+    # ---- import ---------------------------------------------------------
+    def import_csv(self, path, dataset, period, source=None, progress=None, part=""):
+        """Load one CSV as one dataset+period+part. Re-importing replaces it.
+
+        Replacing rather than appending is deliberate: uploading July twice
+        should leave one July, not two. Everything happens in a single
+        transaction, so a failure half way leaves the previous import intact
+        instead of a half-loaded month.
+
+        A register that arrives split across several files for the same month
+        -- COGS as department consumption, IP pharmacy and OP pharmacy --
+        names each one as a part. Replacement is then scoped to that part, so
+        re-uploading IP pharmacy leaves the other two where they are. A
+        register that arrives whole simply uses the unnamed part.
+        """
+        if not str(period or "").strip():
+            raise DataStoreError("a period is required (e.g. 2026-07)")
+        table = self._table(dataset)
+        source = source or os.path.basename(path)
+        period = str(period).strip()
+        part = str(part or "").strip()
+
+        with open(path, newline="", encoding="utf-8-sig", errors="replace") as fh:
+            reader = csv.reader(fh)
+            try:
+                header = next(reader)
+            except StopIteration:
+                raise DataStoreError("that file is empty")
+            if not header:
+                raise DataStoreError("that file has no header row")
+
+            # Compared case-insensitively, not as plain strings: SQLite treats
+            # column names that way (CREATE TABLE ("UNIT" TEXT, "Unit" TEXT)
+            # fails with "duplicate column name: UNIT", since the two are the
+            # same column to it), so two headings differing only in case are
+            # exactly as much "the same heading twice" as two that are
+            # identical -- a real COGS export had "UNIT" and "Unit" together,
+            # which the previous case-sensitive check let straight through to
+            # that crash. Suffixed names are also checked against what is
+            # already used, so renaming one duplicate can never collide with
+            # another (a file that already has a column literally called
+            # "Unit_1", however unlikely, does not get a silent clash).
+            cols, used = [], set()
+            for i, h in enumerate(header):
+                c = slug(h, "col%d" % (i + 1))
+                if c.lower() in used:
+                    n = 1
+                    while ("%s_%d" % (c, n)).lower() in used:
+                        n += 1
+                    c = "%s_%d" % (c, n)
+                used.add(c.lower())
+                cols.append(c)
+
+            self._ensure_table(table, cols)
+            ncols = len(cols)
+            placeholders = ",".join("?" * (4 + ncols))
+            sql = 'INSERT INTO %s (_period,_source,_rowno,_part,%s) VALUES (%s)' % (
+                table, ",".join('"%s"' % c for c in cols), placeholders)
+
+            t0 = time.time()
+            n = 0
+            # Indexes are left live during the insert rather than dropped
+            # and rebuilt afterward. SQLite maintains them incrementally as
+            # rows land, and for a small monthly file landing on a register
+            # that already has months of data behind it, that is far
+            # cheaper than rescanning the table's entire accumulated history
+            # to rebuild indexes that were already correct except for the
+            # new rows: a 6MB, 17,000-row file onto a ~1GB table measured at
+            # 8.7s with an unconditional drop-and-rebuild, against 1.1s
+            # leaving the existing indexes in place -- an ~8x difference
+            # that only widens as a register accumulates more months. A
+            # table's very first load has no indexes yet to slow the insert
+            # down, so there is nothing to drop either way; _build_indexes
+            # below still does the one-time full build for that case, and
+            # cheaply no-ops (CREATE INDEX IF NOT EXISTS) for every case
+            # after it.
+            try:
+                self.con.execute("BEGIN")
+                # COALESCE so rows written before parts existed (NULL) are
+                # treated as the unnamed part rather than surviving forever.
+                self.con.execute(
+                    "DELETE FROM %s WHERE _period=? AND COALESCE(_part,'')=?" % table,
+                    (period, part))
+                batch = []
+                for row in reader:
+                    n += 1
+                    if len(row) < ncols:
+                        row = row + [""] * (ncols - len(row))
+                    elif len(row) > ncols:
+                        row = row[:ncols]          # trailing junk, not our business
+                    batch.append((period, source, n, part, *row))
+                    if len(batch) >= BATCH:
+                        self.con.executemany(sql, batch)
+                        batch = []
+                        if progress:
+                            progress(n)
+                if batch:
+                    self.con.executemany(sql, batch)
+                # cols and header are parallel: cols[i] is the identifier that
+                # header[i] became, dedupe suffix included, so the pairing is
+                # exact even when a file repeats a heading.
+                self.con.execute(
+                    "INSERT OR REPLACE INTO _imports VALUES (?,?,?,?,?,?,?,?)",
+                    (dataset, period, part, source, n, ncols, int(time.time() * 1000),
+                     json.dumps(list(zip(cols, header)))))
+                self.con.commit()
+            except Exception:
+                self.con.rollback()
+                raise
+            finally:
+                # Rebuilt even if the load failed, so a bad import never
+                # leaves the store slow to search.
+                self._build_indexes(table, cols)
+        return {"dataset": dataset, "period": period, "part": part, "source": source,
+                "rows": n, "columns": ncols, "seconds": round(time.time() - t0, 1)}
+
+    def _build_indexes(self, table, cols):
+        """Index the columns people look one record up by.
+
+        Built after loading, not during: on a million-row month that is the
+        difference between a lookup taking a third of a second and taking
+        none at all, and building them afterwards is much the faster way
+        round.
+        """
+        for c in cols:
+            if not KEYISH.search(c):
+                continue
+            name = "ix_%s_%s" % (table, c)
+            try:
+                self.con.execute('CREATE INDEX IF NOT EXISTS "%s" ON %s("%s")' % (name, table, c))
+            except sqlite3.OperationalError:
+                pass
+        self.con.commit()
+
+    # ---- reading --------------------------------------------------------
+    def datasets(self):
+        """What is in the store, grouped by dataset then period.
+
+        A period can be made of several parts, so each period reports its
+        parts as well as its total -- otherwise a COGS month built from three
+        files would look like three separate months.
+        """
+        out = {}
+        for ds, per, part, src, rows, ncols, at in self.con.execute(
+                "SELECT dataset,period,part,source,rows,columns,imported_at "
+                "FROM _imports ORDER BY dataset,period,part"):
+            d = out.setdefault(ds, {"dataset": ds, "periods": [], "rows": 0})
+            slot = next((p for p in d["periods"] if p["period"] == per), None)
+            if slot is None:
+                slot = {"period": per, "source": src, "rows": 0, "columns": ncols,
+                        "importedAt": at, "parts": []}
+                d["periods"].append(slot)
+            slot["parts"].append({"part": part or "", "source": src, "rows": rows,
+                                  "columns": ncols, "importedAt": at})
+            slot["rows"] += rows
+            if at > slot["importedAt"]:
+                slot["importedAt"] = at
+                slot["source"] = src
+            d["rows"] += rows
+        return list(out.values())
+
+    def columns(self, dataset):
+        cols = self._existing_columns(self._table(dataset))
+        return [c for c in cols if c not in META]
+
+    def _where(self, dataset, periods=None, filters=None):
+        clauses, args = [], []
+        if periods:
+            clauses.append("_period IN (%s)" % ",".join("?" * len(periods)))
+            args += list(periods)
+        known = set(self._existing_columns(self._table(dataset)))
+        for col, val in (filters or {}).items():
+            c = slug(col)
+            if c not in known:
+                raise DataStoreError("no column %r in %s" % (col, dataset))
+            if isinstance(val, dict):
+                if val.get("not_blank") and "in" in val:
+                    # Not a shape any caller here sends, and not blank is
+                    # not something an IN-list can also ask for -- silently
+                    # keeping one and dropping the other would mean the
+                    # filter actually applied is not the one the caller
+                    # wrote, and no caller should ever see that quietly.
+                    raise DataStoreError(
+                        "unknown filter shape for %r: not_blank and in together" % col)
+                if val.get("not_blank"):
+                    # A row with nothing (or only whitespace) in a column
+                    # that names one side of a relationship is not a real
+                    # record of that relationship -- Store Transfer drops a
+                    # row with no From Store or no To Store entirely, rather
+                    # than counting it as a transfer to or from nowhere.
+                    # jstrim() matches that exactly; SQLite's own TRIM()
+                    # only strips U+0020 and would miss a cell holding a
+                    # tab, NBSP, or other whitespace the browser's own
+                    # .trim() (which strips all of them) already treats as
+                    # blank -- see jstrim's own docstring for the exact set.
+                    clauses.append("jstrim(COALESCE(\"%s\", '')) != ''" % c)
+                elif "in" in val:
+                    # Same list-of-values filter as below, but matched after
+                    # trimming the column -- for exactly the same reason
+                    # group_by's own trim option exists: a dashboard reads
+                    # every store name through .trim() before it is ever
+                    # compared or displayed, so "Main Store" and " Main
+                    # Store " are the one store it would let you filter by,
+                    # not two different values a plain IN would tell apart.
+                    vals = list(val["in"])
+                    if not vals:
+                        clauses.append("0")
+                        continue
+                    if len(vals) > 900:
+                        raise DataStoreError("too many values for %r (max 900)" % col)
+                    col_expr = "jstrim(\"%s\")" % c if val.get("trim") else '"%s"' % c
+                    clauses.append("%s IN (%s)" % (col_expr, ",".join("?" * len(vals))))
+                    args += vals
+                else:
+                    raise DataStoreError("unknown filter shape for %r: %r" % (col, val))
+            elif isinstance(val, (list, tuple, set)):
+                # A dashboard's store/unit picker is a set, not one value.
+                # An empty set means "none of them", which is not the same
+                # question as "no filter" -- answering it with every row
+                # would be the opposite of what was asked.
+                vals = list(val)
+                if not vals:
+                    clauses.append("0")
+                    continue
+                if len(vals) > 900:
+                    raise DataStoreError("too many values for %r (max 900)" % col)
+                clauses.append('"%s" IN (%s)' % (c, ",".join("?" * len(vals))))
+                args += vals
+            elif isinstance(val, str) and val.endswith("*"):
+                clauses.append('"%s" LIKE ?' % c)
+                args.append(val[:-1] + "%")
+            else:
+                clauses.append('"%s" = ?' % c)
+                args.append(val)
+        return (" WHERE " + " AND ".join(clauses) if clauses else ""), args
+
+    def count(self, dataset, periods=None, filters=None):
+        where, args = self._where(dataset, periods, filters)
+        return self.con.execute("SELECT COUNT(*) FROM %s%s" % (self._table(dataset), where),
+                                args).fetchone()[0]
+
+    # ---- aggregation ----------------------------------------------------
+    #
+    # Every column in every dataset table is TEXT (see _ensure_table): a CSV
+    # import cannot know which columns are meant to be numbers, and guessing
+    # per month would make August's schema disagree with July's. That is fine
+    # for storage and for export, but it means SUM() and date comparison have
+    # to normalise on the way past, or they would quietly return nonsense --
+    # SUM('1,84,599.45') is 1 in SQLite, not 184599.45, and 'dd-mm-yyyy'
+    # strings sort by day before month.
+    #
+    # The two helpers below are exact mirrors of what the dashboards' own
+    # JavaScript already does to the same values, so a figure computed here
+    # equals the figure computed in the browser rather than merely resembling
+    # it:
+    #
+    #   parseNum(s)  -> String(s).replace(/,/g,'').trim() then parseFloat,
+    #                   NaN treated as 0.
+    #                   CAST(REPLACE(col,',','') AS REAL) matches this
+    #                   exactly: SQLite's CAST takes the leading numeric
+    #                   prefix and yields 0.0 for text that has none, which
+    #                   is parseFloat + the isNaN?0 branch in one step.
+    #                   COALESCE covers NULL (a column a later month added,
+    #                   read back on an earlier month's rows).
+    #
+    #   parseTransferDate/dateKey -> 'dd-mm-yyyy hh:mm' read as day, month,
+    #                   year and re-emitted as 'yyyy-mm-dd'. Rebuilt here with
+    #                   substr() so the result is the same ISO key the
+    #                   dashboards filter and group on, and so it sorts and
+    #                   compares correctly as text.
+
+    @staticmethod
+    def _num_expr(col):
+        """One TEXT column read as a number, exactly as parseNum() does."""
+        return "COALESCE(CAST(REPLACE(\"%s\", ',', '') AS REAL), 0)" % col
+
+    @staticmethod
+    def _date_expr(col):
+        """One 'dd-mm-yyyy[ hh:mm]' TEXT column as a sortable 'yyyy-mm-dd'.
+
+        Anything that is not in that shape (an empty cell, a stray header
+        repeated mid-file) yields NULL rather than a wrong date, so it drops
+        out of a range filter instead of landing in an arbitrary month --
+        the same outcome as parseTransferDate() returning null and the row
+        being skipped."""
+        return ("CASE WHEN substr(\"{c}\",3,1)='-' AND substr(\"{c}\",6,1)='-' "
+                "THEN substr(\"{c}\",7,4)||'-'||substr(\"{c}\",4,2)||'-'||substr(\"{c}\",1,2) "
+                "END").format(c=col)
+
+    AGG_FUNCTIONS = ("sum", "avg", "min", "max", "count", "count_distinct", "sum_product")
+
+    def _checked_col(self, known, col):
+        c = slug(col)
+        if c not in known:
+            raise DataStoreError("no column %r in this dataset" % col)
+        return c
+
+    def aggregate(self, dataset, measures, group_by=None, periods=None, filters=None,
+                  date_col=None, date_from=None, date_to=None, order_by=None,
+                  descending=True, limit=None):
+        """Group and total rows inside SQLite instead of in the browser.
+
+        Returns {"columns": [...], "rows": [[...], ...]} -- already reduced to
+        the handful of numbers a dashboard actually draws, so a month of
+        20,000 rows crosses the wire as a few hundred bytes.
+
+        Every column name reaching SQL is checked against the table's real
+        columns first (same rule as _where), so nothing here interpolates
+        caller-supplied text into a statement. Values are always bound.
+
+        measures: [{"fn": ..., "col": ..., "as": ...}]
+          count           -- COUNT(*), no column needed
+          count_distinct  -- distinct non-empty values of one column
+          sum/avg/min/max -- over one column, read as a number
+          sum_product     -- SUM(a*b) over two columns, both read as numbers
+                             (quantity x rate, which no single column holds)
+
+        group_by: column names, or {"col": ..., "as": ..., "by": "month"|"day"}
+          to group a 'dd-mm-yyyy' column by month or day instead of verbatim.
+
+        date_col + date_from/date_to: an inclusive range over a 'dd-mm-yyyy'
+          column, compared as 'yyyy-mm-dd' so it means what it says.
+        """
+        table = self._table(dataset)
+        known = set(self._existing_columns(table))
+        if not measures:
+            raise DataStoreError("at least one measure is required")
+
+        select, names = [], []
+
+        group_exprs = []
+        for g in (group_by or []):
+            spec = {"col": g} if isinstance(g, str) else dict(g)
+            col = self._checked_col(known, spec.get("col"))
+            by = spec.get("by")
+            if by == "month":
+                expr = "substr(%s,1,7)" % self._date_expr(col)
+            elif by == "day":
+                expr = self._date_expr(col)
+            elif by:
+                raise DataStoreError("unknown group transform %r" % by)
+            else:
+                expr = '"%s"' % col
+            if spec.get("trim"):
+                # " Main Store" and "Main Store" are one store to a
+                # dashboard, which reads every value through .trim() before
+                # ever comparing or displaying it -- grouping on the raw
+                # column would count that pair as two, and a store list
+                # built from it would show both. jstrim(), not SQLite's
+                # built-in TRIM(): the latter only strips U+0020, and a
+                # tab- or NBSP-padded duplicate would still group apart.
+                # Only meaningful undated (by/trim together makes no sense
+                # and is not something any caller here does).
+                expr = "jstrim(%s)" % expr
+            group_exprs.append(expr)
+            select.append(expr)
+            # Named back with the wording the caller used, not the SQL
+            # identifier it became: a caller that groups by "Item Name" and
+            # gets a column called Item_Name has to know about slugging to
+            # read its own result, and looking it up under the name it asked
+            # for silently yields nothing -- the same shape of mistake that
+            # made a dashboard read every total as blank.
+            names.append(spec.get("as") or spec.get("col"))
+
+        for m in measures:
+            if not isinstance(m, dict):
+                raise DataStoreError("each measure must be an object")
+            fn = str(m.get("fn") or "").lower()
+            if fn not in self.AGG_FUNCTIONS:
+                raise DataStoreError("unknown measure function %r" % m.get("fn"))
+            if fn == "count":
+                expr = "COUNT(*)"
+            elif fn == "sum_product":
+                cols = m.get("cols") or []
+                if len(cols) != 2:
+                    raise DataStoreError("sum_product needs exactly two columns")
+                a = self._checked_col(known, cols[0])
+                b = self._checked_col(known, cols[1])
+                expr = "SUM(%s * %s)" % (self._num_expr(a), self._num_expr(b))
+            elif fn == "count_distinct":
+                c = self._checked_col(known, m.get("col"))
+                # Blank cells are not a value anyone counts -- the browser's
+                # Set-based equivalents never add an empty string either.
+                # Untrimmed by default, on purpose: a dashboard's own
+                # Set.add() runs on the raw column value with no .trim()
+                # of its own (only its truthiness is checked, so "0" and
+                # " " both still count, only "" does not), so trimming
+                # here would call " TN0001" and "TN0001" the same note
+                # when the browser counts them as two. trim:true opts a
+                # caller into jstrim() instead, for one that does mean to
+                # match on the trimmed value.
+                col_expr = "jstrim(\"%s\")" % c if m.get("trim") else '"%s"' % c
+                expr = "COUNT(DISTINCT NULLIF(%s, ''))" % col_expr
+            else:
+                c = self._checked_col(known, m.get("col"))
+                expr = "%s(%s)" % (fn.upper(), self._num_expr(c))
+            select.append(expr)
+            names.append(m.get("as") or fn)
+
+        where, args = self._where(dataset, periods, filters)
+
+        if date_col and (date_from or date_to):
+            dcol = self._checked_col(known, date_col)
+            dexpr = self._date_expr(dcol)
+            parts = []
+            if date_from:
+                parts.append("%s >= ?" % dexpr)
+                args.append(str(date_from))
+            if date_to:
+                parts.append("%s <= ?" % dexpr)
+                args.append(str(date_to))
+            clause = " AND ".join(parts)
+            where = (where + " AND " + clause) if where else (" WHERE " + clause)
+
+        sql = "SELECT %s FROM %s%s" % (", ".join(select), table, where)
+        if group_exprs:
+            sql += " GROUP BY " + ", ".join(group_exprs)
+
+        if order_by is not None:
+            if isinstance(order_by, int):
+                idx = order_by
+            else:
+                if order_by not in names:
+                    raise DataStoreError("cannot order by %r -- not selected" % order_by)
+                idx = names.index(order_by)
+            if not 0 <= idx < len(names):
+                raise DataStoreError("order_by out of range")
+            # Ordinal, not the expression again: SQLite resolves it against
+            # the select list, and it cannot carry caller text into the SQL.
+            sql += " ORDER BY %d %s" % (idx + 1, "DESC" if descending else "ASC")
+
+        if limit is not None:
+            sql += " LIMIT ?"
+            args = args + [int(limit)]
+
+        rows = [list(r) for r in self.con.execute(sql, args).fetchall()]
+        return {"columns": names, "rows": rows}
+
+    def header_map(self, dataset, periods=None):
+        """{identifier: the heading the file actually arrived with}.
+
+        Scoped to the periods being read, not the whole dataset. A register
+        that renames a column between months -- "PO No." in July, "PO No" in
+        August -- slugs both to one column, so merging every import made the
+        newest wording describe every month's rows, including months that
+        never used it. Exporting July then handed back August's heading over
+        July's data, and a dashboard that matches the heading exactly read
+        the wrong thing. Restricting this to the months actually being
+        exported keeps the header row honest about the rows under it.
+
+        Within that scope the most recent import still wins, which is the
+        right answer when one month was re-imported with a correction.
+        Identifiers with nothing on record -- imported before headers were
+        kept, or a column only another month had -- are simply absent, and
+        callers fall back to the identifier itself.
+        """
+        out = {}
+        sql = "SELECT headers FROM _imports WHERE dataset=?"
+        args = [dataset]
+        if periods:
+            sql += " AND period IN (%s)" % ",".join("?" * len(periods))
+            args += list(periods)
+        sql += " ORDER BY imported_at ASC"
+        try:
+            rows = self.con.execute(sql, args).fetchall()
+        except sqlite3.OperationalError:
+            return out
+        for (blob,) in rows:
+            if not blob:
+                continue
+            try:
+                pairs = json.loads(blob)
+            except ValueError:
+                continue
+            for pair in pairs:
+                if isinstance(pair, (list, tuple)) and len(pair) == 2 and pair[1]:
+                    out[pair[0]] = pair[1]
+        return out
+
+    def rows(self, dataset, periods=None, filters=None, limit=None, offset=0,
+             original_headers=False, include_meta=True):
+        """Streams matching rows. Never materialises the whole result.
+
+        original_headers replaces the SQL identifiers in the header row with
+        the headings the files were imported with (see header_map), so a
+        consumer that only knows the register's own wording can read the
+        export without translating anything.
+
+        include_meta=False drops the four bookkeeping columns this store adds
+        (_period, _source, _rowno, _part). They are the store's record of
+        where a row came from, not part of the register, and a consumer that
+        treats every column as data will otherwise count them -- a blank
+        _part on a register that has no parts reads as an empty column.
+        """
+        table = self._table(dataset)
+        cols = self._existing_columns(table)
+        if not include_meta:
+            cols = [c for c in cols if c not in META]
+        if not cols:
+            yield []
+            return
+        where, args = self._where(dataset, periods, filters)
+        sql = "SELECT %s FROM %s%s" % (",".join('"%s"' % c for c in cols), table, where)
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            args = args + [int(limit), int(offset)]
+        cur = self.con.execute(sql, args)
+        if original_headers:
+            names = self.header_map(dataset, periods)
+            yield [names.get(c, c) for c in cols]
+        else:
+            yield cols
+        while True:
+            chunk = cur.fetchmany(2000)
+            if not chunk:
+                break
+            for r in chunk:
+                yield list(r)
+
+    def export_csv(self, out, dataset, periods=None, filters=None, limit=None,
+                   original_headers=False, include_meta=True):
+        w = csv.writer(out)
+        n = -1
+        for row in self.rows(dataset, periods, filters, limit,
+                             original_headers=original_headers, include_meta=include_meta):
+            w.writerow(row)
+            n += 1
+        return n
+
+    def drop(self, dataset, period=None, part=None):
+        table = self._table(dataset)
+        if period and part is not None:
+            # One part of one month, leaving the rest of that month alone.
+            self.con.execute("DELETE FROM %s WHERE _period=? AND COALESCE(_part,'')=?" % table,
+                             (period, part))
+            self.con.execute("DELETE FROM _imports WHERE dataset=? AND period=? AND part=?",
+                             (dataset, period, part))
+        elif period:
+            self.con.execute("DELETE FROM %s WHERE _period=?" % table, (period,))
+            self.con.execute("DELETE FROM _imports WHERE dataset=? AND period=?", (dataset, period))
+        else:
+            self.con.execute("DROP TABLE IF EXISTS %s" % table)
+            self.con.execute("DELETE FROM _imports WHERE dataset=?", (dataset,))
+        self.con.commit()

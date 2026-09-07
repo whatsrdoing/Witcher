@@ -1,0 +1,7 @@
+{
+  "$comment": "How the Command Centre appears in the address bar. \"hostname\" is empty on purpose: the app runs at http://127.0.0.1/supply-chain/command-centre/, which needs no setup step and is an address browsers treat as trusted, so sign-in takes about half as long (measured 1.8s vs 3.5s from click to unlocked). To use a friendly name instead, put one back -- e.g. \"parashealth.internal\" -- and run setup_hostname.py as Administrator once; note that script writes the name into this file itself. Avoid .local on Windows; Bonjour intercepts those names. Whichever you pick, always open the app at that same address: browsers keep each dashboard's remembered data per address.",
+  "hostname": "",
+  "port": 80,
+  "path": "/supply-chain/command-centre/",
+  "fallbackPort": 8777
+}

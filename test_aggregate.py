@@ -1,0 +1,455 @@
+#!/usr/bin/env python3
+"""Checks datastore.aggregate() returns exactly what the dashboards' own
+JavaScript would compute over the same rows.
+
+    python3 test_aggregate.py
+
+The point of these tests is not that SQL can add up -- it is that the SQL
+adds up *the same way the browser does*, over the messy TEXT that a real
+register actually contains: Indian lakh/crore commas, 'dd-mm-yyyy hh:mm'
+dates, blank cells, and text where a number should be. Every expected value
+below is what parseNum()/parseTransferDate() in the dashboards produce for
+that same input, worked out by hand and written as a literal -- not
+recomputed here by the code under test.
+
+Uses a temporary data directory, never the real one. Exit code 0 = all good.
+"""
+import os
+import shutil
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import datastore
+
+passed = failed = 0
+
+
+def check(label, ok, detail=""):
+    global passed, failed
+    if ok:
+        passed += 1
+        print("  PASS  %s" % label)
+    else:
+        failed += 1
+        print("  FAIL  %s%s" % (label, ("  -- " + detail) if detail else ""))
+
+
+def close(a, b, eps=1e-9):
+    return abs(float(a) - float(b)) < eps
+
+
+# Deliberately messy, exactly like a real STRPIR export: lakh-style commas,
+# a blank quantity, a junk rate, and dates spread across two months.
+ROWS = [
+    # Transfer Date,      Transfer No., From Store, To Store,   Item Name, Transfered Qty., EPR
+    ("01-07-2026 10:00", "TN-1", "Main", "Pharm A", "Paracetamol", "100",     "2.50"),
+    ("15-07-2026 11:30", "TN-2", "Main", "Pharm B", "Ibuprofen",   "1,200",   "3.20"),
+    ("20-07-2026 09:15", "TN-2", "Pharm A", "Pharm C", "Amoxicillin", "30",   "8.10"),
+    ("05-08-2026 14:00", "TN-3", "Main", "Pharm A", "Paracetamol", "1,84,599", "1.00"),
+    ("18-08-2026 16:45", "TN-4", "Main", "Pharm C", "Cetirizine",  "",        "1.75"),
+    ("31-08-2026 08:30", "TN-5", "Pharm B", "Pharm A", "Ibuprofen", "60",     "junk"),
+]
+HEADER = ["Transfer Date", "Transfer No.", "From Store", "To Store",
+          "Item Name", "Transfered Qty.", "EPR"]
+
+# What the browser's parseNum() makes of that quantity column:
+#   "100" -> 100, "1,200" -> 1200, "30" -> 30, "1,84,599" -> 184599,
+#   "" -> 0 (parseFloat('') is NaN -> 0), "60" -> 60
+QTY = [100.0, 1200.0, 30.0, 184599.0, 0.0, 60.0]
+# ...and of the EPR column: "junk" -> NaN -> 0
+EPR = [2.50, 3.20, 8.10, 1.00, 1.75, 0.0]
+TOTAL_QTY = sum(QTY)                                   # 185989.0
+TOTAL_EPR = sum(q * e for q, e in zip(QTY, EPR))       # qty x EPR, summed
+
+
+def seed(tmp):
+    csv_path = os.path.join(tmp, "transfers.csv")
+    with open(csv_path, "w", encoding="utf-8", newline="") as fh:
+        fh.write(",".join('"%s"' % h for h in HEADER) + "\n")
+        for r in ROWS:
+            fh.write(",".join('"%s"' % v for v in r) + "\n")
+    store = datastore.DataStore(os.path.join(tmp, "library.db"))
+    store.import_csv(csv_path, "stock-transfer", "2026-07", source="transfers.csv")
+    return store
+
+
+def test_numbers_match_parsenum():
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = seed(tmp)
+        out = store.aggregate("stock-transfer", [
+            {"fn": "count", "as": "lineItems"},
+            {"fn": "count_distinct", "col": "Transfer No.", "as": "notes"},
+            {"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+            {"fn": "sum_product", "cols": ["Transfered Qty.", "EPR"], "as": "epr"},
+        ])
+        row = dict(zip(out["columns"], out["rows"][0]))
+
+        check("counts every row", row["lineItems"] == len(ROWS))
+        # TN-2 appears twice, so five distinct notes across six rows.
+        check("count_distinct ignores repeats", row["notes"] == 5,
+              "got %r" % row["notes"])
+        check("lakh commas parsed like parseNum ('1,84,599' -> 184599)",
+              close(row["qty"], TOTAL_QTY), "got %r want %r" % (row["qty"], TOTAL_QTY))
+        check("blank cell counts as 0, not NULL", close(row["qty"], TOTAL_QTY))
+        check("qty x EPR matches the browser, junk rate as 0",
+              close(row["epr"], TOTAL_EPR), "got %r want %r" % (row["epr"], TOTAL_EPR))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_date_range_is_real_dates_not_text():
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = seed(tmp)
+        # August only. Sorting 'dd-mm-yyyy' as plain text would put
+        # '05-08-2026' before '15-07-2026' and get this wrong.
+        aug = store.aggregate("stock-transfer",
+                              [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+                               {"fn": "count", "as": "n"}],
+                              date_col="Transfer Date",
+                              date_from="2026-08-01", date_to="2026-08-31")
+        row = dict(zip(aug["columns"], aug["rows"][0]))
+        check("August range picks exactly the three August rows", row["n"] == 3,
+              "got %r" % row["n"])
+        check("August quantity matches parseNum totals",
+              close(row["qty"], 184599.0 + 0.0 + 60.0), "got %r" % row["qty"])
+
+        jul = store.aggregate("stock-transfer",
+                              [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                              date_col="Transfer Date",
+                              date_from="2026-07-01", date_to="2026-07-31")
+        check("July quantity matches parseNum totals",
+              close(jul["rows"][0][0], 100.0 + 1200.0 + 30.0),
+              "got %r" % jul["rows"][0][0])
+
+        # A single day, inclusive at both ends.
+        one = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                              date_col="Transfer Date",
+                              date_from="2026-07-15", date_to="2026-07-15")
+        check("range is inclusive at both ends", one["rows"][0][0] == 1)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_group_by():
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = seed(tmp)
+        lanes = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                group_by=["From Store", "To Store"],
+                                order_by="qty", descending=True)
+        check("grouping by a store pair returns one row per real lane",
+              len(lanes["rows"]) == 5, "got %d" % len(lanes["rows"]))
+        top = lanes["rows"][0]
+        check("ordered by the measure, biggest first",
+              top[0] == "Main" and top[1] == "Pharm A" and close(top[2], 100.0 + 184599.0),
+              "got %r" % (top,))
+
+        months = store.aggregate("stock-transfer",
+                                 [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                 group_by=[{"col": "Transfer Date", "by": "month",
+                                            "as": "month"}],
+                                 order_by="month", descending=False)
+        got = {m: q for m, q in months["rows"]}
+        check("grouping by month buckets on yyyy-mm, not on the raw text",
+              sorted(got) == ["2026-07", "2026-08"], "got %r" % sorted(got))
+        check("July bucket totals correctly", close(got["2026-07"], 1330.0))
+        check("August bucket totals correctly", close(got["2026-08"], 184659.0))
+
+        limited = store.aggregate("stock-transfer",
+                                  [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                  group_by=["Item Name"], order_by="qty", limit=2)
+        check("limit returns the top N only", len(limited["rows"]) == 2)
+        check("top item is the one with the largest total",
+              limited["rows"][0][0] == "Paracetamol")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_rejects_bad_input():
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = seed(tmp)
+
+        def rejects(label, **kw):
+            try:
+                store.aggregate("stock-transfer", **kw)
+            except datastore.DataStoreError:
+                check(label, True)
+            except Exception as exc:                      # noqa: BLE001
+                check(label, False, "raised %s instead" % type(exc).__name__)
+            else:
+                check(label, False, "was accepted")
+
+        rejects("unknown column is refused",
+                measures=[{"fn": "sum", "col": "No Such Column"}])
+        rejects("unknown function is refused",
+                measures=[{"fn": "drop table", "col": "EPR"}])
+        rejects("no measures is refused", measures=[])
+        rejects("SQL in a column name is refused, not interpolated",
+                measures=[{"fn": "sum", "col": 'EPR" ; DROP TABLE ds_stock_transfer --'}])
+        rejects("SQL in a group-by is refused",
+                measures=[{"fn": "count"}],
+                group_by=['From Store" ; DELETE FROM ds_stock_transfer --'])
+        rejects("ordering by something not selected is refused",
+                measures=[{"fn": "count", "as": "n"}], order_by="qty")
+        rejects("sum_product with one column is refused",
+                measures=[{"fn": "sum_product", "cols": ["EPR"]}])
+
+        # ...and the table is still intact after all that.
+        still = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}])
+        check("table survived the rejected inputs", still["rows"][0][0] == len(ROWS))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_periods_and_filters():
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = seed(tmp)
+        csv2 = os.path.join(tmp, "sep.csv")
+        with open(csv2, "w", encoding="utf-8", newline="") as fh:
+            fh.write(",".join('"%s"' % h for h in HEADER) + "\n")
+            fh.write('"02-09-2026 10:00","TN-9","Main","Pharm A","Paracetamol","7","2.00"\n')
+        store.import_csv(csv2, "stock-transfer", "2026-09", source="sep.csv")
+
+        both = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}])
+        check("both months present after a second import", both["rows"][0][0] == 7)
+
+        one = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                              periods=["2026-09"])
+        check("periods filter narrows to one month", one["rows"][0][0] == 1)
+
+        filt = store.aggregate("stock-transfer",
+                               [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                               filters={"From Store": "Pharm B"})
+        check("column filter narrows correctly", close(filt["rows"][0][0], 60.0),
+              "got %r" % filt["rows"][0][0])
+
+        # A dashboard's store/unit picker is a set of values, not one.
+        many = store.aggregate("stock-transfer",
+                               [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                               filters={"From Store": ["Main", "Pharm B"]})
+        # July's four Main rows and one Pharm B row, plus the September row
+        # imported above -- no period is named, so both months count.
+        check("a list of values matches any of them",
+              close(many["rows"][0][0], 100.0 + 1200.0 + 184599.0 + 0.0 + 60.0 + 7.0),
+              "got %r" % many["rows"][0][0])
+
+        scoped = store.aggregate("stock-transfer",
+                                 [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                 periods=["2026-07"],
+                                 filters={"From Store": ["Main", "Pharm B"]})
+        check("a value list and a period narrow together",
+              close(scoped["rows"][0][0], 100.0 + 1200.0 + 184599.0 + 0.0 + 60.0),
+              "got %r" % scoped["rows"][0][0])
+
+        one_in = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 filters={"From Store": ["Pharm A"]})
+        check("a single-value list behaves like equality", one_in["rows"][0][0] == 1)
+
+        # "none selected" is a real question, and its answer is nothing --
+        # not everything, which is what dropping the clause would return.
+        none = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                               filters={"From Store": []})
+        check("an empty selection matches no rows, not every row",
+              none["rows"][0][0] == 0, "got %r" % none["rows"][0][0])
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"From Store": ["x"] * 901})
+            check("an oversized value list is refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("an oversized value list is refused", True)
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"No Such Column": ["a", "b"]})
+            check("a list on an unknown column is still refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("a list on an unknown column is still refused", True)
+
+        try:
+            store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                            filters={"From Store": {"nonsense": True}})
+            check("an unrecognised filter shape is refused", False, "was accepted")
+        except datastore.DataStoreError:
+            check("an unrecognised filter shape is refused", True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_not_blank_and_trimmed_filters():
+    """A row with a blank or whitespace-only value in a column naming one
+    side of a relationship (Store Transfer's From/To Store) is not a real
+    record of that relationship, and a dashboard drops it entirely rather
+    than counting a transfer to or from nowhere -- these two filter shapes
+    are what let SQL agree with that."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", "TN-2", " Main Store ", "Pharm B", "20", "1.00"),
+            ("GGN", "03-07-2026 10:00", "TN-3", "", "Pharm C", "999", "1.00"),
+            ("GGN", "04-07-2026 10:00", "TN-4", "Main Store", "   ", "999", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        naive = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}])
+        check("without the filter, the blank-store rows are counted (sanity check)",
+              close(naive["rows"][0][0], 10 + 20 + 999 + 999))
+
+        clean = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+                                 {"fn": "count", "as": "n"}],
+                                filters={"From Store": {"not_blank": True},
+                                         "To Store": {"not_blank": True}})
+        check("not_blank drops a truly empty cell and a whitespace-only one alike",
+              clean["rows"][0][1] == 2, "got %r" % clean["rows"][0][1])
+        check("...and the total reflects only the two real rows",
+              close(clean["rows"][0][0], 30), "got %r" % clean["rows"][0][0])
+
+        trimmed = store.aggregate("stock-transfer",
+                                  [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                  filters={"From Store": {"in": ["Main Store"], "trim": True},
+                                           "To Store": {"not_blank": True}})
+        check("trim: true matches a padded value the same as the plain one",
+              close(trimmed["rows"][0][0], 30), "got %r" % trimmed["rows"][0][0])
+
+        untrimmed = store.aggregate("stock-transfer",
+                                    [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                    filters={"From Store": {"in": ["Main Store"]},
+                                             "To Store": {"not_blank": True}})
+        check("without trim, the padded row is a different value and is missed",
+              close(untrimmed["rows"][0][0], 10), "got %r" % untrimmed["rows"][0][0])
+
+        stores = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 group_by=[{"col": "From Store", "trim": True}],
+                                 filters={"From Store": {"not_blank": True},
+                                          "To Store": {"not_blank": True}})
+        check("grouping with trim collapses the padded duplicate to one row",
+              stores["rows"] == [["Main Store", 2]], "got %r" % stores["rows"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_jstrim_matches_js_whitespace():
+    """The 4th audit found not_blank/trim only matching SQLite's own TRIM(),
+    which strips a plain space and nothing else -- so a cell holding a tab
+    or a non-breaking space (both routine in a register pasted from Excel
+    or the web) was still "not blank" and still its own distinct group to
+    SQL, while the browser's .trim() already calls both of those blank.
+    jstrim() is meant to strip the same characters JS does; this pins that
+    against the two most likely real-world offenders, not just plain
+    space."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", "TN-2", "Main Store\t", "Pharm B", "20", "1.00"),
+            ("GGN", "03-07-2026 10:00", "TN-3", " ", "Pharm C", "999", "1.00"),
+            ("GGN", "04-07-2026 10:00", "TN-4", "Main Store", "\t ", "999", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        clean = store.aggregate("stock-transfer",
+                                [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"},
+                                 {"fn": "count", "as": "n"}],
+                                filters={"From Store": {"not_blank": True},
+                                         "To Store": {"not_blank": True}})
+        check("not_blank drops a tab-only cell and an NBSP-only one, not just a plain-space one",
+              clean["rows"][0][1] == 2, "got %r" % clean["rows"][0][1])
+        check("...and the total reflects only the two real rows",
+              close(clean["rows"][0][0], 30), "got %r" % clean["rows"][0][0])
+
+        stores = store.aggregate("stock-transfer", [{"fn": "count", "as": "n"}],
+                                 group_by=[{"col": "From Store", "trim": True}],
+                                 filters={"From Store": {"not_blank": True},
+                                          "To Store": {"not_blank": True}})
+        check("grouping with trim collapses a tab-padded duplicate too, not just a space-padded one",
+              stores["rows"] == [["Main Store", 2]], "got %r" % stores["rows"])
+
+        matched = store.aggregate("stock-transfer",
+                                  [{"fn": "sum", "col": "Transfered Qty.", "as": "qty"}],
+                                  filters={"From Store": {"in": ["Main Store"], "trim": True},
+                                           "To Store": {"not_blank": True}})
+        check("trim: true on an IN-list matches a tab-padded value the same as the plain one",
+              close(matched["rows"][0][0], 30), "got %r" % matched["rows"][0][0])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_count_distinct_untrimmed_by_default():
+    """A dashboard's own distinct-notes count runs on the browser's Set,
+    which adds the raw column value and only checks it is not an empty
+    string (r.transferNo||'' then `if (r.transferNo)`) -- it never trims.
+    So " TN-1" and "TN-1" are two notes to the browser, and a whitespace-
+    only note is still a truthy, counted string. count_distinct without
+    trim:true has to agree with that exactly, or SQL and the browser
+    disagree on the same figure whenever a note has incidental
+    whitespace -- the 4th audit's finding 5."""
+    tmp = tempfile.mkdtemp(prefix="paras-agg-")
+    try:
+        store = datastore.DataStore(os.path.join(tmp, "l.db"))
+        path = os.path.join(tmp, "st.csv")
+        rows = [
+            ("GGN", "01-07-2026 10:00", "TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "02-07-2026 10:00", " TN-1", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "03-07-2026 10:00", "  ", "Main Store", "Pharm A", "10", "1.00"),
+            ("GGN", "04-07-2026 10:00", "", "Main Store", "Pharm A", "10", "1.00"),
+        ]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("UNIT,Transfer Date,Transfer No.,From Store,To Store,Transfered Qty.,EPR\n")
+            for r in rows:
+                fh.write(",".join('"%s"' % v for v in r) + "\n")
+        store.import_csv(path, "stock-transfer", "2026-07", source="st.csv")
+
+        untrimmed = store.aggregate("stock-transfer",
+                                    [{"fn": "count_distinct", "col": "Transfer No.", "as": "notes"}])
+        check("by default, count_distinct matches the browser's untrimmed truthiness check: "
+              "'TN-1' and ' TN-1' are two notes, and a whitespace-only note still counts as one, "
+              "only the truly empty row is excluded",
+              untrimmed["rows"][0][0] == 3, "got %r" % untrimmed["rows"][0][0])
+
+        trimmed = store.aggregate("stock-transfer",
+                                  [{"fn": "count_distinct", "col": "Transfer No.", "as": "notes",
+                                    "trim": True}])
+        check("trim: true opts a caller that does mean to match on the trimmed value: "
+              "'TN-1' and ' TN-1' collapse to one, and a whitespace-only note is now blank too",
+              trimmed["rows"][0][0] == 1, "got %r" % trimmed["rows"][0][0])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main():
+    test_numbers_match_parsenum()
+    test_not_blank_and_trimmed_filters()
+    test_jstrim_matches_js_whitespace()
+    test_count_distinct_untrimmed_by_default()
+    test_date_range_is_real_dates_not_text()
+    test_group_by()
+    test_rejects_bad_input()
+    test_periods_and_filters()
+    print("\n%d passed, %d failed" % (passed, failed))
+    return 0 if failed == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

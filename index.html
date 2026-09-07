@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-locked>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paras Health — SCM Gen-Dash</title>
+<meta name="description" content="Offline launcher and workspace for Paras Health supply chain dashboards.">
+<link rel="icon" href="assets/img/paras-mark.png" type="image/png">
+<link rel="stylesheet" href="assets/css/command-centre.css">
+</head>
+<body>
+
+<div class="bg-field" aria-hidden="true"><i></i><i></i><i></i></div>
+<!-- ============================== SIGN IN =============================== -->
+<div class="gate" id="gate">
+  <div class="gate-bg" aria-hidden="true">
+    <!-- One grid: unit photos top and bottom, the banner's own two halves
+         filling the middle row either side of where the sign-in card
+         sits -- not stretched full-page height, sized like every other
+         cell in the row. Photography only, no names or captions on top of
+         any photo; each cell is a sharp, fully-visible contain-fit copy
+         over a blurred cover-fit copy of the very same image (except the
+         banner's photo half, where a cover-fit crop is harmless) -- same
+         no-crop reasoning throughout: a plain cover-fit crop of the
+         tagline text or of a unit building both lost real content earlier
+         attempts here. -->
+    <div class="gate-photos">
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/ggn.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/ggn.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/pat.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/pat.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/pkl.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/pkl.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/dbg.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/dbg.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell gate-banner-full">
+        <img class="gate-photo-blur" src="assets/img/brand-banner.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover gate-banner-photo" src="assets/img/brand-banner.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/udp.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/udp.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/ran.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/ran.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/srn.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/srn.jpg" alt="">
+      </div>
+      <div class="gate-photo-cell">
+        <img class="gate-photo-blur" src="assets/img/units/knp.jpg" alt="">
+        <img class="gate-photo-sharp gate-photo-cover" src="assets/img/units/knp.jpg" alt="">
+      </div>
+    </div>
+    <i></i><i></i>
+  </div>
+
+  <div class="gate-inner" id="gateInner">
+    <div class="gate-card" id="gateCard">
+      <header class="gate-head">
+        <img class="gate-logo on-dark" src="assets/img/paras-health-logo-light.png" alt="Paras Health">
+        <img class="gate-logo on-light" src="assets/img/paras-health-logo.png" alt="Paras Health">
+        <p class="gate-dept">SCM GEN-DASH</p>
+      </header>
+
+      <div class="gate-card-head">
+        <span class="gate-lock">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        </span>
+        <div>
+          <h2>Secure access</h2>
+          <p>Sign in to open your offline workspace</p>
+        </div>
+      </div>
+
+      <div id="gateSignIn">
+      <form id="gateForm" novalidate>
+        <!-- Sits above the username on purpose: once the typed name matches a
+             real account, the face and the greeting are the first thing you
+             see, and the field you just typed into is right underneath it. -->
+        <div class="gate-who" id="gateWho" style="display:none">
+          <span class="avatar xl" id="gateWhoAvatar" aria-hidden="true"></span>
+          <b id="gateWhoWelcome">Welcome</b>
+          <span id="gateWhoCaption">How's your day going?</span>
+        </div>
+
+        <label class="gate-label" for="gateEmail">Username</label>
+        <div class="gate-field">
+          <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+          <input id="gateEmail" name="username" type="text" autocomplete="username"
+                 spellcheck="false" autocapitalize="off" placeholder="••••••••••••" required>
+        </div>
+
+        <div id="gatePassWrap" style="display:none">
+          <label class="gate-label" for="gatePass">Security password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="gatePass" name="password" type="password" autocomplete="current-password"
+                   placeholder="••••••••••••" required>
+            <button type="button" class="gate-reveal" id="gateReveal" aria-pressed="false" title="Show password" aria-label="Show password">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <p class="gate-hint" id="gateHint" style="display:none"></p>
+        <div class="gate-row">
+          <a href="#" id="gateSignupLink">Sign up</a>
+          <a href="#" id="gateForgot">Forgot password?</a>
+        </div>
+
+        <div class="gate-msg" id="gateMsg" style="display:none"></div>
+
+        <button class="gate-submit" id="gateSubmit" type="submit">
+          <svg id="gateSubmitIcoNext" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+          <svg id="gateSubmitIcoLock" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M12 3.5 19.5 6.5v5.2c0 4.4-3 8.3-7.5 9.5-4.5-1.2-7.5-5.1-7.5-9.5V6.5z"/><path d="m9.2 12.1 2.1 2.1 4.2-4.4"/></svg>
+          <span id="gateSubmitLabel">Continue</span>
+        </button>
+      </form>
+      </div>
+
+      <div id="gateReset" style="display:none">
+        <form id="resetForm" novalidate>
+          <p class="reset-lede">Type the exact username of the account and the password
+            you'd like to use. This is sent to <a id="resetAdmin" href="#" target="_blank" rel="noopener">Ritik Nagar</a>
+            as a request -- it takes effect once approved, not immediately.</p>
+
+          <label class="gate-label" for="resetUser">Username</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="resetUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
+
+          <label class="gate-label" for="resetPass">New password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="resetPass" type="password" autocomplete="new-password" placeholder="At least 10 characters" required>
+          </div>
+
+          <label class="gate-label" for="resetPass2">Repeat new password</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="resetPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+          </div>
+
+          <div class="gate-msg" id="resetMsg" style="display:none"></div>
+
+          <button class="gate-submit" id="resetSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10H15"/></svg>
+            <span>Request password reset</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="resetBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
+
+      <div id="gateConflict" style="display:none">
+        <p class="reset-lede">This account is already signed in somewhere else.
+          Sign out there, or sign it out from here to continue on this screen.</p>
+        <div class="gate-msg" id="conflictMsg" style="display:none"></div>
+        <button class="gate-submit" id="conflictForceBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+          <span>Sign it out and continue here</span>
+        </button>
+        <p class="gate-foot" id="conflictWaiting" style="margin-top:16px">Waiting for the other session to end&hellip;</p>
+        <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+          <a href="#" id="conflictBack">Back to sign in</a>
+        </div>
+      </div>
+
+      <div id="gateTotp" style="display:none">
+        <form id="totpForm" novalidate>
+          <p class="reset-lede">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
+          <label class="gate-label" for="totpCode">Code</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+            <input id="totpCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" required>
+          </div>
+          <div class="gate-msg" id="totpMsg" style="display:none"></div>
+          <button class="gate-submit" id="totpSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
+            <span>Verify</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="totpBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
+
+      <div id="gateSignup" style="display:none">
+        <form id="signupForm" novalidate>
+          <p class="reset-lede">Request a new account. This is sent to the admin
+            for approval — you'll be able to sign in once it's approved, not
+            immediately.</p>
+
+          <div class="signup-photo">
+            <button type="button" class="signup-photo-btn" id="signupPhotoBtn" title="Add a profile photo">
+              <span class="avatar xl" id="signupPhotoPreview" aria-hidden="true"></span>
+              <span class="signup-photo-badge" aria-hidden="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4z"/><circle cx="12" cy="12.6" r="3.4"/></svg>
+              </span>
+            </button>
+            <div class="signup-photo-text">
+              <b>Profile photo</b>
+              <span id="signupPhotoLabel">Optional — shown next to your name once signed in</span>
+            </div>
+            <input type="file" id="signupPhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
+          </div>
+
+          <label class="gate-label" for="signupUser">New username</label>
+          <div class="gate-field">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="signupUser" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Exact, case-sensitive" required>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupFirstName">First name</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+                <input id="signupFirstName" type="text" autocomplete="given-name" placeholder="First name" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupLastName">Last name</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.3" r="3.3"/><path d="M5.5 20c1-3.6 3.9-5.5 6.5-5.5s5.5 1.9 6.5 5.5"/></svg>
+                <input id="signupLastName" type="text" autocomplete="family-name" placeholder="Last name" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-3col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupDesignation">Designation</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"/><path d="M7 10.7V16c0 1 2.2 2.3 5 2.3s5-1.3 5-2.3v-5.3"/></svg>
+                <select id="signupDesignation" required>
+                  <option value="" disabled selected>Select designation</option>
+                  <option>MD</option>
+                  <option>GCOO</option>
+                  <option>CHRO</option>
+                  <option>Vice President</option>
+                  <option>Assistant Vice President</option>
+                  <option>General Manager</option>
+                  <option>Deputy General Manager</option>
+                  <option>Assistant General Manager</option>
+                  <option>Senior Manager</option>
+                  <option>Manager</option>
+                  <option>Deputy Manager</option>
+                  <option>Assistant Manager</option>
+                </select>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupDepartment">Department</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><rect x="13" y="13" width="7" height="7" rx="1.3"/></svg>
+                <select id="signupDepartment" required>
+                  <option value="" disabled selected>Select department</option>
+                  <option>Purchase</option>
+                  <option>CBU Purchase</option>
+                  <option>Pharmacy</option>
+                  <option>MDM</option>
+                  <option>IT</option>
+                  <option>Management</option>
+                </select>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupCategory">Category</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+                <select id="signupCategory" required>
+                  <option value="" disabled selected>Select category</option>
+                  <option>All</option>
+                  <option>Drugs</option>
+                  <option>Consumables</option>
+                  <option>D&amp;MC</option>
+                  <option>Non Medical</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupPhone">Phone number</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4h3l1.4 4.4-2.1 1.5a12 12 0 0 0 5.3 5.3l1.5-2.1L20 14.5v3a1.7 1.7 0 0 1-1.9 1.7A15 15 0 0 1 5 6.9 1.7 1.7 0 0 1 6.5 4Z"/></svg>
+                <!-- No maxlength: it counts raw characters, so pasting
+                     "93557-51137" would be cut to 10 characters and then lose
+                     digits to the separator strip. The input handler clamps to
+                     10 actual digits instead. -->
+                <input id="signupPhone" type="tel" inputmode="numeric" autocomplete="tel"
+                       placeholder="10-digit number" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupParasId">Employee ID</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.2"/><circle cx="9" cy="10.5" r="2"/><path d="M6.5 16c.5-1.8 1.9-2.7 2.5-2.7s2 .9 2.5 2.7M14 9.5h4M14 12.5h4"/></svg>
+                <input id="signupParasId" type="text" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="AA-BBB-12345" required>
+              </div>
+            </div>
+          </div>
+
+          <label class="gate-label" for="signupEmail">Email</label>
+          <div class="gate-field gate-field-email">
+            <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5.5" width="18" height="13" rx="2.2"/><path d="m3.6 7 8.4 6 8.4-6"/></svg>
+            <input id="signupEmail" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="firstname.lastname" required>
+            <span class="gate-suffix">@parashealth.com</span>
+          </div>
+
+          <!-- Only shown once __mail/status says email is actually set up on
+               this server -- otherwise sign-up works exactly as before. -->
+          <div id="signupOtpWrap" style="display:none">
+            <div class="gate-row" style="align-items:center;gap:10px">
+              <button type="button" class="btn sm" id="signupOtpSend">Send verification code</button>
+              <span class="admin-row-sub" id="signupOtpStatus"></span>
+            </div>
+            <div id="signupOtpCodeWrap" style="display:none;margin-top:10px">
+              <label class="gate-label" for="signupOtpCode">Code from your email</label>
+              <div class="gate-row" style="gap:10px">
+                <div class="gate-field" style="flex:1">
+                  <input id="signupOtpCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
+                </div>
+                <button type="button" class="btn sm" id="signupOtpVerify">Verify</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-2col">
+            <div class="gate-col">
+              <label class="gate-label" for="signupPass">New password</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+                <input id="signupPass" type="password" autocomplete="new-password" placeholder="At least 10 characters" required>
+              </div>
+            </div>
+            <div class="gate-col">
+              <label class="gate-label" for="signupPass2">Repeat password</label>
+              <div class="gate-field">
+                <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+                <input id="signupPass2" type="password" autocomplete="new-password" placeholder="Repeat it" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="gate-msg" id="signupMsg" style="display:none"></div>
+
+          <button class="gate-submit" id="signupSubmit" type="submit">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12.5l2.2 2.2L16 9.8"/><circle cx="12" cy="12" r="8.5"/></svg>
+            <span>Request account</span>
+          </button>
+          <div class="gate-row" style="justify-content:center;margin:14px 0 0">
+            <a href="#" id="signupBack">Back to sign in</a>
+          </div>
+        </form>
+      </div>
+
+      <p class="gate-foot">
+        Local sign-in for this workstation. Nothing is sent anywhere — verification happens in this browser.
+        <a href="#" id="gateHelpLink">How to sign in / reset your password</a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="gateHelpModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>How to sign in / reset your password</h3>
+      <button class="btn sm icon-only" id="gateHelpClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="gateHelpBody"></div>
+  </div>
+</div>
+
+
+<div class="app">
+
+  <!-- ============================ TOP BAR ============================ -->
+  <header class="topbar">
+    <button class="brand" id="brand" title="Back to the Command Centre">
+      <span class="brand-plate">
+        <img class="brand-logo" id="brandLogo" src="assets/img/paras-health-logo.png" alt="Paras Health">
+      </span>
+      <span class="brand-rule" aria-hidden="true"></span>
+      <span class="brand-sub" id="brandSub">SCM Gen-Dash</span>
+    </button>
+
+    <div class="topbar-mid">
+      <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"><span class="cur">Command Centre</span></nav>
+      <div class="search">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 4.5 4.5"/></svg>
+        <input id="search" type="search" placeholder="Search dashboards, categories, tags…" aria-label="Search dashboards" autocomplete="off">
+        <kbd>/</kbd>
+      </div>
+    </div>
+
+    <div class="topbar-right">
+      <div class="live-tray" id="profileTray">
+        <button class="btn has-avatar" id="profileBtn" title="Account details">
+          <span class="avatar sm" id="profileAvatar" aria-hidden="true"></span>
+          <span class="lib-label" id="profileName">Account</span>
+        </button>
+        <div class="pop" id="profilePop" style="display:none">
+          <div class="pop-id">
+            <span class="avatar lg" id="profileAvatarLg" aria-hidden="true"></span>
+            <div class="pop-id-text">
+              <b id="profileWho">Account</b>
+              <span id="profileRole"></span>
+            </div>
+          </div>
+          <div class="pop-photo-acts">
+            <button class="btn tiny" id="photoPick" type="button">
+              <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4z"/><circle cx="12" cy="12.6" r="3.4"/></svg>
+              <span id="photoPickLabel">Add photo</span>
+            </button>
+            <button class="btn tiny ghost" id="photoDrop" type="button" style="display:none">Remove</button>
+            <input type="file" id="photoInput" accept="image/png,image/jpeg,image/webp" hidden>
+          </div>
+          <h4>Signed in</h4>
+          <div id="profilePopBody"></div>
+          <h4>Security</h4>
+          <div class="pop-row">
+            <span class="nm">Two-factor authentication</span>
+            <span id="totpStatus" style="color:var(--ink-2);font-weight:600">Off</span>
+          </div>
+          <button class="btn tiny" id="totpManageBtn" type="button" style="margin-top:8px">Manage</button>
+        </div>
+      </div>
+      <div class="mode" id="modeSwitch" role="group" aria-label="Data mode">
+        <button data-mode="local" aria-pressed="true"><span class="dot"></span>LOCAL</button>
+        <button data-mode="session" aria-pressed="false"><span class="dot"></span>SESSION</button>
+      </div>
+      <div class="live-tray" id="moreTray">
+        <button class="btn icon-only" id="moreBtn" title="More" aria-label="More">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>
+        </button>
+        <div class="pop more-pop" id="morePop" style="display:none">
+          <h4>More</h4>
+          <div class="live-tray" id="liveTray">
+            <button class="btn icon-only" id="liveBtn" title="Open dashboards" aria-label="Open dashboards">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3.5 12.5 8.5 4.7 8.5-4.7"/></svg>
+              <span class="more-label">Open dashboards</span>
+              <span class="live-count" id="liveCount" style="display:none">0</span>
+            </button>
+            <div class="pop" id="livePop" style="display:none">
+              <h4>Open dashboards</h4>
+              <div id="livePopList"></div>
+            </div>
+          </div>
+          <button class="btn icon-only" id="raiseBtn" title="Raise a request" aria-label="Raise a request">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.55.4.9.85 1.1 1.5l.1.6h4.4l.1-.6c.2-.65.55-1.1 1.1-1.5A6 6 0 0 0 12 3z"/></svg>
+            <span class="more-label">Raise a request</span>
+          </button>
+          <button class="btn icon-only new-badge-anchor" id="whatsNewBtn" title="What's new" aria-label="What's new">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10a6 6 0 0 1 12 0c0 4.5 1.5 6 1.5 6h-15S6 14.5 6 10z"/><path d="M10.3 19.5a1.9 1.9 0 0 0 3.4 0"/></svg>
+            <span class="more-label">What's new</span>
+            <span class="new-dot" id="whatsNewDot" style="display:none"></span>
+          </button>
+          <div class="live-tray" id="adminNotifTray" style="display:none">
+            <button class="btn icon-only" id="adminNotifBtn" title="Pending requests" aria-label="Pending requests">
+              <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.3"/><path d="M8 8.5h8M8 12.5h8M8 16.5h4.5"/></svg>
+              <span class="more-label">Pending requests</span>
+              <span class="live-count" id="adminNotifCount" style="display:none">0</span>
+            </button>
+            <div class="pop" id="adminNotifPop" style="display:none">
+              <h4>Pending requests</h4>
+              <div id="adminNotifList"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="btn icon-only" id="adminBtn" title="Admin panel" aria-label="Admin panel" style="display:none">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5 19.5 6.5v5.2c0 4.4-3 8.3-7.5 9.5-4.5-1.2-7.5-5.1-7.5-9.5V6.5z"/></svg>
+      </button>
+      <button class="btn icon-only" id="themeBtn" title="Toggle theme" aria-label="Toggle theme"></button>
+      <button class="btn icon-only" id="lockBtn" title="Lock the Command Centre" aria-label="Lock">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ============================== VIEWS ============================= -->
+  <main class="views">
+
+    <!-- -------------------------- HOME ---------------------------- -->
+    <section class="view active" id="viewHome" data-view="home">
+      <div class="home-wrap">
+
+        <div class="hero">
+          <div>
+            <span class="hero-plate">
+              <img class="hero-logo" id="heroLogo" src="assets/img/paras-health-logo.png" alt="Paras Health">
+            </span>
+            <h1 id="heroTitle">SCM Gen-Dash</h1>
+            <p class="lede" id="heroLede"></p>
+          </div>
+          <div class="stats" id="stats"></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="chips" id="chips"></div>
+          <button class="btn sm" id="resetBtn" title="Restore the default card order and unhide every card">
+            <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4.5V10H9"/></svg>
+            Reset layout
+          </button>
+        </div>
+
+        <div class="grid" id="grid"></div>
+        <div id="gridEmpty" style="display:none"></div>
+
+        <div id="hiddenWrap" style="display:none">
+          <h2 class="section-title">Hidden cards</h2>
+          <div class="hidden-tray" id="hiddenTray"></div>
+        </div>
+
+        <p class="drawer-foot" id="modeNote" style="margin-top:34px;border:none;padding:0;"></p>
+        <p style="margin-top:10px;font-size:11.5px;color:var(--ink-3)">
+          Registry: <code style="font-family:var(--mono)" id="regSource">—</code> ·
+          Drag a card to rearrange · Add files from the Data Library card · Press <kbd style="font-family:var(--mono)">/</kbd> to search
+        </p>
+
+      </div>
+    </section>
+
+    <!-- ------------------------ DASHBOARD ------------------------- -->
+    <section class="view" id="viewDash" data-view="dash">
+      <div class="dash-bar">
+        <button class="btn" id="backBtn">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></svg>
+          Back to Command Centre
+        </button>
+        <div class="title">
+          <span class="card-ico" id="dashIcon"></span>
+          <h2 id="dashTitle">Dashboard</h2>
+        </div>
+        <button class="btn sm" id="dashFilesBtn" title="Open the Data Library"></button>
+        <button class="btn sm icon-only" id="dashReload" title="Reload this dashboard">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.5V10H15"/></svg>
+        </button>
+        <button class="btn sm icon-only" id="dashFull" title="Full screen">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4.5h5"/><path d="M20 9V4.5h-5"/><path d="M4 15v4.5h5"/><path d="M20 15v4.5h-5"/></svg>
+        </button>
+        <button class="btn sm icon-only" id="dashTab" title="Open in a new browser tab">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="m20 4-8.5 8.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>
+        </button>
+        <button class="btn sm icon-only danger" id="dashClose" title="Close this dashboard and release its state">
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </div>
+      <div class="match-bar" id="matchBar" style="display:none">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 12.3 2.7 2.7L16 9.6"/><circle cx="12" cy="12" r="9"/></svg>
+        <div class="match-copy">
+          <div id="matchText"></div>
+          <div class="match-detail" id="matchDetail"></div>
+        </div>
+        <button class="btn sm" id="matchOpen">Review</button>
+        <button class="btn sm primary" id="matchFill">Fill upload boxes</button>
+      </div>
+      <div class="frames" id="frames">
+        <div class="frame-loading" id="frameLoading" style="display:none">
+          <span class="spinner"></span><span id="frameLoadingTxt">Opening…</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- -------------------------- ADMIN --------------------------- -->
+    <section class="view" id="viewAdmin" data-view="admin">
+      <div class="admin-wrap">
+        <h1 class="admin-title">Admin panel</h1>
+        <p class="lede">Visible only to the admin account.</p>
+
+        <div class="admin-grid">
+          <section class="admin-card">
+            <h2>Live sessions</h2>
+            <div id="adminSessions" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Accounts</h2>
+            <div id="adminAccounts" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Pending requests</h2>
+            <div id="adminRequests" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Suggestions &amp; issues</h2>
+            <div id="adminFeedback" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card" id="adminBroadcastCard" style="display:none">
+            <h2>Broadcast email</h2>
+            <p class="admin-row-sub" id="adminBroadcastOff" style="display:none">
+              Email is not set up on this server -- run <code>set_mail.py</code> to enable this.
+            </p>
+            <div id="adminBroadcastForm">
+              <label class="gate-label" for="adminBroadcastSubject">Subject</label>
+              <div class="gate-field">
+                <input id="adminBroadcastSubject" type="text" maxlength="200" placeholder="One line summary">
+              </div>
+              <label class="gate-label" for="adminBroadcastMessage">Message</label>
+              <div class="gate-field">
+                <textarea id="adminBroadcastMessage" rows="4" maxlength="5000" placeholder="What do you want to tell everyone?"></textarea>
+              </div>
+              <label class="gate-label">Send to</label>
+              <div class="gate-row" style="gap:14px;margin:2px 0 8px">
+                <label class="admin-row-sub"><input type="radio" name="adminBroadcastTo" value="all" checked> All accounts with an email on file</label>
+                <label class="admin-row-sub"><input type="radio" name="adminBroadcastTo" value="pick"> Choose accounts</label>
+              </div>
+              <div id="adminBroadcastPick" class="admin-list" style="display:none;max-height:180px"></div>
+              <div class="gate-msg" id="adminBroadcastMsg" style="display:none"></div>
+              <button class="btn sm primary" id="adminBroadcastSend" style="margin-top:8px">Send</button>
+            </div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Dashboard visibility</h2>
+            <div id="adminDashboards" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Storage overview</h2>
+            <div id="adminStorageSummary" class="admin-summary"></div>
+            <div id="adminStorage" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <div class="admin-card-head">
+              <h2>Backups</h2>
+              <button class="btn sm primary" id="adminBackupNow">Back up now</button>
+            </div>
+            <div id="adminBackupSummary" class="admin-summary"></div>
+            <div id="adminBackups" class="admin-list"></div>
+          </section>
+
+          <section class="admin-card">
+            <h2>Login history</h2>
+            <p class="admin-row-sub" style="margin:0 0 10px">Most recently active first -- click a name for their full history.</p>
+            <div id="adminHistory" class="admin-list"></div>
+            <button class="btn sm" id="adminHistoryMore" style="margin-top:10px">Load more history</button>
+          </section>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============================== MODALS =============================== -->
+<div class="modal-scrim" id="pickModal">
+  <div class="modal">
+    <h3 id="pickTitle">Where should this go?</h3>
+    <p>This dashboard has more than one upload box. Choose the one to fill.</p>
+    <div id="pickList" class="pick-list"></div>
+    <div class="acts" style="margin-top:18px">
+      <button class="btn" id="pickCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="raiseModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Raise a request</h3>
+      <button class="btn sm icon-only" id="raiseClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="reset-lede">A note straight to the admin -- a feature idea, something that's broken, or anything else about the Command Centre.
+        <a href="#" id="raiseMineLink">View your recent requests</a></p>
+
+      <label class="gate-label" for="raiseCategory">Category</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <select id="raiseCategory">
+          <option value="feature">New dashboard required</option>
+          <option value="requirement">New requirement</option>
+          <option value="bug">Something's broken</option>
+          <option value="data">Data question</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      <label class="gate-label" for="raiseSubject">Subject</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>
+        <input id="raiseSubject" type="text" maxlength="120" placeholder="One line summary" autocomplete="off">
+      </div>
+
+      <label class="gate-label" for="raiseMessage">Details</label>
+      <div class="gate-field">
+        <textarea id="raiseMessage" rows="4" maxlength="2000" placeholder="What would you like to see, or what went wrong?"></textarea>
+      </div>
+
+      <div class="gate-msg" id="raiseMsg" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="raiseCancel">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="raiseSubmit" disabled>Send request</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="myRequestsModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Your recent requests</h3>
+      <button class="btn sm icon-only" id="myRequestsClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="myRequestsBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="totpModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Two-factor authentication</h3>
+      <button class="btn sm icon-only" id="totpModalClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="totpModalBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="changelogModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>What's new</h3>
+      <button class="btn sm icon-only" id="changelogClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="changelogBody"></div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="editProfileModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>Edit profile</h3>
+      <button class="btn sm icon-only" id="editProfileClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <label class="gate-label" for="editProfileName">Full name</label>
+      <div class="gate-field">
+        <input id="editProfileName" name="ep-fld-1" type="text" autocomplete="off">
+      </div>
+
+      <div class="gate-3col">
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileDesignation">Designation</label>
+          <div class="gate-field">
+            <select id="editProfileDesignation"></select>
+          </div>
+        </div>
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileDepartment">Department</label>
+          <div class="gate-field">
+            <select id="editProfileDepartment"></select>
+          </div>
+        </div>
+        <div class="gate-col">
+          <label class="gate-label" for="editProfileCategory">Category</label>
+          <div class="gate-field">
+            <select id="editProfileCategory"></select>
+          </div>
+        </div>
+      </div>
+
+      <label class="gate-label" for="editProfilePhone">Phone number</label>
+      <div class="gate-field">
+        <input id="editProfilePhone" name="ep-fld-2" type="tel" inputmode="numeric" autocomplete="off">
+      </div>
+
+      <label class="gate-label" for="editProfileEmail">Email</label>
+      <div class="gate-field">
+        <input id="editProfileEmail" name="ep-fld-3" type="text" autocomplete="off">
+      </div>
+
+      <label class="gate-label" for="editProfileParasId">Employee ID</label>
+      <div class="gate-field">
+        <input id="editProfileParasId" name="ep-fld-4" type="text" autocomplete="off" spellcheck="false" placeholder="AA-BBB-12345">
+      </div>
+
+      <div class="gate-msg" id="editProfileMsg" style="display:none"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="editProfileCancel">Cancel</button>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="editProfileSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="usageModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="usageTitle">Usage</h3>
+      <button class="btn sm icon-only" id="usageClose" aria-label="Close">
+        <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p class="admin-row-sub" id="usageLive"></p>
+      <div class="gate-row" style="margin:2px 0 12px">
+        <button class="btn sm primary" id="usageByMonth" type="button">By month</button>
+        <button class="btn sm" id="usageByDay" type="button">By day</button>
+      </div>
+      <div id="usageBody"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="removeAccountModal">
+  <div class="modal">
+    <h3 id="removeAccountTitle">admin/ritik</h3>
+    <p class="admin-row-sub" id="removeAccountSub">What do you want to do with this account?</p>
+    <div class="acts" style="flex-direction:column;align-items:stretch;gap:8px">
+      <button class="btn" id="removeAccountToggle" type="button">Disable</button>
+      <button class="btn danger" id="removeAccountDelete" type="button" style="color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,transparent)">Delete permanently</button>
+      <button class="btn ghost" id="removeAccountCancel" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-scrim" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmBody"></p>
+    <div class="acts">
+      <button class="btn" id="confirmCancel">Cancel</button>
+      <button class="btn primary" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Step-up re-verification: only ever shown when the signed-in admin's own
+     account has 2FA on, right before a change that writes to the accounts
+     file itself (reset/rename/disable/delete/update-profile/disable-2fa,
+     approving a pending request) actually takes effect. The standing
+     session cookie is enough to view the admin panel; it is deliberately
+     not enough on its own for this. -->
+<div class="modal-scrim" id="stepUpModal">
+  <div class="modal">
+    <h3>Confirm it's you</h3>
+    <p class="admin-row-sub">This change needs your password and current 2FA code again.</p>
+    <form id="stepUpForm" novalidate>
+      <label class="gate-label" for="stepUpPass">Your password</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        <input id="stepUpPass" type="password" autocomplete="current-password" placeholder="••••••••••••" required>
+      </div>
+      <label class="gate-label" for="stepUpCode">2FA code</label>
+      <div class="gate-field">
+        <svg class="gate-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.4"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+        <input id="stepUpCode" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" required>
+      </div>
+      <div class="gate-msg" id="stepUpMsg" style="display:none"></div>
+      <div class="acts">
+        <button class="btn" id="stepUpCancel" type="button">Cancel</button>
+        <button class="btn primary" id="stepUpOk" type="submit">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<!-- Hidden admin overlay: reveals the SAME #viewAdmin content used by the
+     normal #/admin route, but as a torn-down-on-close overlay reachable
+     from any signed-in account via the search bar + admin key (see
+     admin-overlay.js) -- never a routed page, so nothing shows in the
+     address bar and nothing survives a close. -->
+<div class="admin-overlay-scrim" id="adminOverlayScrim">
+  <div class="admin-overlay-shell" id="adminOverlayShell">
+    <button class="btn sm icon-only admin-overlay-close" id="adminOverlayClose" aria-label="Close">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- Admin-only data assistant: a floating widget, not tied to any one view --
+     it stays available (and stays admin-gated) no matter which dashboard or
+     screen is open. ask.js shows/hides #askWidget entirely based on
+     ParasAdmin.isAdmin(); everyone else never has it in the layout at all. -->
+<div class="ask-widget" id="askWidget" style="display:none">
+  <div class="ask-panel" id="askPanel" aria-hidden="true">
+    <div class="ask-panel-head">
+      <span class="claude-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <g fill="#DA7756">
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5"/>
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5" transform="rotate(60 12 12)"/>
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5" transform="rotate(120 12 12)"/>
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5" transform="rotate(180 12 12)"/>
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5" transform="rotate(240 12 12)"/>
+            <rect x="10.5" y="2" width="3" height="9" rx="1.5" transform="rotate(300 12 12)"/>
+          </g>
+        </svg>
+      </span>
+      <span class="ask-panel-dot" id="askDot"></span>
+      <div class="ask-panel-title">
+        <h3>Data Assistant</h3>
+        <p id="askStatusLine">Checking…</p>
+      </div>
+      <div class="ask-model-picker" id="askModelPicker">
+        <button type="button" class="ask-model-btn" id="askModelBtn" aria-haspopup="true" aria-expanded="false">
+          <span id="askModelLabel">Opus 5</span>
+          <svg class="icon sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="ask-model-menu" id="askModelMenu" role="menu">
+          <button type="button" class="ask-model-opt" data-model="claude-opus-5" data-label="Opus 5" role="menuitem">
+            <span>Opus 5</span><em>Best answers</em>
+          </button>
+          <button type="button" class="ask-model-opt" data-model="claude-sonnet-5" data-label="Sonnet 5" role="menuitem">
+            <span>Sonnet 5</span><em>Faster, cheaper</em>
+          </button>
+        </div>
+      </div>
+      <button class="btn sm icon-only" id="askClose" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <p class="ask-off" id="askOff" style="display:none">
+      Not set up yet — run <code>set_llm.py</code> on the server to turn this on. Each
+      question is a real, billed call to Anthropic's API once it is.
+    </p>
+    <div id="askBody">
+      <div class="ask-usage-bar" id="askUsageBar">
+        <span id="askUsageText">—</span>
+        <a href="https://platform.claude.com/cost" target="_blank" rel="noopener">Real billing ↗</a>
+      </div>
+      <div class="ask-log" id="askLog">
+        <div class="ask-empty" id="askEmpty">
+          Ask about totals, counts, averages or filters across your uploaded
+          registers — exact figures, computed live from the real files.
+        </div>
+      </div>
+      <form id="askInputForm" class="ask-input-row">
+        <input id="askInput" type="text" autocomplete="off"
+               placeholder="e.g. total received quantity in the July GRN register" maxlength="2000">
+        <button class="ask-send" id="askSend" type="submit" aria-label="Ask">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </div>
+  </div>
+  <button class="ask-fab" id="askFab" title="Ask the data assistant" aria-label="Ask the data assistant" aria-expanded="false">
+    <span class="ask-fab-ring"></span>
+    <svg class="ask-fab-icon ask-fab-sparkle" viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" stroke="none">
+      <path d="M12 2.5l1.65 5.1a3.4 3.4 0 0 0 2.2 2.2l5.1 1.65-5.1 1.65a3.4 3.4 0 0 0-2.2 2.2L12 20.4l-1.65-5.1a3.4 3.4 0 0 0-2.2-2.2L3.05 11.45l5.1-1.65a3.4 3.4 0 0 0 2.2-2.2z"/>
+      <path d="M19 3l.7 2.15L21.85 6l-2.15.7L19 8.85l-.7-2.15L16.15 6l2.15-.7z"/>
+    </svg>
+    <img class="ask-fab-icon ask-fab-mark" src="assets/img/paras-mark.png" alt="" aria-hidden="true">
+    <svg class="ask-fab-icon ask-fab-close" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  </button>
+</div>
+
+<!-- Registry: dashboards.json is the source of truth. dashboards.js is the
+     generated mirror that lets a plain file:// double-click work too. -->
+<script src="dashboards.js" onerror="void 0"></script>
+<script src="auth.js" onerror="void 0"></script>
+<script src="assets/js/wheel-picker.js"></script>
+<script src="assets/js/crypto.js"></script>
+<script src="assets/js/gate.js"></script>
+<script src="assets/js/icons.js"></script>
+<script src="assets/js/library.js"></script>
+<script src="assets/js/registry.js"></script>
+<script src="assets/js/storage.js"></script>
+<script src="assets/js/avatar.js"></script>
+<script src="assets/js/idle-timeout.js"></script>
+<script src="assets/js/admin.js"></script>
+<script src="assets/js/admin-overlay.js"></script>
+<script src="assets/js/feedback.js"></script>
+<script src="assets/js/qrcode.js"></script>
+<script src="assets/js/twofactor.js"></script>
+<script src="assets/js/changelog.js"></script>
+<script src="assets/js/ask.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "his-report-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Automates logging into the hospital HIS and downloading the Inventory Registers export via the site's own Export button.",
+  "scripts": {
+    "download": "node download-report.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright": "^1.47.0"
+  }
+}

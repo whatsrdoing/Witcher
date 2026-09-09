@@ -5,3 +5,7 @@
 graphify-out/
 
 node_modules/
+
+# Added by ECC (signed-audit-trails / protect-mcp hooks)
+receipts/
+review-receipts/
